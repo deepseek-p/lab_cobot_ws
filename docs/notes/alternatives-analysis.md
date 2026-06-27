@@ -35,5 +35,33 @@
 - 搜索是否有更新的**麦轮全向移动机械臂 + Humble**项目(本轮 WebSearch 被限流未能执行)。
 - 重跑 `alt-mobile-manip-research` workflow(脚本已存于 session,串行+重试版)。
 
+## 实证验证更新(2026-06-28,git clone 实测 —— API 限流但 git 协议可用)
+
+> nav-port subagent 恢复提示 Claude API 已恢复;GitHub API 仍限流(0/60),但 `git clone`(git 协议)可用,故对 top2 候选做了**实证**(depth-1 clone + 文件分析)。
+
+### Nolon-simulation-stack → ❌ 排除
+实测:**ROS Jazzy + Gazebo Sim/Ignition**(NewGz 信号 3、Classic 0),与本项目 **Humble + Gazebo Classic 不匹配**;且仅 `nolon_bot_description` 1 个包(无导航/抓取/集成)。不可用。
+
+### Spartan-Velanjeri/UR-MiR → ✅ 真一体化 Classic 蓝本,但仍不建议切换
+实测(212M,22 包):
+- **Gazebo Classic** ✓(gazebo_ros 11 文件 vs NewGz 4)
+- **MiR250(差速)底盘 + UR5e 一体化** ✓(ur5e/ur5/ur3 + mir),含 `mir_navigation`(Nav2)、`ur_moveit_config`、`ros2_aruco`、`realsense_gazebo_plugin`、`robotiq_description`
+- **确实比 eyrc 更"一体化"**(eyrc 是分离式小车+固定臂;UR-MiR 是真·底盘+臂一体)
+
+**但仍不切换,理由**:
+1. 底盘是**差速 MiR**,切换后仍需麦轮化(与 eyrc 同等工作)。
+2. **包极多极重**(含 mir_driver/mir_calibration/mir_restapi/ur_robot_driver 等真实硬件栈,仿真用需大量裁剪)。
+3. **我们已基于 eyrc 自建麦轮一体化并验证通过**(26-link URDF + 全栈 build + 25 测试)——UR-MiR 的"一体化"优势我们已实现。切换 = 用差速重栈替换已验证的麦轮一体化 = **净损失**。
+
+### 🔑 高价值可借鉴单点(无需切换,实证发现)
+1. **UR-MiR 的 `realsense_gazebo_plugin` 是完整的**——而 eyrc 版缺 `gazebo_ros_realsense.cpp`(我们当前用标准 `gazebo_ros_camera` 替代)。**若要真 RealSense 仿真,可从 UR-MiR 取完整插件**。
+2. **`ros2_aruco`**(标准 ArUco ROS2 包)——可替代我们自写的 `aruco_detector`,更成熟。
+3. MiR+UR 一体化 URDF 的 TF/关节组织思路。
+
+### 最终结论(实证后,不变)
+**坚持"eyrc 组件 + 自建麦轮一体化"。** UR-MiR 经实测确认是优质参考但非切换对象(差速+重栈,且我们的一体化已自建验证);已锁定 2 个高价值可借鉴单点供后续按需吸收。Nolon 因版本不匹配排除。
+
+---
+
 ## 一句话给用户
 **当前"eyrc 组件 + 自建麦轮一体化"是现状下的最优路径**:我们已把别人没有的"麦轮一体化移动机械臂"做出来并验证通过。替代项目要么差速、要么未验证、要么场景不符,切换得不偿失。它们的可取之处(一体化思路)我们已实现。若你想我进一步**实测** UR-MiR 等是否真能编译,限流恢复后说一声即可。
