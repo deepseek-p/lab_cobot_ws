@@ -9,6 +9,7 @@ MoveIt 抓取(PickPlace)→ 导航 → 放置 → 返回 home。
 
 注:本节点为运行时编排,需完整系统启动后验证;依赖较多,属集成层。
 """
+import time
 from threading import Thread
 
 import rclpy
@@ -95,8 +96,9 @@ class MissionNode(Node):
         goal.pose.orientation.w = qw
         self.get_logger().info(f"导航到 {station} ({wp['x']:.2f},{wp['y']:.2f})")
         self.nav.goToPose(goal)
+        # BasicNavigator.isTaskComplete 内部 spin nav 节点;mission 由外部 executor spin,此处仅等待(避免双重 spin)
         while not self.nav.isTaskComplete():
-            rclpy.spin_once(self, timeout_sec=0.1)
+            time.sleep(0.2)
         return self.nav.getResult() == TaskResult.SUCCEEDED
 
     def _detect(self):
