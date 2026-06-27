@@ -35,6 +35,24 @@
       <origin xyz="0 0 0.04" rpy="0 0 0"/>
     </joint>
     <gazebo reference="suction_link"><material>Gazebo/Red</material></gazebo>
+
+    <!-- 真空吸盘插件:service /suction/switch(std_srvs/SetBool)开关,
+         topic /suction/grasping(std_msgs/Bool)状态。max_distance 内的非 fixed 物体被吸附。 -->
+    <gazebo>
+      <plugin name="vacuum_gripper" filename="libgazebo_ros_vacuum_gripper.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>switch:=suction/switch</remapping>
+          <remapping>grasping:=suction/grasping</remapping>
+        </ros>
+        <link_name>suction_link</link_name>
+        <max_distance>0.06</max_distance>
+        <fixed>ground_plane</fixed>
+        <fixed>walls</fixed>
+        <fixed>station_a_table</fixed>
+        <fixed>station_b_table</fixed>
+      </plugin>
+    </gazebo>
   </xacro:macro>
 
 </robot>

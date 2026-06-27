@@ -4,7 +4,7 @@ package_name = 'lab_cobot_manipulation'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.1.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -15,15 +15,12 @@ setup(
     zip_safe=True,
     maintainer='THW',
     maintainer_email='2188630464@qq.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
-    extras_require={
-        'test': [
-            'pytest',
-        ],
-    },
+    description='机械臂抓放执行(pymoveit2 运动规划 + 真空吸盘吸附)',
+    license='Apache-2.0',
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
+            'pick_place_node = lab_cobot_manipulation.pick_place_node:main',
         ],
     },
 )
