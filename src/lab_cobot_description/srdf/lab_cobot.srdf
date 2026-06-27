@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!--
+  Semantic Robot Description Format (SRDF) for lab_cobot.
+  规划组 = UR5e 机械臂(ur_ 前缀)。link 名与 lab_cobot.urdf.xacro 生成结果一致。
+  注:disable_collisions 先覆盖相邻链 + 底盘/立柱/吸盘;Phase 4 接 MoveIt 时
+  可用 MoveIt Setup Assistant 或官方 ur5e SRDF 补全非相邻 link 对。
+-->
+<robot name="lab_cobot">
+
+  <!-- ===== 规划组 ===== -->
+  <group name="ur_manipulator">
+    <chain base_link="ur_base_link" tip_link="ur_tool0"/>
+  </group>
+
+  <!-- ===== 预设位姿 ===== -->
+  <group_state name="home" group="ur_manipulator">
+    <joint name="ur_shoulder_pan_joint" value="0"/>
+    <joint name="ur_shoulder_lift_joint" value="-1.5708"/>
+    <joint name="ur_elbow_joint" value="1.5708"/>
+    <joint name="ur_wrist_1_joint" value="-1.5708"/>
+    <joint name="ur_wrist_2_joint" value="-1.5708"/>
+    <joint name="ur_wrist_3_joint" value="0"/>
+  </group_state>
+  <group_state name="up" group="ur_manipulator">
+    <joint name="ur_shoulder_pan_joint" value="0"/>
+    <joint name="ur_shoulder_lift_joint" value="-1.5708"/>
+    <joint name="ur_elbow_joint" value="0"/>
+    <joint name="ur_wrist_1_joint" value="-1.5708"/>
+    <joint name="ur_wrist_2_joint" value="0"/>
+    <joint name="ur_wrist_3_joint" value="0"/>
+  </group_state>
+
+  <!-- ===== 末端执行器 ===== -->
+  <end_effector name="suction_ee" parent_link="ur_tool0" group="ur_manipulator"/>
+
+  <!-- ===== 碰撞禁用 ===== -->
+  <!-- UR5e 相邻链 -->
+  <disable_collisions link1="ur_base_link_inertia" link2="ur_shoulder_link" reason="Adjacent"/>
+  <disable_collisions link1="ur_shoulder_link" link2="ur_upper_arm_link" reason="Adjacent"/>
+  <disable_collisions link1="ur_upper_arm_link" link2="ur_forearm_link" reason="Adjacent"/>
+  <disable_collisions link1="ur_forearm_link" link2="ur_wrist_1_link" reason="Adjacent"/>
+  <disable_collisions link1="ur_wrist_1_link" link2="ur_wrist_2_link" reason="Adjacent"/>
+  <disable_collisions link1="ur_wrist_2_link" link2="ur_wrist_3_link" reason="Adjacent"/>
+  <!-- 末端吸盘 -->
+  <disable_collisions link1="ur_wrist_3_link" link2="suction_link" reason="Adjacent"/>
+  <disable_collisions link1="ur_wrist_2_link" link2="suction_link" reason="Never"/>
+  <!-- 底盘 / 立柱 / UR 基座 / 传感器 -->
+  <disable_collisions link1="base_link" link2="pillar_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="laser" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="imu_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="wheel_fl" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="wheel_fr" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="wheel_rl" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="wheel_rr" reason="Adjacent"/>
+  <disable_collisions link1="pillar_link" link2="ur_base_link_inertia" reason="Adjacent"/>
+  <disable_collisions link1="pillar_link" link2="ur_shoulder_link" reason="Never"/>
+  <disable_collisions link1="pillar_link" link2="camera_link" reason="Never"/>
+  <disable_collisions link1="arm_mount_link" link2="ur_base_link_inertia" reason="Adjacent"/>
+  <disable_collisions link1="camera_link" link2="ur_shoulder_link" reason="Never"/>
+
+</robot>

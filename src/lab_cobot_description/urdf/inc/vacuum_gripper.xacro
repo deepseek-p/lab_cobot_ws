@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!--
+  真空吸盘末端:挂在 UR tool0 上,作为吸附作用点(suction_link)。
+  实际抓取通过 Gazebo link attacher service 在运行时 attach/detach 物体模型,
+  故 URDF 侧只需提供吸盘几何与坐标系。阶段2 可替换为平行夹爪。
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="vacuum_gripper" params="parent">
+    <link name="suction_link">
+      <visual>
+        <origin xyz="0 0 0.02" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.025" length="0.04"/></geometry>
+        <material name="suction_red"><color rgba="0.70 0.10 0.10 1.0"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.02" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.025" length="0.04"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      </inertial>
+    </link>
+    <joint name="suction_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="suction_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <!-- 吸附作用点(TCP 末端) -->
+    <link name="grasp_point"/>
+    <joint name="grasp_point_joint" type="fixed">
+      <parent link="suction_link"/>
+      <child link="grasp_point"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    </joint>
+    <gazebo reference="suction_link"><material>Gazebo/Red</material></gazebo>
+  </xacro:macro>
+
+</robot>

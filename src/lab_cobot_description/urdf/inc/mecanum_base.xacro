@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<!--
+  麦克纳姆全向底盘(纯几何,不依赖外部 mesh)。
+  全向运动由 gazebo_ros_planar_move 插件实现(直接对 base 施加 x/y/yaw 速度),
+  轮子为视觉装饰(无 collision,避免与运动学插件冲突)。
+  依赖顶层定义的全局 property: base_length, base_width, base_height, wheel_radius, wheel_width
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="mecanum_base" params="base_mass:=40.0 publish_odom_tf:=false">
+
+    <xacro:property name="wx" value="${base_length/2.0 - wheel_radius}"/>
+    <xacro:property name="wy" value="${base_width/2.0 + wheel_width/2.0}"/>
+    <xacro:property name="base_z" value="${wheel_radius + base_height/2.0}"/>
+
+    <!-- 运动学根:底盘地面投影 -->
+    <link name="base_footprint"/>
+
+    <!-- 车体 -->
+    <link name="base_link">
+      <visual>
+        <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
+        <material name="base_blue"><color rgba="0.20 0.30 0.60 1.0"/></material>
+      </visual>
+      <collision>
+        <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
+      </collision>
+      <xacro:box_inertia m="${base_mass}" x="${base_length}" y="${base_width}" z="${base_height}"/>
+    </link>
+    <joint name="base_footprint_joint" type="fixed">
+      <parent link="base_footprint"/>
+      <child link="base_link"/>
+      <origin xyz="0 0 ${base_z}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- 4 个麦轮(纯视觉装饰) -->
+    <xacro:macro name="mec_wheel" params="name x y">
+      <link name="${name}">
+        <visual>
+          <origin xyz="0 0 0" rpy="${pi/2.0} 0 0"/>
+          <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+          <material name="wheel_dark"><color rgba="0.10 0.10 0.10 1.0"/></material>
+        </visual>
+        <xacro:cylinder_inertia m="1.2" r="${wheel_radius}" l="${wheel_width}"/>
+      </link>
+      <joint name="${name}_joint" type="continuous">
+        <parent link="base_link"/>
+        <child link="${name}"/>
+        <origin xyz="${x} ${y} ${-base_height/2.0}" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+      </joint>
+      <gazebo reference="${name}"><material>Gazebo/FlatBlack</material></gazebo>
+    </xacro:macro>
+
+    <xacro:mec_wheel name="wheel_fl" x="${wx}"  y="${wy}"/>
+    <xacro:mec_wheel name="wheel_fr" x="${wx}"  y="${-wy}"/>
+    <xacro:mec_wheel name="wheel_rl" x="${-wx}" y="${wy}"/>
+    <xacro:mec_wheel name="wheel_rr" x="${-wx}" y="${-wy}"/>
+
+    <!-- 全向驱动插件:订阅 /cmd_vel(Twist 全向),发布 /odom -->
+    <gazebo>
+      <plugin name="gazebo_ros_planar_move" filename="libgazebo_ros_planar_move.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>cmd_vel:=cmd_vel</remapping>
+          <remapping>odom:=odom</remapping>
+        </ros>
+        <update_rate>50</update_rate>
+        <publish_rate>50</publish_rate>
+        <publish_odom>true</publish_odom>
+        <!-- EKF 负责发布 odom->base_footprint TF;故此处默认 false -->
+        <publish_odom_tf>${publish_odom_tf}</publish_odom_tf>
+        <odometry_frame>odom</odometry_frame>
+        <robot_base_frame>base_footprint</robot_base_frame>
+        <covariance_x>0.0001</covariance_x>
+        <covariance_y>0.0001</covariance_y>
+        <covariance_yaw>0.01</covariance_yaw>
+      </plugin>
+    </gazebo>
+
+    <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
+  </xacro:macro>
+
+</robot>

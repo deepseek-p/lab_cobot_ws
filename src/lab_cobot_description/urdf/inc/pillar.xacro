@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!--
+  基座立柱:把 UR 基座从矮底盘抬高到接近工作台高度,改善抓取工作空间。
+  顶部输出 arm_mount_link(UR parent)。column_height 可调。
+  依赖全局 property: base_height
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="base_pillar" params="parent column_height:=0.40 column_size:=0.12 mass:=8.0">
+    <link name="pillar_link">
+      <visual>
+        <origin xyz="0 0 ${column_height/2.0}" rpy="0 0 0"/>
+        <geometry><box size="${column_size} ${column_size} ${column_height}"/></geometry>
+        <material name="pillar_grey"><color rgba="0.40 0.40 0.40 1.0"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${column_height/2.0}" rpy="0 0 0"/>
+        <geometry><box size="${column_size} ${column_size} ${column_height}"/></geometry>
+      </collision>
+      <xacro:box_inertia m="${mass}" x="${column_size}" y="${column_size}" z="${column_height}"/>
+    </link>
+    <!-- 立柱底面固定在车体顶面 -->
+    <joint name="pillar_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="pillar_link"/>
+      <origin xyz="0 0 ${base_height/2.0}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- UR 安装点:立柱顶 -->
+    <link name="arm_mount_link"/>
+    <joint name="arm_mount_joint" type="fixed">
+      <parent link="pillar_link"/>
+      <child link="arm_mount_link"/>
+      <origin xyz="0 0 ${column_height}" rpy="0 0 0"/>
+    </joint>
+
+    <gazebo reference="pillar_link"><material>Gazebo/Grey</material></gazebo>
+  </xacro:macro>
+
+</robot>
