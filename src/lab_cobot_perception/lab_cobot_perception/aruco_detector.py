@@ -11,6 +11,7 @@
 注:实际检测需运行时(Gazebo 相机图像 + 贴 ArUco 码的样件),本文件仅保证可编译/导入。
 """
 import sys
+import math
 
 import numpy as np
 import rclpy
@@ -109,10 +110,10 @@ class ArucoDetector(Node):
             cx_px = int(np.mean(corner[:, 0]))
             cy_px = int(np.mean(corner[:, 1]))
             depth = float(self.depth_img[cy_px, cx_px])
+            if not math.isfinite(depth) or depth <= 0.0:
+                continue  # 跳过 inf/nan/无效深度(Gazebo 深度图边缘常见)
             if depth > 50.0:  # 单位疑似 mm
                 depth /= 1000.0
-            if depth <= 0.0:
-                continue
             x, y, z = pixel_to_camera(cx_px, cy_px, depth, self.fx, self.fy, self.cx, self.cy)
             self._publish(int(mid), x, y, z)
 
