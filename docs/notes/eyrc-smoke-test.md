@@ -25,10 +25,15 @@
 - **eyrc 不是"拿来即跑的完整 demo"**(spawner_box 加密缺失),但作为**组件移植蓝本**完全胜任——这正是方案A的定位。
 - 导航栈(ebot_description + ebot_nav2 + 预建 map.pgm)完整,是冒烟验证导航的基础。
 
-## 导航冒烟入口
-- 世界+机器人:`ros2 launch ebot_description ebot_gazebo_launch.py`
-- 导航栈:`ros2 launch ebot_nav2 ebot_bringup_launch.py`
+## 导航冒烟入口与 world 验证
+- 世界+机器人:`ros2 launch ebot_description ebot_gazebo_launch.py`(→ start_world 用标准 `gazebo.launch.py` 加载 `eyantra_warehouse_task0.world`;spawn ebot 于 x=1.84,y=-9.05)
+- 导航栈:`ros2 launch ebot_nav2 ebot_bringup_launch.py`(标准 nav2_bringup,默认 `slam:=False` → map_server+AMCL+EKF+RViz;预建图 `map.yaml`)
 - 预建地图:`install/ebot_nav2/share/ebot_nav2/maps/map.pgm` ✓
+- **world 资源完整性(headless gzserver 验证)**:13 个模型目录全在,无缺模型错误;唯一报错 `conveyorbelt_moving` joint 缺子 link(传送带装饰,与导航无关,且我们不用此 world)。
+
+## 客观验证小结(Phase 0)
+- ✅ 编译:10 核心包通过 ｜ ✅ world:资源完整可加载 ｜ ✅ 组件齐全 ｜ ✅ 导航入口+预建地图就位
+- 剩余"GUI 实跑看定位+移动"需 WSLg 环境;eyrc Nav2 配置(nav2_params/ekf/amcl)真正价值将在 Phase 3 移植到麦轮机器人时验证。
 
 ## 待补(后续 Task 填充)
 - [ ] 导航冒烟结果(AMCL 定位 + Nav2 到点)
