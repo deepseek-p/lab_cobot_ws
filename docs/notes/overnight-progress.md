@@ -39,4 +39,13 @@
 ## 进度日志
 - Phase 0-6 + 抓取/导航/集成全部完成,8 包全量 build 通过,25 测试全绿。
 - 项目代码骨架与集成层完整;剩余为运行时(GUI)验证与标定,留用户收尾。
-- 下一步(夜间继续):对抗审查代码 + 重试替代方案调研。
+- 自我审查(adversarial)发现并修复 **mission_node/pick_place 双重 spin bug**(会运行时卡死)。
+- 补全 7 包 package.xml 运行时依赖(rosdep/新环境部署规范)。
+- 5 个 launch 入口全部解析验证通过(view_robot/world/move_group/navigation/lab_cobot)。
+- 替代方案调研:WebSearch/WebFetch/GitHub API 全限流(429),基于已有知识库调研给出分析(`alternatives-analysis.md`),结论=坚持当前方案。
+
+## 最终状态(2026-06-28 夜)
+**已交付**:完整 ROS2 移动机械臂仿真项目骨架(8 包),全量 colcon build 通过,25 单元测试全绿,
+5 launch 可解析,MoveIt 配置加载验证,README 部署说明,设计/计划/分析文档齐全,17+ commit。
+**净缺口**:仅运行时(GUI/WSLg)验证与少量标定(吸盘姿态/放置点/相机内参/重建地图),已在 README §7 列清。
+**外部受限**:本轮所有联网 API(WebSearch/WebFetch/GitHub API)429 限流,实时调研待恢复后重试。
