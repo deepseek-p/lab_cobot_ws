@@ -1,0 +1,21 @@
+# MoveIt 关节限制(ur_ 前缀,与 lab_cobot URDF/SRDF 一致)。
+# 加速度限制供时间参数化使用,保守取值。
+joint_limits:
+  ur_shoulder_pan_joint:
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  ur_shoulder_lift_joint:
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  ur_elbow_joint:
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  ur_wrist_1_joint:
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  ur_wrist_2_joint:
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  ur_wrist_3_joint:
+    has_acceleration_limits: true
+    max_acceleration: 5.0
