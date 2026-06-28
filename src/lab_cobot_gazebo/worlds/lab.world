@@ -73,6 +73,13 @@
       </link>
     </model>
 
+    <!-- 工位 A 桌面上的待抓取样件(贴 ArUco DICT_4X4_50 id=0;台面高 0.75 + 样件半高 0.035) -->
+    <include>
+      <uri>model://aruco_sample</uri>
+      <name>aruco_sample</name>
+      <pose>2.0 1.5 0.785 0 0 0</pose>
+    </include>
+
     <physics name="default_physics" type="ode">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>

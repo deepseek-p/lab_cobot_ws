@@ -22,8 +22,13 @@
         <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
         <material name="base_blue"><color rgba="0.20 0.30 0.60 1.0"/></material>
       </visual>
+      <!-- 碰撞体向下延伸到轮子底部(footprint z=0):轮子无 collision,若仅用车体 box
+           会让 box 底面(footprint z=wheel_radius)贴地、轮子陷入地面 wheel_radius。
+           延伸后 footprint 贴地、轮子接地、车体离地约 wheel_radius(真实底盘外观)。
+           仍是单一 box 碰撞,不引入轮子侧向摩擦,麦轮全向不受影响。 -->
       <collision>
-        <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
+        <origin xyz="0 0 ${-wheel_radius/2.0}" rpy="0 0 0"/>
+        <geometry><box size="${base_length} ${base_width} ${base_height + wheel_radius}"/></geometry>
       </collision>
       <xacro:box_inertia m="${base_mass}" x="${base_length}" y="${base_width}" z="${base_height}"/>
     </link>

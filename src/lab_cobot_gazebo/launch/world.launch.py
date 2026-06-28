@@ -13,6 +13,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     RegisterEventHandler,
+    AppendEnvironmentVariable,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -30,6 +31,11 @@ def generate_launch_description():
     robot_description = {"robot_description": Command(["xacro ", urdf_xacro])}
 
     gui = LaunchConfiguration("gui")
+
+    # 让 Gazebo 能解析 world 里的 model://aruco_sample
+    model_path = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")
+    )
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -79,6 +85,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
+        model_path,
         gazebo,
         robot_state_publisher,
         spawn_entity,
