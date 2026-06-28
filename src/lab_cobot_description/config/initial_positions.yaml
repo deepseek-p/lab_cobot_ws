@@ -1,0 +1,9 @@
+# lab_cobot UR5e 仿真初始姿态 = SRDF 的 home(收拢姿态)。
+# 目的:臂折叠降低整机重心(避免零位竖直 1.7m 导致移动时倾覆)。
+# 关节名不带 tf_prefix(ur_macro 内部按此 key 取值)。
+shoulder_pan_joint: 0.0
+shoulder_lift_joint: -1.5708
+elbow_joint: 1.5708
+wrist_1_joint: -1.5708
+wrist_2_joint: -1.5708
+wrist_3_joint: 0.0
