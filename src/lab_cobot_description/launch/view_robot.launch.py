@@ -2,8 +2,8 @@
 
 用法(需 GUI):
     ros2 launch lab_cobot_description view_robot.launch.py
-打开后在 RViz 添加 RobotModel display(Description Topic 选 /robot_description)、
-TF、Grid 即可看到麦轮底盘 + 立柱 + UR5e + 吸盘 + 传感器。
+预置 view_robot.rviz 配置(Fixed Frame=base_footprint + RobotModel + TF + Grid),
+打开即显示麦轮底盘 + 立柱 + UR5e + 吸盘 + 传感器。
 """
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -15,6 +15,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg = get_package_share_directory("lab_cobot_description")
     urdf_xacro = os.path.join(pkg, "urdf", "lab_cobot.urdf.xacro")
+    rviz_config = os.path.join(pkg, "config", "view_robot.rviz")
     robot_description = {"robot_description": Command(["xacro ", urdf_xacro])}
 
     return LaunchDescription([
@@ -34,5 +35,6 @@ def generate_launch_description():
             executable="rviz2",
             name="rviz2",
             output="screen",
+            arguments=["-d", rviz_config],
         ),
     ])
