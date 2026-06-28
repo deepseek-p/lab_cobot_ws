@@ -9,6 +9,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -31,6 +32,7 @@ def generate_launch_description():
             "params_file",
             default_value=os.path.join(nav_pkg, "config", "nav2_params.yaml"),
         ),
+        DeclareLaunchArgument("use_rviz", default_value="true"),
     ]
 
     # EKF: 融合 /odom(planar_move) + /imu/data,发布 odom->base_footprint TF
@@ -68,4 +70,15 @@ def generate_launch_description():
         }.items(),
     )
 
-    return LaunchDescription(declared + [ekf, localization, navigation])
+    # 导航可视化(nav2 默认视图:map/costmap/path/robot + 2D Goal Pose 工具)
+    rviz = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2_navigation",
+        output="screen",
+        arguments=["-d", os.path.join(nav2_bringup, "rviz", "nav2_default_view.rviz")],
+        parameters=[{"use_sim_time": use_sim_time}],
+        condition=IfCondition(LaunchConfiguration("use_rviz")),
+    )
+
+    return LaunchDescription(declared + [ekf, localization, navigation, rviz])
