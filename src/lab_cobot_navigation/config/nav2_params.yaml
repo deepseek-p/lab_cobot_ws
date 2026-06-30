@@ -6,6 +6,20 @@ amcl:
     alpha3: 0.1
     alpha4: 0.1
     alpha5: 0.1
+    # === 定位稳定性加固(原 eyrc 配置缺失这些,默认值在小房间易漂移->多次导航后"图乱/停住")===
+    max_beams: 180                    # 参与匹配的激光束(默认60太少),稀疏图下定位更稳
+    min_particles: 500
+    max_particles: 2000
+    update_min_d: 0.20                # 移动 0.2m 即更新定位(更频繁,减少累积漂移)
+    update_min_a: 0.20                # 转 0.2rad 即更新
+    resample_interval: 1
+    laser_model_type: "likelihood_field"
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 12.0             # 与激光量程一致
+    laser_min_range: 0.35             # ≥ 激光 min_range(0.32)
+    transform_tolerance: 1.0          # 容忍 WSL 下 TF 延迟,避免定位丢
+    recovery_alpha_slow: 0.001        # 定位失效时自动重粒子化恢复(关键:防止彻底跟丢)
+    recovery_alpha_fast: 0.1
     base_frame_id: "base_footprint"
     global_frame_id: "map"
     odom_frame_id: "odom"
