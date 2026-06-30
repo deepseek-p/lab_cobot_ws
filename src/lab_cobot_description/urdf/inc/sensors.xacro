@@ -34,7 +34,10 @@
             <samples>360</samples><resolution>1</resolution>
             <min_angle>-3.14159</min_angle><max_angle>3.14159</max_angle>
           </horizontal></scan>
-          <range><min>0.15</min><max>12.0</max><resolution>0.01</resolution></range>
+          <!-- min 0.32:立柱与激光同高、在其后方 0.165~0.291m 处,360°会扫到自身立柱,
+               导致建图随机器人移动留下大量假障碍(594噪点簇)、导航 local costmap 误避障。
+               提高最小量程使立柱落入盲区被忽略,同时保留 360° 感知(优于裁剪扫描角)。 -->
+          <range><min>0.32</min><max>12.0</max><resolution>0.01</resolution></range>
         </ray>
         <plugin name="lidar_plugin" filename="libgazebo_ros_ray_sensor.so">
           <ros><namespace>/</namespace><remapping>~/out:=scan</remapping></ros>
