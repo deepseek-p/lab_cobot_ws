@@ -1,4 +1,5 @@
-"""启动 Gazebo Classic 实验室场景并 spawn 一体化麦轮机器人 + 控制器。
+"""
+Launch the Gazebo Classic lab world and spawn the mobile manipulator.
 
 需 GUI/运行时(用户收尾验证):
     ros2 launch lab_cobot_gazebo world.launch.py
@@ -57,6 +58,7 @@ def generate_launch_description():
         arguments=[
             "-topic", "robot_description",
             "-entity", "lab_cobot",
+            "-timeout", "120",
             "-x", "0.0", "-y", "0.0", "-z", "0.12",
             # 注:Gazebo Classic 的 spawn_entity.py 不支持 -J 设初始关节;
             # 臂初始姿态由 URDF ros2_control 的 initial_value(=home 收拢)
