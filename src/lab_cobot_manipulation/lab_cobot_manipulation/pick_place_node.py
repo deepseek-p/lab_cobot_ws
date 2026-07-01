@@ -63,8 +63,11 @@ class PickPlace(Node):
         self.get_logger().info(f"真空 {'开' if on else '关'}: {'成功' if ok else '失败'}")
         return ok
 
-    def _move(self, pos, quat=DOWN_QUAT) -> bool:
-        self.moveit2.move_to_pose(position=list(pos), quat_xyzw=quat)
+    def _move(self, pos, quat=DOWN_QUAT, frame_id="base_link") -> bool:
+        # frame_id="base_link":pos 为底盘系坐标(感知/放置点都在此系),
+        # 由 MoveIt 用 planning scene 的 TF 换算到规划基座 ur_base_link。
+        # 不显式指定则默认按 ur_base_link 解释,会把目标整体抬高一个立柱高度→抓空。
+        self.moveit2.move_to_pose(position=list(pos), quat_xyzw=quat, frame_id=frame_id)
         return bool(self.moveit2.wait_until_executed())
 
     # ---- 复合动作(供 mission 调用)----
