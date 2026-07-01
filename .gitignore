@@ -3,3 +3,8 @@ install/
 log/
 __pycache__/
 *.pyc
+
+# Local GUI/debug artifacts
+屏幕截图*.png
+docs/NIGHT_REPORT.md
+src/lab_cobot_navigation/maps/*_backup.pgm
