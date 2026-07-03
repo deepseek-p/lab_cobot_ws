@@ -128,8 +128,12 @@ class PickPlace(Node):
         if not self.gripper.acquire_object():
             return False
         if not self.gripper.close():
+            self.gripper.release_object()
             return False
-        return self._move_approach(above)
+        if not self._move_approach(above):
+            self.gripper.release_object()
+            return False
+        return True
 
     def place(self, pos) -> bool:
         """Approach → descend → detach/open → lift."""

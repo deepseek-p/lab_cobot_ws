@@ -202,6 +202,38 @@ def test_pick_stops_before_lift_when_attach_is_refused():
     ])
 
 
+def test_pick_releases_object_when_close_fails_after_attach():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True],
+        close_ok=False,
+    )
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    assert pick_place.events == [
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+        "close",
+        "release",
+    ]
+
+
+def test_pick_releases_object_when_lift_fails_after_attach():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, False])
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    assert pick_place.events == [
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+        "close",
+        "move_above",
+        "release",
+    ]
+
+
 def test_moveit_settings_are_tuned_for_fast_reliable_pick_place():
     assert hasattr(pick_place_node, "configure_moveit_for_pick_place")
     assert hasattr(pick_place_node, "ARM_ALLOWED_PLANNING_TIME_SEC")
