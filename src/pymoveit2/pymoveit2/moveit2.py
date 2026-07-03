@@ -1,3 +1,4 @@
+import functools
 import threading
 import time
 from typing import List, Optional, Tuple, Union
@@ -222,6 +223,9 @@ class MoveIt2:
         self.__is_executing = False
         self.__last_execution_succeeded = False
         self.__wait_until_executed_rate = self._node.create_rate(1000.0)
+        self.__move_goal_handle = None
+        self.__move_generation = 0
+        self.__move_lock = threading.Lock()
 
         # Event that enables waiting until async future is done
         self.__future_done_event = threading.Event()
@@ -470,6 +474,12 @@ class MoveIt2:
                 self._node.get_logger().warn(
                     "Timed out waiting for motion execution to finish."
                 )
+                with self.__move_lock:
+                    goal_handle = self.__move_goal_handle
+                    self.__move_goal_handle = None
+                    self.__move_generation += 1
+                if goal_handle is not None:
+                    goal_handle.cancel_goal_async()
                 self.__is_motion_requested = False
                 self.__is_executing = False
                 self.__last_execution_succeeded = False
@@ -1084,16 +1094,24 @@ class MoveIt2:
             self.__last_execution_succeeded = False
             return
 
+        with self.__move_lock:
+            self.__move_generation += 1
+            gen = self.__move_generation
+            self.__move_goal_handle = None
+
         self.__send_goal_future_move_action = self.__move_action_client.send_goal_async(
             goal=self.__move_action_goal,
             feedback_callback=None,
         )
 
         self.__send_goal_future_move_action.add_done_callback(
-            self.__response_callback_move_action
+            functools.partial(self.__response_callback_move_action, gen=gen)
         )
 
-    def __response_callback_move_action(self, response):
+    def __response_callback_move_action(self, response, gen):
+        with self.__move_lock:
+            if gen != self.__move_generation:
+                return
         goal_handle = response.result()
         if not goal_handle.accepted:
             self._node.get_logger().warn(
@@ -1103,15 +1121,22 @@ class MoveIt2:
             self.__last_execution_succeeded = False
             return
 
+        with self.__move_lock:
+            if gen != self.__move_generation:
+                return
+            self.__move_goal_handle = goal_handle
         self.__is_executing = True
         self.__is_motion_requested = False
 
         self.__get_result_future_move_action = goal_handle.get_result_async()
         self.__get_result_future_move_action.add_done_callback(
-            self.__result_callback_move_action
+            functools.partial(self.__result_callback_move_action, gen=gen)
         )
 
-    def __result_callback_move_action(self, res):
+    def __result_callback_move_action(self, res, gen):
+        with self.__move_lock:
+            if gen != self.__move_generation:
+                return
         self.__last_execution_succeeded = (
             res.result().status == GoalStatus.STATUS_SUCCEEDED
         )
