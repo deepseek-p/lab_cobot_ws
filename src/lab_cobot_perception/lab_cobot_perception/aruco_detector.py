@@ -19,7 +19,7 @@ import rclpy
 from gazebo_msgs.msg import ModelStates
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import TransformStamped, PoseStamped
+from geometry_msgs.msg import Quaternion, TransformStamped, PoseStamped
 
 try:
     import cv2
@@ -34,6 +34,7 @@ from lab_cobot_perception.pose_math import offset_along_camera_ray, pixel_to_cam
 
 
 ARUCO_AREA_THRESHOLD = 800  # 像素面积阈值,滤除过远/过小标记
+DEFAULT_MARKER_SIZE_M = 0.07
 DEFAULT_GAZEBO_MODEL_NAME = "aruco_sample"
 DEFAULT_GAZEBO_REFERENCE_FRAME = "odom"
 DEFAULT_MODEL_STATES_TOPIC = "/gazebo/model_states"
@@ -56,6 +57,123 @@ def _marker_area(corner):
     w = np.linalg.norm(c[0] - c[1])
     h = np.linalg.norm(c[1] - c[2])
     return float(w * h)
+
+
+def _quat_normalize(q):
+    x, y, z, w = [float(v) for v in q]
+    norm = math.sqrt(x * x + y * y + z * z + w * w)
+    if norm == 0.0:
+        return (0.0, 0.0, 0.0, 1.0)
+    return (x / norm, y / norm, z / norm, w / norm)
+
+
+def _quat_multiply_raw(a, b):
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
+
+
+def _quat_multiply(a, b):
+    return _quat_normalize(_quat_multiply_raw(a, b))
+
+
+def _quat_conjugate(q):
+    x, y, z, w = q
+    return (-x, -y, -z, w)
+
+
+def _quat_rotate(q, point):
+    px, py, pz = point
+    rotated = _quat_multiply_raw(
+        _quat_multiply_raw(_quat_normalize(q), (px, py, pz, 0.0)),
+        _quat_conjugate(_quat_normalize(q)),
+    )
+    return (rotated[0], rotated[1], rotated[2])
+
+
+def _quat_from_msg(q: Quaternion):
+    return (q.x, q.y, q.z, q.w)
+
+
+def _quat_to_msg(q):
+    msg = Quaternion()
+    msg.x, msg.y, msg.z, msg.w = _quat_normalize(q)
+    return msg
+
+
+def _quat_from_rotation_matrix(matrix):
+    m = np.asarray(matrix, dtype=np.float64)
+    trace = float(np.trace(m))
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        return _quat_normalize((
+            (m[2, 1] - m[1, 2]) / s,
+            (m[0, 2] - m[2, 0]) / s,
+            (m[1, 0] - m[0, 1]) / s,
+            0.25 * s,
+        ))
+    if m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = math.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2.0
+        return _quat_normalize((
+            0.25 * s,
+            (m[0, 1] + m[1, 0]) / s,
+            (m[0, 2] + m[2, 0]) / s,
+            (m[2, 1] - m[1, 2]) / s,
+        ))
+    if m[1, 1] > m[2, 2]:
+        s = math.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2.0
+        return _quat_normalize((
+            (m[0, 1] + m[1, 0]) / s,
+            0.25 * s,
+            (m[1, 2] + m[2, 1]) / s,
+            (m[0, 2] - m[2, 0]) / s,
+        ))
+    s = math.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2.0
+    return _quat_normalize((
+        (m[0, 2] + m[2, 0]) / s,
+        (m[1, 2] + m[2, 1]) / s,
+        0.25 * s,
+        (m[1, 0] - m[0, 1]) / s,
+    ))
+
+
+def estimate_marker_pose_from_corners(
+    corner,
+    marker_size_m: float,
+    camera_matrix,
+    dist_coeffs,
+):
+    """Estimate marker center position and orientation in the optical frame."""
+    half = float(marker_size_m) / 2.0
+    object_points = np.array(
+        [
+            [-half, -half, 0.0],
+            [half, -half, 0.0],
+            [half, half, 0.0],
+            [-half, half, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    image_points = np.asarray(corner, dtype=np.float32).reshape(4, 2)
+    ok, rvec, tvec = cv2.solvePnP(
+        object_points,
+        image_points,
+        np.asarray(camera_matrix, dtype=np.float64),
+        None if dist_coeffs is None else np.asarray(dist_coeffs, dtype=np.float64),
+        flags=cv2.SOLVEPNP_ITERATIVE,
+    )
+    if not ok:
+        raise RuntimeError("solvePnP failed for ArUco marker")
+    rotation, _ = cv2.Rodrigues(rvec)
+    return (
+        tuple(float(v) for v in tvec.reshape(3)),
+        _quat_from_rotation_matrix(rotation),
+    )
 
 
 def model_pose_to_object_transform(
@@ -87,6 +205,7 @@ class ArucoDetector(Node):
         self.declare_parameter("info_topic", "/bench_camera/camera_info")
         self.declare_parameter("optical_frame", "camera_optical_frame")
         self.declare_parameter("target_frame", "base_link")
+        self.declare_parameter("marker_size_m", DEFAULT_MARKER_SIZE_M)
         self.declare_parameter("marker_to_object_center_m", 0.035)
 
         self.object_id = int(self.get_parameter("object_id").value)
@@ -114,6 +233,7 @@ class ArucoDetector(Node):
         info = self.get_parameter("info_topic").value
         self.optical_frame = self.get_parameter("optical_frame").value
         self.target_frame = self.get_parameter("target_frame").value
+        self.marker_size_m = float(self.get_parameter("marker_size_m").value)
         self.marker_to_object_center_m = float(
             self.get_parameter("marker_to_object_center_m").value
         )
@@ -130,7 +250,11 @@ class ArucoDetector(Node):
 
         self.bridge = CvBridge()
         self.detect = _make_aruco_detector()
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.fx = self.fy = self.cx = self.cy = None
+        self.camera_matrix = None
+        self.dist_coeffs = None
         self.rgb_img = None
         self.depth_img = None
 
@@ -143,15 +267,33 @@ class ArucoDetector(Node):
     def _info_cb(self, msg: CameraInfo):
         k = msg.k
         self.fx, self.fy, self.cx, self.cy = k[0], k[4], k[2], k[5]
+        self.camera_matrix = np.asarray(k, dtype=np.float64).reshape(3, 3)
+        self.dist_coeffs = (
+            np.asarray(msg.d, dtype=np.float64) if len(msg.d) > 0 else None
+        )
 
     def _rgb_cb(self, msg: Image):
         self.rgb_img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
     def _depth_cb(self, msg: Image):
-        self.depth_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        if msg.encoding in ("16UC1", "mono16"):
+            self.depth_img = img.astype(np.float32) / 1000.0
+        elif msg.encoding == "32FC1":
+            self.depth_img = img.astype(np.float32)
+        else:
+            self.get_logger().warning(
+                f"未知深度编码 {msg.encoding}，按米处理",
+                once=True,
+            )
+            self.depth_img = img.astype(np.float32)
 
     def _process(self):
-        if self.rgb_img is None or self.depth_img is None or self.fx is None:
+        if (
+            self.rgb_img is None
+            or self.depth_img is None
+            or self.camera_matrix is None
+        ):
             return
         gray = cv2.cvtColor(self.rgb_img, cv2.COLOR_BGR2GRAY)
         corners, ids = self.detect(gray)
@@ -166,8 +308,18 @@ class ArucoDetector(Node):
             depth = float(self.depth_img[cy_px, cx_px])
             if not math.isfinite(depth) or depth <= 0.0:
                 continue  # 跳过 inf/nan/无效深度(Gazebo 深度图边缘常见)
-            if depth > 50.0:  # 单位疑似 mm
-                depth /= 1000.0
+            try:
+                _marker_position, marker_orientation = (
+                    estimate_marker_pose_from_corners(
+                        corner,
+                        self.marker_size_m,
+                        self.camera_matrix,
+                        self.dist_coeffs,
+                    )
+                )
+            except Exception as ex:  # noqa: BLE001
+                self.get_logger().warn(f"ArUco 6D 位姿估计失败: {ex}")
+                continue
             marker_point = pixel_to_camera(
                 cx_px,
                 cy_px,
@@ -181,7 +333,7 @@ class ArucoDetector(Node):
                 marker_point,
                 self.marker_to_object_center_m,
             )
-            self._publish(int(mid), x, y, z)
+            self._publish(int(mid), (x, y, z), marker_orientation)
 
     def _model_states_cb(self, msg: ModelStates):
         try:
@@ -211,23 +363,58 @@ class ArucoDetector(Node):
                 PoseStamped, f"/perception/aruco_{mid}/pose", 10)
         return self.pose_pubs[mid]
 
-    def _publish(self, mid, x, y, z):
+    def _pose_in_target_frame(self, position, orientation):
+        if self.target_frame == self.optical_frame:
+            return self.optical_frame, position, _quat_normalize(orientation)
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.target_frame,
+                self.optical_frame,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.05),
+            )
+        except Exception as ex:  # noqa: BLE001
+            self.get_logger().warn(
+                "无法将 ArUco 位姿从 %s 变换到 %s: %s"
+                % (self.optical_frame, self.target_frame, ex)
+            )
+            return None
+
+        tf_q = _quat_from_msg(transform.transform.rotation)
+        rotated = _quat_rotate(tf_q, position)
+        translated = (
+            rotated[0] + transform.transform.translation.x,
+            rotated[1] + transform.transform.translation.y,
+            rotated[2] + transform.transform.translation.z,
+        )
+        return (
+            self.target_frame,
+            translated,
+            _quat_multiply(tf_q, orientation),
+        )
+
+    def _publish(self, mid, position, orientation):
+        target_pose = self._pose_in_target_frame(position, orientation)
+        if target_pose is None:
+            return
+        frame_id, target_position, target_orientation = target_pose
+
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = self.optical_frame
+        t.header.frame_id = frame_id
         t.child_frame_id = f"obj_{mid}"
-        t.transform.translation.x = x
-        t.transform.translation.y = y
-        t.transform.translation.z = z
-        t.transform.rotation.w = 1.0
+        t.transform.translation.x = target_position[0]
+        t.transform.translation.y = target_position[1]
+        t.transform.translation.z = target_position[2]
+        t.transform.rotation = _quat_to_msg(target_orientation)
         self.br.sendTransform(t)
 
         ps = PoseStamped()
         ps.header = t.header
-        ps.pose.position.x = x
-        ps.pose.position.y = y
-        ps.pose.position.z = z
-        ps.pose.orientation.w = 1.0
+        ps.pose.position.x = target_position[0]
+        ps.pose.position.y = target_position[1]
+        ps.pose.position.z = target_position[2]
+        ps.pose.orientation = _quat_to_msg(target_orientation)
         self._pose_pub(mid).publish(ps)
 
 
