@@ -176,3 +176,11 @@ def test_local_costmap_has_no_unused_static_layer_block():
 
     assert local_costmap["plugins"] == ["voxel_layer", "inflation_layer"]
     assert "static_layer" not in local_costmap
+
+
+def test_ekf_uses_default_rejection_thresholds():
+    ekf_file = Path(__file__).resolve().parents[1] / "config" / "ekf.yaml"
+    ekf_params = yaml.safe_load(ekf_file.read_text(encoding="utf-8"))
+    ros_params = ekf_params["ekf_filter_node"]["ros__parameters"]
+
+    assert not any("rejection_threshold" in key for key in ros_params)
