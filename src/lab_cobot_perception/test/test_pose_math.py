@@ -3,11 +3,8 @@ import math
 
 import pytest
 
-from lab_cobot_perception.pose_math import (
-    pixel_to_camera,
-    fov_to_focal,
-    camera_to_base,
-)
+from lab_cobot_perception import pose_math
+from lab_cobot_perception.pose_math import pixel_to_camera, fov_to_focal, camera_to_base
 
 
 def test_pixel_center_on_optical_axis():
@@ -63,3 +60,20 @@ def test_camera_to_base_rotation_z90():
     p = camera_to_base((1.0, 0.0, 0.0), (0.0, 0.0, 0.0), R)
     assert abs(p[0] - 0.0) < 1e-9
     assert abs(p[1] - 1.0) < 1e-9
+
+
+def test_offset_along_camera_ray_moves_surface_marker_to_object_center():
+    # The depth camera sees the visible ArUco face; the cube center is farther
+    # along the same pixel ray by half the sample size.
+    point = pixel_to_camera(420, 300, 1.0, fx=500, fy=500, cx=320, cy=240)
+
+    assert hasattr(pose_math, "offset_along_camera_ray")
+    shifted = pose_math.offset_along_camera_ray(point, 0.035)
+
+    scale = 1.035
+    assert shifted == pytest.approx((0.2 * scale, 0.12 * scale, 1.035))
+
+
+def test_offset_along_camera_ray_rejects_non_positive_depth():
+    with pytest.raises(ValueError):
+        pose_math.offset_along_camera_ray((0.0, 0.0, 0.0), 0.035)

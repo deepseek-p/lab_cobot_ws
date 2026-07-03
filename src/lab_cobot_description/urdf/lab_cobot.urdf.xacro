@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!--
-  一体化麦轮移动机械臂:麦轮全向底盘 + 基座立柱 + UR5e + 真空吸盘 + 传感器。
+  一体化麦轮移动机械臂:麦轮全向底盘 + 基座立柱 + UR5e + 平行夹爪 + 传感器。
   UR5e 用官方 ur_description 的 ur_robot macro(sim_gazebo 模式),装在立柱顶 arm_mount_link。
   关节由 gazebo_ros2_control 驱动;底盘由 gazebo_ros_planar_move 驱动。
 -->
@@ -19,7 +19,7 @@
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/mecanum_base.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/pillar.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/sensors.xacro"/>
-  <xacro:include filename="$(find lab_cobot_description)/urdf/inc/vacuum_gripper.xacro"/>
+  <xacro:include filename="$(find lab_cobot_description)/urdf/inc/parallel_gripper.xacro"/>
 
   <!-- ===== UR5e 参数 ===== -->
   <xacro:arg name="ur_type" default="ur5e"/>
@@ -82,8 +82,62 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:ur_robot>
 
-  <!-- ===== 末端真空吸盘(挂 UR tool0,带 tf_prefix) ===== -->
-  <xacro:vacuum_gripper parent="ur_tool0"/>
+  <!-- ===== Parallel gripper mounted on UR tool0 ===== -->
+  <xacro:parallel_gripper parent="ur_tool0"/>
+
+  <ros2_control name="gripper_and_wheel_visuals" type="system">
+    <hardware>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+    </hardware>
+    <joint name="gripper_left_finger_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="gripper_right_finger_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="wheel_fl_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="wheel_fr_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="wheel_rl_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="wheel_rr_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
 
   <!-- ===== gazebo_ros2_control 插件(驱动 UR 关节) ===== -->
   <gazebo>

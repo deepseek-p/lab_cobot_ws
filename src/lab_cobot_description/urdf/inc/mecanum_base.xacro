@@ -39,12 +39,64 @@
     </joint>
 
     <!-- 4 个麦轮(纯视觉装饰) -->
-    <xacro:macro name="mec_wheel" params="name x y">
+    <xacro:macro name="mec_wheel" params="name x y roller_slant">
       <link name="${name}">
         <visual>
           <origin xyz="0 0 0" rpy="${pi/2.0} 0 0"/>
           <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
           <material name="wheel_dark"><color rgba="0.10 0.10 0.10 1.0"/></material>
+        </visual>
+        <!-- Side-face roller strips make the wheels read as mecanum in Gazebo/RViz
+             while keeping the wheel collision-free for planar_move. -->
+        <visual name="${name}_roller_outer_0">
+          <origin xyz="0 ${wheel_width/2.0 + 0.003} ${-wheel_radius*0.46}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_outer_1">
+          <origin xyz="0 ${wheel_width/2.0 + 0.003} ${-wheel_radius*0.23}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_outer_2">
+          <origin xyz="0 ${wheel_width/2.0 + 0.003} 0" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_outer_3">
+          <origin xyz="0 ${wheel_width/2.0 + 0.003} ${wheel_radius*0.23}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_outer_4">
+          <origin xyz="0 ${wheel_width/2.0 + 0.003} ${wheel_radius*0.46}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_inner_0">
+          <origin xyz="0 ${-(wheel_width/2.0 + 0.003)} ${-wheel_radius*0.46}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_inner_1">
+          <origin xyz="0 ${-(wheel_width/2.0 + 0.003)} ${-wheel_radius*0.23}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_inner_2">
+          <origin xyz="0 ${-(wheel_width/2.0 + 0.003)} 0" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_inner_3">
+          <origin xyz="0 ${-(wheel_width/2.0 + 0.003)} ${wheel_radius*0.23}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
+        </visual>
+        <visual name="${name}_roller_inner_4">
+          <origin xyz="0 ${-(wheel_width/2.0 + 0.003)} ${wheel_radius*0.46}" rpy="0 ${roller_slant*pi/4.0} 0"/>
+          <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
+          <material name="roller_light"><color rgba="0.62 0.66 0.68 1.0"/></material>
         </visual>
         <xacro:cylinder_inertia m="1.2" r="${wheel_radius}" l="${wheel_width}"/>
       </link>
@@ -57,10 +109,10 @@
       <gazebo reference="${name}"><material>Gazebo/FlatBlack</material></gazebo>
     </xacro:macro>
 
-    <xacro:mec_wheel name="wheel_fl" x="${wx}"  y="${wy}"/>
-    <xacro:mec_wheel name="wheel_fr" x="${wx}"  y="${-wy}"/>
-    <xacro:mec_wheel name="wheel_rl" x="${-wx}" y="${wy}"/>
-    <xacro:mec_wheel name="wheel_rr" x="${-wx}" y="${-wy}"/>
+    <xacro:mec_wheel name="wheel_fl" x="${wx}"  y="${wy}"  roller_slant="1"/>
+    <xacro:mec_wheel name="wheel_fr" x="${wx}"  y="${-wy}" roller_slant="-1"/>
+    <xacro:mec_wheel name="wheel_rl" x="${-wx}" y="${wy}"  roller_slant="-1"/>
+    <xacro:mec_wheel name="wheel_rr" x="${-wx}" y="${-wy}" roller_slant="1"/>
 
     <!-- 全向驱动插件:订阅 /cmd_vel(Twist 全向),发布 /odom -->
     <gazebo>

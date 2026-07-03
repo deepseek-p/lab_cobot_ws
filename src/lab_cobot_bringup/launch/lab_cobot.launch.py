@@ -26,7 +26,7 @@ def generate_launch_description():
     nav = get_package_share_directory("lab_cobot_navigation")
 
     gui = LaunchConfiguration("gui")
-    launch_mission = LaunchConfiguration("launch_mission")
+    use_rviz = LaunchConfiguration("use_rviz")
 
     world = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(gz, "launch", "world.launch.py")),
@@ -42,19 +42,43 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(nav, "launch", "navigation.launch.py")
         ),
-        launch_arguments={"use_sim_time": "true"}.items(),
+        launch_arguments={
+            "use_sim_time": "true",
+            "map": os.path.join(nav, "maps", "map.yaml"),
+            "params_file": os.path.join(nav, "config", "nav2_params.yaml"),
+            "use_rviz": use_rviz,
+        }.items(),
     )
     aruco = Node(
         package="lab_cobot_perception",
         executable="aruco_detector",
         name="aruco_detector",
         output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "use_gazebo_model_pose": True,
+            "gazebo_model_name": "aruco_sample",
+            "gazebo_reference_frame": "odom",
+        }],
+    )
+    mecanum_wheel_visualizer = Node(
+        package="lab_cobot_bringup",
+        executable="mecanum_wheel_visualizer",
+        output="screen",
         parameters=[{"use_sim_time": True}],
+    )
+    gripper_attach_bridge = Node(
+        package="lab_cobot_bringup",
+        executable="gripper_attach_bridge",
+        output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "tf_reference_frame": "odom",
+        }],
     )
     mission = Node(
         package="lab_cobot_bringup",
         executable="mission_node",
-        name="mission_node",
         output="screen",
         parameters=[{"use_sim_time": True}],
     )
@@ -66,12 +90,16 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="Gazebo GUI"),
+        DeclareLaunchArgument("use_rviz", default_value="false", description="Nav2 RViz"),
         DeclareLaunchArgument("launch_mission", default_value="true"),
         # WSLg 稳定渲染(源自 robot_lab_demo 验证经验)
         SetEnvironmentVariable("GALLIUM_DRIVER", "d3d12"),
         SetEnvironmentVariable("MESA_D3D12_DEFAULT_ADAPTER_NAME", "NVIDIA"),
         SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
+        SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         world,
+        mecanum_wheel_visualizer,
+        gripper_attach_bridge,
         stage2,
         stage3,
     ])

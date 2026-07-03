@@ -8,6 +8,17 @@
 -->
 <sdf version="1.6">
   <world name="lab">
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+      <update_rate>30.0</update_rate>
+    </plugin>
+    <plugin name="gazebo_ros_properties" filename="libgazebo_ros_properties.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+    </plugin>
 
     <!-- 光照 -->
     <light name="sun" type="directional">

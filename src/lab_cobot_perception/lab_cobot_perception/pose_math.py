@@ -26,6 +26,26 @@ def pixel_to_camera(
     return (x, y, z)
 
 
+def offset_along_camera_ray(
+    point_cam: Tuple[float, float, float],
+    offset_m: float,
+) -> Tuple[float, float, float]:
+    """Move a camera-frame point farther along the same pixel ray.
+
+    RGB-D depth on an ArUco marker reports the visible marker surface. For a
+    cuboid sample, the object center is farther along that same camera ray by
+    approximately half the sample depth.
+    """
+    x, y, z = (float(point_cam[0]), float(point_cam[1]), float(point_cam[2]))
+    if z <= 0.0:
+        raise ValueError("camera ray depth must be positive")
+    new_z = z + float(offset_m)
+    if new_z <= 0.0:
+        raise ValueError("offset moves camera ray point behind the camera")
+    scale = new_z / z
+    return (x * scale, y * scale, new_z)
+
+
 def fov_to_focal(width_px: int, hfov_rad: float) -> float:
     """由水平视场角与图像宽度反算焦距(像素)。fx = (W/2) / tan(hfov/2)。"""
     import math

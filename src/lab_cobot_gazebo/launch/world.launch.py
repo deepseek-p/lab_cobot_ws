@@ -12,10 +12,12 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
     RegisterEventHandler,
     AppendEnvironmentVariable,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
@@ -38,11 +40,20 @@ def generate_launch_description():
         "GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")
     )
 
-    gazebo = IncludeLaunchDescription(
+    gzserver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(gazebo_ros, "launch", "gazebo.launch.py")
+            os.path.join(gazebo_ros, "launch", "gzserver.launch.py")
         ),
-        launch_arguments={"world": world, "verbose": "true", "gui": gui}.items(),
+        launch_arguments={"world": world, "verbose": "true"}.items(),
+    )
+    gzclient = ExecuteProcess(
+        cmd=["gzclient", "--gui-client-plugin=libgazebo_ros_eol_gui.so"],
+        output="screen",
+        additional_env={
+            "GAZEBO_MODEL_PATH": os.path.join(gz_pkg, "models"),
+            "GAZEBO_MODEL_DATABASE_URI": "",
+        },
+        condition=IfCondition(gui),
     )
 
     robot_state_publisher = Node(
@@ -77,6 +88,16 @@ def generate_launch_description():
         executable="spawner",
         arguments=["joint_trajectory_controller", "-c", "/controller_manager"],
     )
+    gripper_position_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["gripper_position_controller", "-c", "/controller_manager"],
+    )
+    wheel_velocity_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
+    )
 
     # spawn 完成后顺序激活控制器
     delay_jsb = RegisterEventHandler(
@@ -87,13 +108,28 @@ def generate_launch_description():
             target_action=joint_state_broadcaster, on_exit=[joint_trajectory_controller]
         )
     )
+    delay_gripper = RegisterEventHandler(
+        OnProcessExit(
+            target_action=joint_trajectory_controller,
+            on_exit=[gripper_position_controller],
+        )
+    )
+    delay_wheel_velocity = RegisterEventHandler(
+        OnProcessExit(
+            target_action=gripper_position_controller,
+            on_exit=[wheel_velocity_controller],
+        )
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
         model_path,
-        gazebo,
+        gzserver,
+        gzclient,
         robot_state_publisher,
         spawn_entity,
         delay_jsb,
         delay_jtc,
+        delay_gripper,
+        delay_wheel_velocity,
     ])

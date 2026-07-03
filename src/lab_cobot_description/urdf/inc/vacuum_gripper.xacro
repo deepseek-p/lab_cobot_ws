@@ -27,6 +27,9 @@
       <child link="suction_link"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
+    <gazebo reference="suction_joint">
+      <preserveFixedJoint>true</preserveFixedJoint>
+    </gazebo>
     <!-- 吸附作用点(TCP 末端) -->
     <link name="grasp_point"/>
     <joint name="grasp_point_joint" type="fixed">
@@ -34,7 +37,10 @@
       <child link="grasp_point"/>
       <origin xyz="0 0 0.04" rpy="0 0 0"/>
     </joint>
-    <gazebo reference="suction_link"><material>Gazebo/Red</material></gazebo>
+    <gazebo reference="suction_link">
+      <material>Gazebo/Red</material>
+      <preserveFixedJoint>true</preserveFixedJoint>
+    </gazebo>
 
     <!-- 真空吸盘插件:service /suction/switch(std_srvs/SetBool)开关,
          topic /suction/grasping(std_msgs/Bool)状态。max_distance 内的非 fixed 物体被吸附。 -->
@@ -45,7 +51,7 @@
           <remapping>switch:=suction/switch</remapping>
           <remapping>grasping:=suction/grasping</remapping>
         </ros>
-        <link_name>suction_link</link_name>
+        <link_name>ur_wrist_3_link</link_name>
         <max_distance>0.06</max_distance>
         <fixed>ground_plane</fixed>
         <fixed>walls</fixed>

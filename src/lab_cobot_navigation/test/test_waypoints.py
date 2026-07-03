@@ -31,6 +31,33 @@ def test_stations_distinct_positions():
     assert (a["x"], a["y"]) != (b["x"], b["y"])
 
 
+def test_pick_station_is_within_manipulator_reach():
+    station_a = get_waypoint("station_a")
+    sample_y = 1.5
+    nav_xy_goal_tolerance = 0.12
+
+    nominal_forward_distance = sample_y - station_a["y"]
+    worst_case_forward_distance = nominal_forward_distance + nav_xy_goal_tolerance
+
+    assert 0.60 <= nominal_forward_distance <= 0.70
+    assert worst_case_forward_distance <= 0.78
+
+
+def test_place_station_stays_in_navigable_corridor():
+    station_b = get_waypoint("station_b")
+
+    assert station_b["y"] <= 0.70
+
+
+def test_place_station_stays_out_of_table_inflation_while_place_pose_reaches_table():
+    station_b = get_waypoint("station_b")
+    station_table_front_y = 1.20
+    default_place_forward_distance = 0.82
+
+    assert station_b["y"] <= 0.50
+    assert station_b["y"] + default_place_forward_distance >= station_table_front_y
+
+
 def test_get_waypoint_returns_copy():
     wp = get_waypoint("home")
     wp["x"] = 999.0

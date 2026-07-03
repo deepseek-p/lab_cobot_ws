@@ -75,11 +75,11 @@
         <material name="cam_dark"><color rgba="0.1 0.1 0.1 1"/></material></visual>
       <xacro:box_inertia m="0.05" x="0.03" y="0.09" z="0.025"/>
     </link>
-    <!-- 装在立柱上方、向前下俯视(pitch 向下 0.5rad) -->
+    <!-- 装在立柱上方、略高于桌面，向前轻微俯视 station_a 样件 -->
     <joint name="camera_joint" type="fixed">
       <parent link="arm_mount_link"/>
       <child link="camera_link"/>
-      <origin xyz="0.10 0 0.05" rpy="0 0.5 0"/>
+      <origin xyz="0.10 0 0.35" rpy="0 0.15 0"/>
     </joint>
     <!-- 光学系(REP-103:z 向前,x 向右,y 向下) -->
     <link name="camera_optical_frame"/>

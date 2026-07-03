@@ -21,3 +21,22 @@ def test_spawn_entity_waits_for_slow_gazebo_factory_startup():
     )
     assert timeout_arg is not None
     assert float(timeout_arg.group("seconds")) >= 90.0
+
+
+def test_world_launch_spawns_wheel_velocity_controller():
+    launch_file = Path(__file__).resolve().parents[1] / "launch" / "world.launch.py"
+    text = launch_file.read_text(encoding="utf-8")
+
+    assert "wheel_velocity_controller" in text
+    assert 'arguments=["wheel_velocity_controller", "-c", "/controller_manager"]' in text
+
+
+def test_world_launch_starts_gzclient_with_sanitized_model_path():
+    launch_file = Path(__file__).resolve().parents[1] / "launch" / "world.launch.py"
+    text = launch_file.read_text(encoding="utf-8")
+
+    assert "gzclient.launch.py" not in text
+    assert "ExecuteProcess(" in text
+    assert '"gzclient"' in text
+    assert '"--gui-client-plugin=libgazebo_ros_eol_gui.so"' in text
+    assert '"GAZEBO_MODEL_PATH": os.path.join(gz_pkg, "models")' in text

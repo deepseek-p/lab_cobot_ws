@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='THW',
     maintainer_email='2188630464@qq.com',
-    description='机械臂抓放执行(pymoveit2 运动规划 + 真空吸盘吸附)',
+    description='机械臂抓放执行(pymoveit2 运动规划 + 平行夹爪后端)',
     license='Apache-2.0',
     extras_require={'test': ['pytest']},
     entry_points={

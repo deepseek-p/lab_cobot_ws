@@ -2,7 +2,7 @@
 <!--
   Semantic Robot Description Format (SRDF) for lab_cobot.
   规划组 = UR5e 机械臂(ur_ 前缀)。link 名与 lab_cobot.urdf.xacro 生成结果一致。
-  注:disable_collisions 先覆盖相邻链 + 底盘/立柱/吸盘;Phase 4 接 MoveIt 时
+  注:disable_collisions 先覆盖相邻链 + 底盘/立柱/夹爪;Phase 4 接 MoveIt 时
   可用 MoveIt Setup Assistant 或官方 ur5e SRDF 补全非相邻 link 对。
 -->
 <robot name="lab_cobot">
@@ -10,6 +10,10 @@
   <!-- ===== 规划组 ===== -->
   <group name="ur_manipulator">
     <chain base_link="ur_base_link" tip_link="ur_tool0"/>
+  </group>
+  <group name="gripper">
+    <joint name="gripper_left_finger_joint"/>
+    <joint name="gripper_right_finger_joint"/>
   </group>
 
   <!-- ===== 预设位姿 ===== -->
@@ -29,9 +33,23 @@
     <joint name="ur_wrist_2_joint" value="0"/>
     <joint name="ur_wrist_3_joint" value="0"/>
   </group_state>
+  <group_state name="open" group="gripper">
+    <joint name="gripper_left_finger_joint" value="0.0"/>
+    <joint name="gripper_right_finger_joint" value="0.0"/>
+  </group_state>
+  <group_state name="closed" group="gripper">
+    <joint name="gripper_left_finger_joint" value="0.035"/>
+    <joint name="gripper_right_finger_joint" value="0.035"/>
+  </group_state>
 
   <!-- ===== 末端执行器 ===== -->
-  <end_effector name="suction_ee" parent_link="ur_tool0" group="ur_manipulator"/>
+  <end_effector name="gripper" parent_link="ur_tool0" group="gripper"/>
+
+  <!-- 底盘平面运动由 gazebo_ros_planar_move 实现;轮关节由 ros2_control 驱动用于 GUI 视觉旋转。 -->
+  <passive_joint name="wheel_fl_joint"/>
+  <passive_joint name="wheel_fr_joint"/>
+  <passive_joint name="wheel_rl_joint"/>
+  <passive_joint name="wheel_rr_joint"/>
 
   <!-- ===== 碰撞禁用 ===== -->
   <!-- UR5e 相邻链 -->
@@ -41,9 +59,18 @@
   <disable_collisions link1="ur_forearm_link" link2="ur_wrist_1_link" reason="Adjacent"/>
   <disable_collisions link1="ur_wrist_1_link" link2="ur_wrist_2_link" reason="Adjacent"/>
   <disable_collisions link1="ur_wrist_2_link" link2="ur_wrist_3_link" reason="Adjacent"/>
-  <!-- 末端吸盘 -->
-  <disable_collisions link1="ur_wrist_3_link" link2="suction_link" reason="Adjacent"/>
-  <disable_collisions link1="ur_wrist_2_link" link2="suction_link" reason="Never"/>
+  <!-- Parallel gripper -->
+  <disable_collisions link1="ur_wrist_3_link" link2="gripper_base" reason="Adjacent"/>
+  <disable_collisions link1="ur_wrist_2_link" link2="gripper_base" reason="Never"/>
+  <disable_collisions link1="ur_wrist_1_link" link2="gripper_base" reason="Never"/>
+  <disable_collisions link1="ur_forearm_link" link2="gripper_base" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="gripper_base" reason="Adjacent"/>
+  <disable_collisions link1="gripper_right_finger" link2="gripper_base" reason="Adjacent"/>
+  <disable_collisions link1="gripper_left_finger" link2="gripper_right_finger" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="ur_wrist_3_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="ur_wrist_3_link" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="ur_wrist_2_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="ur_wrist_2_link" reason="Never"/>
   <!-- 底盘 / 立柱 / UR 基座 / 传感器 -->
   <disable_collisions link1="base_link" link2="pillar_link" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="laser" reason="Adjacent"/>

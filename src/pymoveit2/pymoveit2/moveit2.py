@@ -1,4 +1,5 @@
 import threading
+import time
 from typing import List, Optional, Tuple, Union
 
 from action_msgs.msg import GoalStatus
@@ -219,6 +220,7 @@ class MoveIt2:
         # Internal states that monitor the current motion requests and execution
         self.__is_motion_requested = False
         self.__is_executing = False
+        self.__last_execution_succeeded = False
         self.__wait_until_executed_rate = self._node.create_rate(1000.0)
 
         # Event that enables waiting until async future is done
@@ -248,6 +250,7 @@ class MoveIt2:
                 )
                 return
             self.__is_motion_requested = True
+            self.__last_execution_succeeded = False
 
             # Set goal
             self.set_pose_goal(
@@ -306,6 +309,7 @@ class MoveIt2:
                 )
                 return
             self.__is_motion_requested = True
+            self.__last_execution_succeeded = False
 
             # Set goal
             self.set_joint_goal(
@@ -446,19 +450,32 @@ class MoveIt2:
 
         self._send_goal_async_follow_joint_trajectory(goal=follow_joint_trajectory_goal)
 
-    def wait_until_executed(self):
+    def wait_until_executed(self, timeout_sec: Optional[float] = None):
         """
         Wait until the previously requested motion is finalised through either a success or failure.
         """
 
-        if not self.__is_motion_requested:
+        if not self.__is_motion_requested and not self.__is_executing:
             self._node.get_logger().warn(
                 "Cannot wait until motion is executed (no motion is in progress)."
             )
-            return
+            return False
+
+        deadline = None
+        if timeout_sec is not None:
+            deadline = time.monotonic() + max(float(timeout_sec), 0.0)
 
         while self.__is_motion_requested or self.__is_executing:
+            if deadline is not None and time.monotonic() >= deadline:
+                self._node.get_logger().warn(
+                    "Timed out waiting for motion execution to finish."
+                )
+                self.__is_motion_requested = False
+                self.__is_executing = False
+                self.__last_execution_succeeded = False
+                return False
             self.__wait_until_executed_rate.sleep()
+        return self.__last_execution_succeeded
 
     def reset_controller(
         self, joint_state: Union[JointState, List[float]], sync: bool = True
@@ -1064,6 +1081,7 @@ class MoveIt2:
                 f"Action server '{self.__move_action_client._action_name}' is not yet available. Better luck next time!"
             )
             self.__is_motion_requested = False
+            self.__last_execution_succeeded = False
             return
 
         self.__send_goal_future_move_action = self.__move_action_client.send_goal_async(
@@ -1082,6 +1100,7 @@ class MoveIt2:
                 f"Action '{self.__move_action_client._action_name}' was rejected."
             )
             self.__is_motion_requested = False
+            self.__last_execution_succeeded = False
             return
 
         self.__is_executing = True
@@ -1093,7 +1112,10 @@ class MoveIt2:
         )
 
     def __result_callback_move_action(self, res):
-        if res.result().status != GoalStatus.STATUS_SUCCEEDED:
+        self.__last_execution_succeeded = (
+            res.result().status == GoalStatus.STATUS_SUCCEEDED
+        )
+        if not self.__last_execution_succeeded:
             self._node.get_logger().error(
                 f"Action '{self.__move_action_client._action_name}' was unsuccessful: {res.result().status}."
             )
@@ -1113,6 +1135,7 @@ class MoveIt2:
                 f"Action server '{self.__follow_joint_trajectory_action_client._action_name}' is not yet available. Better luck next time!"
             )
             self.__is_motion_requested = False
+            self.__last_execution_succeeded = False
             return None
 
         action_result = self.__follow_joint_trajectory_action_client.send_goal_async(
@@ -1142,6 +1165,7 @@ class MoveIt2:
                 f"Action '{self.__follow_joint_trajectory_action_client._action_name}' was rejected."
             )
             self.__is_motion_requested = False
+            self.__last_execution_succeeded = False
             return
 
         self.__is_executing = True
@@ -1159,7 +1183,10 @@ class MoveIt2:
         self.__future_done_event.set()
 
     def __result_callback_follow_joint_trajectory(self, res):
-        if res.result().status != GoalStatus.STATUS_SUCCEEDED:
+        self.__last_execution_succeeded = (
+            res.result().status == GoalStatus.STATUS_SUCCEEDED
+        )
+        if not self.__last_execution_succeeded:
             self._node.get_logger().error(
                 f"Action '{self.__follow_joint_trajectory_action_client._action_name}' was unsuccessful: {res.result().status}."
             )

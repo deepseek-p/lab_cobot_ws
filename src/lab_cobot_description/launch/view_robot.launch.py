@@ -3,7 +3,7 @@
 用法(需 GUI):
     ros2 launch lab_cobot_description view_robot.launch.py
 预置 view_robot.rviz 配置(Fixed Frame=base_footprint + RobotModel + TF + Grid),
-打开即显示麦轮底盘 + 立柱 + UR5e + 吸盘 + 传感器。
+打开即显示麦轮底盘 + 立柱 + UR5e + 平行夹爪 + 传感器。
 """
 import os
 from ament_index_python.packages import get_package_share_directory

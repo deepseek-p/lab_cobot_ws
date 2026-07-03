@@ -32,6 +32,24 @@ install(PROGRAMS
   RENAME mission_node
 )
 
+install(PROGRAMS
+  ${PROJECT_NAME}/wheel_joint_state_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME wheel_joint_state_publisher
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/mecanum_wheel_visualizer.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mecanum_wheel_visualizer
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/gripper_attach_bridge.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME gripper_attach_bridge
+)
+
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
