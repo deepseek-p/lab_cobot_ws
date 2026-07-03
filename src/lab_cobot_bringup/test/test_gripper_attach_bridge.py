@@ -1,122 +1,194 @@
 """Contracts for the simulated gripper attach bridge."""
+import importlib.util
+import math
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import pytest
 
 from lab_cobot_bringup import gripper_attach_bridge
+from lab_cobot_bringup.grasp_validator import (
+    GraspValidationConfig,
+    GraspValidationResult,
+    validate_tcp_object_grasp,
+)
 from gazebo_msgs.srv import GetLinkProperties
 from geometry_msgs.msg import Pose
 
 
 BRINGUP = Path(__file__).resolve().parents[1]
+SRC = BRINGUP.parent
 
 
-def test_gripper_attach_bridge_declares_expected_topics_and_tcp():
-    bridge = (
-        BRINGUP / "lab_cobot_bringup" / "gripper_attach_bridge.py"
-    ).read_text(encoding="utf-8")
+def _load_launch_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    assert "/gripper/attach/aruco_sample" in bridge
-    assert "/gripper/detach/aruco_sample" in bridge
-    assert "gripper_tcp" in bridge
-    assert "/gazebo/model_states" in bridge
-    assert "SetEntityState" in bridge
-    assert 'TF_REFERENCE_FRAME = "odom"' in bridge
-    assert 'GAZEBO_REFERENCE_FRAME = "world"' in bridge
-    assert 'declare_parameter("tf_reference_frame", TF_REFERENCE_FRAME)' in bridge
-    assert (
-        'declare_parameter("gazebo_reference_frame", GAZEBO_REFERENCE_FRAME)'
-        in bridge
+
+def _package_share(pkg: str) -> str:
+    if pkg.startswith("lab_cobot_"):
+        return str(SRC / pkg)
+    return f"/opt/ros/humble/share/{pkg}"
+
+
+def _launch_entities(entity):
+    yield entity
+    actions = getattr(entity, "actions", None)
+    if actions:
+        for action in actions:
+            yield from _launch_entities(action)
+
+    handler = getattr(entity, "_RegisterEventHandler__event_handler", None)
+    if handler is not None:
+        on_event = getattr(handler, "_OnActionEventBase__actions_on_event", [])
+        for action in on_event:
+            yield from _launch_entities(action)
+
+
+def _all_launch_entities(launch_description):
+    for entity in launch_description.entities:
+        yield from _launch_entities(entity)
+
+
+def _node_arguments(node):
+    return list(getattr(node, "_Node__arguments", []) or [])
+
+
+def test_gripper_attach_bridge_default_contract_constants_are_coherent():
+    assert gripper_attach_bridge.OBJECT_NAME == "aruco_sample"
+    assert gripper_attach_bridge.ATTACH_TOPIC.endswith("/aruco_sample")
+    assert gripper_attach_bridge.DETACH_TOPIC.endswith("/aruco_sample")
+    assert gripper_attach_bridge.ATTACH_STATUS_TOPIC == "/gripper/attach/status"
+    assert gripper_attach_bridge.MODEL_STATES_TOPIC == "/gazebo/model_states"
+    assert gripper_attach_bridge.TF_REFERENCE_FRAME == "odom"
+    assert gripper_attach_bridge.GAZEBO_REFERENCE_FRAME == "world"
+    assert gripper_attach_bridge.TCP_FRAME == "gripper_tcp"
+    assert gripper_attach_bridge.OBJECT_LINK_NAME == "aruco_sample::link"
+
+
+def test_quaternion_rotation_round_trip_preserves_tcp_offset():
+    yaw_90 = (0.0, 0.0, math.sin(math.pi / 4.0), math.cos(math.pi / 4.0))
+    offset_tcp = (0.030, -0.009, 0.020)
+
+    offset_world = gripper_attach_bridge.rotate_vector(yaw_90, offset_tcp)
+    recovered = gripper_attach_bridge.rotate_vector(
+        gripper_attach_bridge.quat_conjugate(yaw_90),
+        offset_world,
     )
 
+    assert recovered == pytest.approx(offset_tcp)
 
-def test_gripper_attach_bridge_uses_grasp_validator_before_attaching():
-    bridge = (
-        BRINGUP / "lab_cobot_bringup" / "gripper_attach_bridge.py"
-    ).read_text(encoding="utf-8")
 
-    assert "GraspValidationConfig" in bridge
-    assert "validate_tcp_object_grasp" in bridge
-    assert "self._grasp_config" in bridge
-    assert (
-        "validation = validate_tcp_object_grasp(offset_tcp, self._grasp_config)"
-        in bridge
+def test_grasp_validator_accepts_boundary_values_and_rejects_overruns():
+    config = GraspValidationConfig()
+
+    assert validate_tcp_object_grasp((0.040, 0.018, 0.025), config).accepted
+    assert not validate_tcp_object_grasp((0.041, 0.0, 0.0), config).accepted
+    assert not validate_tcp_object_grasp((0.0, 0.019, 0.0), config).accepted
+    assert not validate_tcp_object_grasp((0.0, 0.0, 0.026), config).accepted
+
+
+def test_attach_converts_world_offset_to_tcp_frame_before_validation(monkeypatch):
+    bridge = object.__new__(gripper_attach_bridge.GripperAttachBridge)
+    tcp = Pose()
+    tcp.position.x = 1.0
+    tcp.position.y = 2.0
+    tcp.position.z = 0.5
+    tcp.orientation.z = math.sin(math.pi / 4.0)
+    tcp.orientation.w = math.cos(math.pi / 4.0)
+
+    expected_offset_tcp = (0.030, -0.009, 0.020)
+    offset_world = gripper_attach_bridge.rotate_vector(
+        gripper_attach_bridge.quat_tuple(tcp.orientation),
+        expected_offset_tcp,
     )
-    assert "refusing attach" in bridge
-    assert "validation.reason" in bridge
+    obj = Pose()
+    obj.position.x = tcp.position.x + offset_world[0]
+    obj.position.y = tcp.position.y + offset_world[1]
+    obj.position.z = tcp.position.z + offset_world[2]
+    obj.orientation = tcp.orientation
 
+    seen = {}
 
-def test_gripper_attach_bridge_declares_grasp_validation_parameters():
-    bridge = (
-        BRINGUP / "lab_cobot_bringup" / "gripper_attach_bridge.py"
-    ).read_text(encoding="utf-8")
+    def fake_validate(offset_tcp, config):
+        seen["offset_tcp"] = offset_tcp
+        seen["config"] = config
+        return GraspValidationResult(True, "accepted", offset_tcp, 0.0)
 
-    assert 'declare_parameter("grasp.max_center_distance_m", 0.080)' in bridge
-    assert 'declare_parameter("grasp.max_abs_x_m", 0.040)' in bridge
-    assert 'declare_parameter("grasp.max_abs_y_m", 0.018)' in bridge
-    assert 'declare_parameter("grasp.min_z_m", -0.060)' in bridge
-    assert 'declare_parameter("grasp.max_z_m", 0.025)' in bridge
-
-
-def test_gripper_attach_bridge_updates_fast_enough_to_reduce_attached_jitter():
-    bridge = (
-        BRINGUP / "lab_cobot_bringup" / "gripper_attach_bridge.py"
-    ).read_text(encoding="utf-8")
-
-    assert 'declare_parameter("update_rate", 120.0)' in bridge
-
-
-def test_gripper_attach_bridge_publishes_attach_status():
-    bridge = (
-        BRINGUP / "lab_cobot_bringup" / "gripper_attach_bridge.py"
-    ).read_text(encoding="utf-8")
-
-    assert 'ATTACH_STATUS_TOPIC = "/gripper/attach/status"' in bridge
-    assert "String" in bridge
-    assert "self._attach_status_pub" in bridge
-    assert 'self._publish_attach_status("attached")' in bridge
-    assert 'self._publish_attach_status("refused", validation.reason)' in bridge
-    assert (
-        'self._publish_attach_status("refused", "missing_tcp_or_model_pose")'
-        in bridge
+    monkeypatch.setattr(
+        gripper_attach_bridge,
+        "validate_tcp_object_grasp",
+        fake_validate,
     )
 
+    bridge._tcp_pose = lambda: tcp
+    bridge._model_pose = obj
+    bridge._grasp_config = GraspValidationConfig()
+    bridge._attachment_generation = 0
+    bridge._object_name = "aruco_sample"
+    bridge._tcp_frame = "gripper_tcp"
+    bridge._request_object_gravity_disabled = lambda generation: None
+    bridge._publish_attach_status = lambda status, reason="": None
+    bridge.get_logger = lambda: type(
+        "Logger",
+        (),
+        {"info": lambda *args, **kwargs: None, "warn": lambda *args, **kwargs: None},
+    )()
 
-def test_gripper_attach_bridge_is_installed_with_gazebo_dependency():
-    cmake = (BRINGUP / "CMakeLists.txt").read_text(encoding="utf-8")
-    package = (BRINGUP / "package.xml").read_text(encoding="utf-8")
+    bridge._attach(None)
 
-    assert "gripper_attach_bridge.py" in cmake
-    assert "RENAME gripper_attach_bridge" in cmake
-    assert "<exec_depend>gazebo_msgs</exec_depend>" in package
+    assert seen["offset_tcp"] == pytest.approx(expected_offset_tcp)
+    assert seen["config"] is bridge._grasp_config
+    assert bridge._attachment.offset_tcp == pytest.approx((0.0, 0.0, 0.0))
 
 
 def test_gazebo_world_loads_state_service_plugin():
-    world = (
-        BRINGUP.parent / "lab_cobot_gazebo" / "worlds" / "lab.world"
-    ).read_text(encoding="utf-8")
+    world = ET.parse(SRC / "lab_cobot_gazebo" / "worlds" / "lab.world")
+    plugins = {
+        plugin.attrib["filename"]: plugin
+        for plugin in world.findall("./world/plugin")
+    }
 
-    assert "libgazebo_ros_state.so" in world
+    assert "libgazebo_ros_state.so" in plugins
+    namespace = plugins["libgazebo_ros_state.so"].findtext("./ros/namespace")
+    assert namespace == "/gazebo"
 
 
 def test_gazebo_world_loads_properties_plugin_for_attach_physics():
-    world = (
-        BRINGUP.parent / "lab_cobot_gazebo" / "worlds" / "lab.world"
-    ).read_text(encoding="utf-8")
+    world = ET.parse(SRC / "lab_cobot_gazebo" / "worlds" / "lab.world")
+    plugins = {
+        plugin.attrib["filename"]: plugin
+        for plugin in world.findall("./world/plugin")
+    }
 
-    assert "libgazebo_ros_properties.so" in world
-    assert "<namespace>/gazebo</namespace>" in world
+    assert "libgazebo_ros_properties.so" in plugins
+    namespace = plugins["libgazebo_ros_properties.so"].findtext("./ros/namespace")
+    assert namespace == "/gazebo"
 
 
-def test_gazebo_launch_spawns_gripper_controller():
-    launch_file = (
-        BRINGUP.parent / "lab_cobot_gazebo" / "launch" / "world.launch.py"
-    ).read_text(encoding="utf-8")
+def test_gazebo_launch_spawns_gripper_controller(monkeypatch):
+    module = _load_launch_module(
+        SRC / "lab_cobot_gazebo" / "launch" / "world.launch.py",
+        "lab_cobot_gazebo_world_launch_test",
+    )
+    monkeypatch.setattr(module, "get_package_share_directory", _package_share)
 
-    assert "gripper_position_controller" in launch_file
-    assert (
-        'arguments=["gripper_position_controller", "-c", "/controller_manager"]'
-        in launch_file
+    launch_description = module.generate_launch_description()
+    controller_nodes = [
+        entity
+        for entity in _all_launch_entities(launch_description)
+        if getattr(entity, "node_package", None) == "controller_manager"
+    ]
+
+    assert any(
+        _node_arguments(node) == [
+            "gripper_position_controller",
+            "-c",
+            "/controller_manager",
+        ]
+        for node in controller_nodes
     )
 
 

@@ -1,4 +1,4 @@
-"""pose_math 单元测试(纯逻辑,headless pytest 可跑)。"""
+"""Unit tests for camera geometry helpers."""
 import math
 
 import pytest

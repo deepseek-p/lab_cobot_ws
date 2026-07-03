@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""抓取/放置执行:pymoveit2 规划 UR5e 运动 + 平行夹爪后端。
+"""
+Pick-and-place execution with MoveIt2 and the parallel gripper backend.
 
 PickPlace 类供 mission_node 复用;main() 提供独立节点(订阅简单指令做冒烟测试)。
 实际执行需运行时(move_group + Gazebo 控制器 + gripper attach bridge)。

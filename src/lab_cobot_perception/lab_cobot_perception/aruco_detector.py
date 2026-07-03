@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""ArUco 检测 + 6D 位姿 + TF/PoseStamped 发布节点。
+"""
+ArUco detection and object pose publishing node.
 
 改进自 eyrc ur5_control/aruco_detector:
 - 订阅本项目 RGB-D 相机话题 /bench_camera/*
@@ -22,9 +23,9 @@ from geometry_msgs.msg import TransformStamped, PoseStamped
 
 try:
     import cv2
-    from cv_bridge import CvBridge
     _CV_AVAILABLE = True
 except Exception:  # pragma: no cover - 运行时依赖
+    cv2 = None
     _CV_AVAILABLE = False
 
 import tf2_ros
@@ -39,7 +40,7 @@ DEFAULT_MODEL_STATES_TOPIC = "/gazebo/model_states"
 
 
 def _make_aruco_detector():
-    """兼容 OpenCV 新旧 ArUco API。返回 detect(image)->(corners, ids)。"""
+    """Return a detect(image) adapter for old and new OpenCV ArUco APIs."""
     aruco = cv2.aruco
     dic = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     if hasattr(aruco, "ArucoDetector"):
@@ -119,6 +120,12 @@ class ArucoDetector(Node):
 
         if not _CV_AVAILABLE:
             self.get_logger().error("cv2 / cv_bridge 不可用,节点无法检测(请检查依赖)")
+            return
+
+        try:
+            from cv_bridge import CvBridge
+        except Exception as ex:  # pragma: no cover - runtime dependency path
+            self.get_logger().error(f"cv_bridge 不可用,节点无法检测: {ex}")
             return
 
         self.bridge = CvBridge()

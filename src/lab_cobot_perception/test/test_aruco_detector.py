@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 
 import cv2
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -36,16 +37,35 @@ def test_area_threshold_accepts_station_a_runtime_marker_size():
     assert ARUCO_AREA_THRESHOLD <= 850
 
 
-def test_detector_offsets_marker_surface_depth_to_sample_center():
-    detector = (
-        Path(__file__).resolve().parents[1]
-        / "lab_cobot_perception"
-        / "aruco_detector.py"
-    ).read_text(encoding="utf-8")
+def test_process_offsets_marker_surface_depth_to_sample_center():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.rgb_img = np.zeros((200, 200, 3), dtype=np.uint8)
+    detector.depth_img = np.full((200, 200), 1.5, dtype=np.float32)
+    detector.fx = 100.0
+    detector.fy = 100.0
+    detector.cx = 100.0
+    detector.cy = 100.0
+    detector.marker_to_object_center_m = 0.035
+    detector.detect = lambda _gray: (
+        [
+            np.array(
+                [[[50.0, 50.0], [150.0, 50.0], [150.0, 150.0], [50.0, 150.0]]],
+                dtype=np.float32,
+            )
+        ],
+        np.array([[7]], dtype=np.int32),
+    )
+    published = {}
+    detector._publish = lambda mid, x, y, z: published.update(
+        {"mid": mid, "x": x, "y": y, "z": z}
+    )
 
-    assert "marker_to_object_center_m" in detector
-    assert "0.035" in detector
-    assert "offset_along_camera_ray" in detector
+    detector._process()
+
+    assert published["mid"] == 7
+    assert published["x"] == 0.0
+    assert published["y"] == 0.0
+    assert published["z"] == 1.535
 
 
 def test_model_pose_to_object_transform_defaults_to_odom_truth_frame():

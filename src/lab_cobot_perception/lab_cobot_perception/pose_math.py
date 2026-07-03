@@ -1,4 +1,5 @@
-"""相机几何:像素+深度 → 相机系 3D 坐标(针孔模型),以及相机系→目标系的辅助。
+"""
+Camera geometry helpers for RGB-D perception.
 
 这是 ArUco / RGB-D 6D 位姿估计的核心数学,纯函数无 ROS 依赖,便于单元测试。
 """
@@ -11,7 +12,8 @@ def pixel_to_camera(
     u: float, v: float, depth: float,
     fx: float, fy: float, cx: float, cy: float,
 ) -> Tuple[float, float, float]:
-    """针孔模型反投影:像素 (u,v) + 深度 depth → 相机光学系 (x,y,z)。
+    """
+    Back-project a depth pixel into the camera optical frame.
 
     相机光学系约定(REP-103):z 沿光轴向前,x 向右,y 向下。
     x = (u - cx) * z / fx
@@ -30,7 +32,8 @@ def offset_along_camera_ray(
     point_cam: Tuple[float, float, float],
     offset_m: float,
 ) -> Tuple[float, float, float]:
-    """Move a camera-frame point farther along the same pixel ray.
+    """
+    Move a camera-frame point farther along the same pixel ray.
 
     RGB-D depth on an ArUco marker reports the visible marker surface. For a
     cuboid sample, the object center is farther along that same camera ray by
@@ -47,7 +50,7 @@ def offset_along_camera_ray(
 
 
 def fov_to_focal(width_px: int, hfov_rad: float) -> float:
-    """由水平视场角与图像宽度反算焦距(像素)。fx = (W/2) / tan(hfov/2)。"""
+    """Convert horizontal FOV and image width into focal length in pixels."""
     import math
     if hfov_rad <= 0.0:
         raise ValueError("hfov 必须为正")
@@ -59,7 +62,8 @@ def camera_to_base(
     t_base_cam: Tuple[float, float, float],
     r_base_cam,
 ) -> Tuple[float, float, float]:
-    """把相机系点变换到基座系:p_base = R * p_cam + t。
+    """
+    Transform a camera-frame point into the base frame.
 
     r_base_cam 为 3x3 旋转矩阵(行优先嵌套序列),t_base_cam 为平移。
     """
