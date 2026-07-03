@@ -39,12 +39,6 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
-  ${PROJECT_NAME}/wheel_joint_state_publisher.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME wheel_joint_state_publisher
-)
-
-install(PROGRAMS
   ${PROJECT_NAME}/mecanum_wheel_visualizer.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME mecanum_wheel_visualizer
