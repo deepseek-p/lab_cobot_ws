@@ -17,7 +17,6 @@ ATTACH_STATUS_TOPIC = "/gripper/attach/status"
 ATTACH_ACCEPTED_PREFIX = "attached aruco_sample"
 ATTACH_REFUSED_PREFIX = "refused aruco_sample"
 DEFAULT_ATTACH_TIMEOUT_SEC = 1.5
-GRIPPER_TCP_OFFSET = 0.105
 
 
 class GripperDriver(Protocol):
