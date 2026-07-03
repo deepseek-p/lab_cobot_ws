@@ -4,9 +4,13 @@ from pathlib import Path
 import yaml
 
 
-def test_progress_checker_allows_terminal_settling_in_small_lab():
+def _nav2_params():
     params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    return yaml.safe_load(params_file.read_text(encoding="utf-8"))
+
+
+def test_progress_checker_allows_terminal_settling_in_small_lab():
+    params = _nav2_params()
 
     progress_checker = params["controller_server"]["ros__parameters"][
         "progress_checker"
@@ -17,8 +21,7 @@ def test_progress_checker_allows_terminal_settling_in_small_lab():
 
 
 def test_goal_checker_is_precise_enough_for_pick_station():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     controller = params["controller_server"]["ros__parameters"]
 
     assert controller["general_goal_checker"]["xy_goal_tolerance"] <= 0.12
@@ -26,16 +29,14 @@ def test_goal_checker_is_precise_enough_for_pick_station():
 
 
 def test_controller_can_back_out_of_table_facing_stations():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     follow_path = params["controller_server"]["ros__parameters"]["FollowPath"]
 
     assert follow_path["min_vel_x"] <= -0.15
 
 
 def test_rotate_to_goal_waits_for_actual_translation_stop():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     follow_path = params["controller_server"]["ros__parameters"]["FollowPath"]
 
     assert follow_path["trans_stopped_velocity"] <= 0.05
@@ -43,8 +44,7 @@ def test_rotate_to_goal_waits_for_actual_translation_stop():
 
 
 def test_terminal_rotation_has_fine_symmetric_sampling():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     follow_path = params["controller_server"]["ros__parameters"]["FollowPath"]
 
     angular_step = 2 * follow_path["max_vel_theta"] / (follow_path["vtheta_samples"] - 1)
@@ -54,8 +54,7 @@ def test_terminal_rotation_has_fine_symmetric_sampling():
 
 
 def test_mecanum_navigation_keeps_lateral_velocity_enabled():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     controller = params["controller_server"]["ros__parameters"]
     follow_path = controller["FollowPath"]
     smoother = params["velocity_smoother"]["ros__parameters"]
@@ -71,8 +70,7 @@ def test_mecanum_navigation_keeps_lateral_velocity_enabled():
 
 
 def test_mecanum_navigation_does_not_creep_on_long_station_legs():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     follow_path = params["controller_server"]["ros__parameters"]["FollowPath"]
     smoother = params["velocity_smoother"]["ros__parameters"]
 
@@ -85,8 +83,7 @@ def test_mecanum_navigation_does_not_creep_on_long_station_legs():
 
 
 def test_goal_checker_revalidates_xy_while_turning_at_station():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     controller = params["controller_server"]["ros__parameters"]
     follow_path = controller["FollowPath"]
 
@@ -95,8 +92,7 @@ def test_goal_checker_revalidates_xy_while_turning_at_station():
 
 
 def test_dwb_sampling_budget_stays_realtime_for_lab_sim():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     controller = params["controller_server"]["ros__parameters"]
     follow_path = controller["FollowPath"]
 
@@ -111,8 +107,7 @@ def test_dwb_sampling_budget_stays_realtime_for_lab_sim():
 
 
 def test_station_approach_keeps_alignment_strong_enough_for_terminal_docking():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     follow_path = params["controller_server"]["ros__parameters"]["FollowPath"]
 
     assert follow_path["debug_trajectory_details"] is False
@@ -125,8 +120,59 @@ def test_station_approach_keeps_alignment_strong_enough_for_terminal_docking():
 
 
 def test_bt_navigator_debug_monitoring_is_disabled_for_gui_missions():
-    params_file = Path(__file__).resolve().parents[1] / "config" / "nav2_params.yaml"
-    params = yaml.safe_load(params_file.read_text(encoding="utf-8"))
+    params = _nav2_params()
     bt_navigator = params["bt_navigator"]["ros__parameters"]
 
     assert bt_navigator["enable_groot_monitoring"] is False
+
+
+def test_amcl_uses_omni_motion_model_for_mecanum_base():
+    params = _nav2_params()
+    amcl = params["amcl"]["ros__parameters"]
+
+    assert amcl["robot_model_type"] == "nav2_amcl::OmniMotionModel"
+
+
+def test_humble_behavior_server_replaces_legacy_recoveries_server():
+    params = _nav2_params()
+
+    assert "recoveries_server" not in params
+    behavior_server = params["behavior_server"]["ros__parameters"]
+    assert behavior_server["behavior_plugins"] == ["spin", "backup", "wait"]
+    assert "recovery_plugins" not in behavior_server
+    assert behavior_server["spin"]["plugin"] == "nav2_behaviors/Spin"
+    assert behavior_server["backup"]["plugin"] == "nav2_behaviors/BackUp"
+    assert behavior_server["wait"]["plugin"] == "nav2_behaviors/Wait"
+    assert behavior_server["transform_tolerance"] == 0.1
+    assert "transform_timeout" not in behavior_server
+
+
+def test_velocity_smoother_and_smoother_server_use_sim_time():
+    params = _nav2_params()
+
+    assert params["velocity_smoother"]["ros__parameters"]["use_sim_time"] is True
+    smoother_server = params["smoother_server"]["ros__parameters"]
+    assert smoother_server["use_sim_time"] is True
+    assert smoother_server["smoother_plugins"] == ["simple_smoother"]
+    assert (
+        smoother_server["simple_smoother"]["plugin"]
+        == "nav2_smoother::SimpleSmoother"
+    )
+
+
+def test_dwb_uses_obstacle_footprint_critic_with_existing_scale():
+    params = _nav2_params()
+    follow_path = params["controller_server"]["ros__parameters"]["FollowPath"]
+
+    assert "ObstacleFootprint" in follow_path["critics"]
+    assert "BaseObstacle" not in follow_path["critics"]
+    assert follow_path["ObstacleFootprint.scale"] == 0.02
+    assert "BaseObstacle.scale" not in follow_path
+
+
+def test_local_costmap_has_no_unused_static_layer_block():
+    params = _nav2_params()
+    local_costmap = params["local_costmap"]["local_costmap"]["ros__parameters"]
+
+    assert local_costmap["plugins"] == ["voxel_layer", "inflation_layer"]
+    assert "static_layer" not in local_costmap
