@@ -1,4 +1,5 @@
-"""一键启动跨工位抓取全栈(集成层)。
+"""
+Integrated launch for the cross-station pick-and-place stack.
 
     ros2 launch lab_cobot_bringup lab_cobot.launch.py
 启动顺序:Gazebo+机器人+控制器 → (延迟)move_group + Nav2 + 感知 → (再延迟)mission。

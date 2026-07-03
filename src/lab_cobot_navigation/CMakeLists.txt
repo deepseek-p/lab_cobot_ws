@@ -22,6 +22,12 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+  find_package(ament_cmake_pytest REQUIRED)
+  set(ENV{PYTEST_ADDOPTS} "-p no:anyio")
+  ament_add_pytest_test(${PROJECT_NAME}_pytest test/
+    ENV "PYTEST_ADDOPTS=-p no:anyio"
+    TIMEOUT 120
+  )
 endif()
 
 ament_python_install_package(${PROJECT_NAME})

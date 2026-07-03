@@ -1,4 +1,5 @@
-"""工位 waypoint 表与查询(纯逻辑,可单元测试)。
+"""
+Station waypoint table and pure lookup helpers.
 
 坐标为 map 系下的机器人停靠位姿:停在工作台前、朝向工作台(+y)。
 工作台位置见 lab_cobot_gazebo/worlds/lab.world(工位A 2.0,1.5;工位B -2.0,1.5)。
@@ -27,5 +28,5 @@ def list_stations() -> List[str]:
 
 
 def yaw_to_quat(yaw: float):
-    """平面 yaw -> 四元数 (x,y,z,w)。"""
+    """Convert planar yaw to quaternion (x, y, z, w)."""
     return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))

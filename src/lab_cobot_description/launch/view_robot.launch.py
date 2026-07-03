@@ -1,4 +1,5 @@
-"""查看一体化机器人模型(RViz + joint_state_publisher_gui)。
+"""
+Launch RViz and joint_state_publisher_gui for the robot model.
 
 用法(需 GUI):
     ros2 launch lab_cobot_description view_robot.launch.py

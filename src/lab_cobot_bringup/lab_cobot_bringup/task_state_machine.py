@@ -1,4 +1,5 @@
-"""单对象跨工位抓取任务状态机(纯逻辑,不依赖 ROS,便于单元测试)。
+"""
+Cross-station single-object task state machine.
 
 运行时由 mission_node 驱动:每个状态对应一个动作(导航/识别/抓取/放置),
 执行后用 on_result(success) 推进、重试或判失败。
@@ -32,7 +33,8 @@ STEP_ORDER = [
 
 
 class CrossStationTask:
-    """跨工位抓取状态机。
+    """
+    State machine for cross-station pick-and-place.
 
     - start(): 从 IDLE 进入第一步
     - on_result(success): 成功→下一步;失败→在 max_retries 内重试,超出→FAILED

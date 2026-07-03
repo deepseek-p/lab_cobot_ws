@@ -1,4 +1,4 @@
-"""跨工位任务状态机单元测试(纯逻辑,headless pytest 可跑)。"""
+"""Unit tests for the cross-station task state machine."""
 import pytest
 
 from lab_cobot_bringup.task_state_machine import (

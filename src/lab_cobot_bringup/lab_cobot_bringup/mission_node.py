@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""跨工位抓取任务编排节点。
+"""
+Cross-station pick-and-place mission orchestration node.
 
 驱动 task_state_machine,串联:Nav2(BasicNavigator)导航 → 感知(obj TF)→
 MoveIt 抓取(PickPlace)→ 导航 → 放置 → 返回 home。

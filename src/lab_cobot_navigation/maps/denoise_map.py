@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""清理 SLAM 地图噪点:移除孤立假障碍簇 + 清空机器人起点周围。保留真墙。"""
+"""Remove isolated SLAM map noise while preserving real walls."""
 import numpy as np
 from PIL import Image
 

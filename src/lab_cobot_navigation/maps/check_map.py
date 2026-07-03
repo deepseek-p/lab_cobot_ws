@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""检查地图起点占用情况与噪点。"""
+"""Check map origin occupancy and obstacle noise."""
 import numpy as np
 import yaml
 from PIL import Image

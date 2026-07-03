@@ -1,4 +1,5 @@
-"""启动 move_group(MoveIt2)用于 lab_cobot 的 UR5e 规划组(ur_manipulator)。
+"""
+Launch MoveIt2 move_group for the lab_cobot UR5e planning group.
 
 需运行时(配合 Gazebo + joint_trajectory_controller):
     ros2 launch lab_cobot_moveit move_group.launch.py
