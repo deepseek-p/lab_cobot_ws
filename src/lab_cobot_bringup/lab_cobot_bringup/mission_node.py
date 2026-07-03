@@ -44,6 +44,7 @@ DOCK_MAX_LINEAR_Y = 0.08
 DOCK_TIMEOUT_SEC = 20.0
 DOCK_PUBLISH_PERIOD_SEC = 0.05
 DOCK_STOP_SEC = 0.3
+NAV_TIMEOUT_SEC = 60.0
 PICK_NAV_HANDOFF_MIN_X = 0.70
 PICK_NAV_HANDOFF_MAX_X = 0.90
 PICK_NAV_HANDOFF_MAX_ABS_Y = 0.12
@@ -220,15 +221,21 @@ class MissionNode(Node):
         Thread(target=self._run_mission, daemon=True).start()
 
     def _run_mission(self):
-        task = CrossStationTask(max_retries=1)
-        task.start()
-        self._publish(task.state)
-        while not task.is_terminal():
-            ok = self._execute(task.state)
-            task.on_result(ok)
+        try:
+            task = CrossStationTask(max_retries=1)
+            task.start()
             self._publish(task.state)
-        self.get_logger().info(f"任务结束: {task.state.name}")
-        self._busy = False
+            while not task.is_terminal():
+                ok = self._execute(task.state)
+                task.on_result(ok)
+                self._publish(task.state)
+            if task.state == TaskState.FAILED:
+                self._failsafe_cleanup()
+            self.get_logger().info(f"任务结束: {task.state.name}")
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"任务执行异常: {e}")
+        finally:
+            self._busy = False
 
     def _execute(self, state: TaskState) -> bool:
         try:
@@ -258,27 +265,47 @@ class MissionNode(Node):
             return self._retreat_from_station()
         return ok
 
+    def _duration_elapsed(self, start, duration_sec: float) -> bool:
+        elapsed = self.get_clock().now() - start
+        timeout = rclpy.duration.Duration(seconds=duration_sec)
+        return elapsed.nanoseconds >= timeout.nanoseconds
+
+    def _publish_cmd_for_duration(self, cmd: Twist, duration_sec: float) -> None:
+        start = self.get_clock().now()
+        while not self._duration_elapsed(start, duration_sec):
+            self.retreat_pub.publish(cmd)
+            time.sleep(RETREAT_PUBLISH_PERIOD_SEC)
+
+    def _failsafe_cleanup(self) -> None:
+        self.get_logger().warn("任务失败,执行终态兜底清理")
+        try:
+            self.pp.gripper.release_object()
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"兜底 detach 失败: {e}")
+        try:
+            self._stop_base(DOCK_STOP_SEC)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"兜底停底盘失败: {e}")
+        try:
+            self.pp.go_home()
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"兜底 go_home 失败: {e}")
+
     def _retreat_from_station(self) -> bool:
         self.get_logger().info("离开工位前退避")
         cmd = Twist()
         cmd.linear.x = RETREAT_LINEAR_X
-        end = time.time() + RETREAT_DURATION_SEC
-        while time.time() < end:
-            self.retreat_pub.publish(cmd)
-            time.sleep(RETREAT_PUBLISH_PERIOD_SEC)
+        self._publish_cmd_for_duration(cmd, RETREAT_DURATION_SEC)
 
         stop = Twist()
-        end = time.time() + RETREAT_STOP_SEC
-        while time.time() < end:
-            self.retreat_pub.publish(stop)
-            time.sleep(RETREAT_PUBLISH_PERIOD_SEC)
+        self._publish_cmd_for_duration(stop, RETREAT_STOP_SEC)
         return True
 
     def _dock_to_pick_target(self) -> bool:
         self.get_logger().info("视觉停靠到样件")
-        end = time.time() + DOCK_TIMEOUT_SEC
+        start = self.get_clock().now()
         last_pose = None
-        while time.time() < end:
+        while not self._duration_elapsed(start, DOCK_TIMEOUT_SEC):
             pose = self._detect()
             if pose is not None:
                 last_pose = pose
@@ -304,10 +331,10 @@ class MissionNode(Node):
 
     def _dock_to_place_target(self) -> bool:
         self.get_logger().info("放置停靠到B工位")
-        end = time.time() + PLACE_DOCK_TIMEOUT_SEC
+        start = self.get_clock().now()
         last_pose = None
         target_pose = _station_base_pose("station_b")
-        while time.time() < end:
+        while not self._duration_elapsed(start, PLACE_DOCK_TIMEOUT_SEC):
             pose = self._base_pose_in_map(timeout_sec=0.05)
             if pose is not None:
                 last_pose = pose
@@ -341,10 +368,7 @@ class MissionNode(Node):
 
     def _stop_base(self, duration_sec: float) -> None:
         stop = Twist()
-        end = time.time() + duration_sec
-        while time.time() < end:
-            self.retreat_pub.publish(stop)
-            time.sleep(RETREAT_PUBLISH_PERIOD_SEC)
+        self._publish_cmd_for_duration(stop, duration_sec)
 
     def _navigate(self, station: str) -> bool:
         wp = get_waypoint(station)
@@ -358,6 +382,8 @@ class MissionNode(Node):
         goal.pose.orientation.w = qw
         self.get_logger().info(f"导航到 {station} ({wp['x']:.2f},{wp['y']:.2f})")
         self.nav.goToPose(goal)
+        t0 = self.get_clock().now()
+        timeout = rclpy.duration.Duration(seconds=NAV_TIMEOUT_SEC)
         # BasicNavigator.isTaskComplete 内部 spin nav 节点;mission 由外部 executor spin,此处仅等待(避免双重 spin)
         while not self.nav.isTaskComplete():
             if self._navigation_handoff_ready(station):
@@ -365,6 +391,11 @@ class MissionNode(Node):
                 self.nav.cancelTask()
                 self._stop_base(NAV_HANDOFF_STOP_SEC)
                 return True
+            if (self.get_clock().now() - t0).nanoseconds > timeout.nanoseconds:
+                self.get_logger().warn(f"导航到 {station} 超时，取消")
+                self.nav.cancelTask()
+                self._stop_base(NAV_HANDOFF_STOP_SEC)
+                return False
             time.sleep(0.2)
         return self.nav.getResult() == TaskResult.SUCCEEDED
 
