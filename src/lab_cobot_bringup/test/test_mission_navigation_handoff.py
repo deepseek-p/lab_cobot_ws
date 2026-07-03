@@ -36,6 +36,45 @@ def test_place_navigation_can_handoff_when_tcp_target_is_on_station_b_table():
     assert place_navigation_handoff_ready(base_pose, mission_node.DEFAULT_PLACE_POSE)
 
 
+def test_place_navigation_can_handoff_when_projected_drop_point_is_on_table():
+    place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
+    base_pose = (-1.80, 0.75, math.radians(90.0))
+    station_b = mission_node._station_base_pose("station_b")
+    distance_to_station = math.hypot(
+        base_pose[0] - station_b[0],
+        base_pose[1] - station_b[1],
+    )
+    place_x, place_y = mission_node._base_target_to_map(
+        base_pose,
+        mission_node.DEFAULT_PLACE_POSE[:2],
+    )
+
+    assert distance_to_station > mission_node.PLACE_NAV_HANDOFF_MAX_DISTANCE
+    assert mission_node._station_b_table_contains(place_x, place_y)
+    assert place_navigation_handoff_ready(base_pose, mission_node.DEFAULT_PLACE_POSE)
+
+
+def test_place_navigation_keeps_nav2_when_projected_drop_point_misses_table():
+    place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
+    base_pose = (-1.80, 0.20, math.radians(90.0))
+    station_b = mission_node._station_base_pose("station_b")
+    distance_to_station = math.hypot(
+        base_pose[0] - station_b[0],
+        base_pose[1] - station_b[1],
+    )
+    place_x, place_y = mission_node._base_target_to_map(
+        base_pose,
+        mission_node.DEFAULT_PLACE_POSE[:2],
+    )
+
+    assert distance_to_station > mission_node.PLACE_NAV_HANDOFF_MAX_DISTANCE
+    assert not mission_node._station_b_table_contains(place_x, place_y)
+    assert not place_navigation_handoff_ready(
+        base_pose,
+        mission_node.DEFAULT_PLACE_POSE,
+    )
+
+
 def test_place_navigation_can_handoff_when_base_is_close_enough_for_local_docking():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
     base_pose = (-1.80, 0.47, math.radians(147.0))
