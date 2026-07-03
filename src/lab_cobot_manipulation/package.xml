@@ -1,13 +1,12 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>lab_cobot_manipulation</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <version>0.1.0</version>
+  <description>机械臂抓放执行(pymoveit2 运动规划 + 平行夹爪后端)</description>
   <maintainer email="2188630464@qq.com">THW</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>std_srvs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>pymoveit2</exec_depend>

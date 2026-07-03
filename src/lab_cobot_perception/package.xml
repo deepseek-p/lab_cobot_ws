@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>lab_cobot_perception</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <version>0.1.0</version>
+  <description>感知:ArUco 检测与 6D 位姿估计(针孔反投影,复用 pose_math)</description>
   <maintainer email="2188630464@qq.com">THW</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
