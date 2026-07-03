@@ -9,16 +9,16 @@
 ## 1. 项目概述
 
 - **赛题**:CS-202618 中车株洲「面向实验室智能管理的协作机器人环境感知与动作规划方法研究」
-- **目标**:一台**麦克纳姆全向底盘 + 立柱 + UR5e + 真空吸盘**的一体化移动机械臂,在实验室双工位场景完成:`文本指令→导航到工位A→ArUco识别样件→抓取→导航到工位B→放置→返回home`
+- **目标**:一台**麦克纳姆全向底盘 + 立柱 + UR5e + 并联夹爪**的一体化移动机械臂,通过 `gripper_attach_bridge` + `grasp_validator` 做仿真软附着,在实验室双工位场景完成:`文本指令→导航到工位A→ArUco识别样件→抓取→导航到工位B→放置→返回home`
 - **工作空间**:`~/projects/lab_cobot_ws`(git 仓库,~30 commits)
-- **技术栈**:ROS 2 Humble · Gazebo Classic 11 · Nav2(AMCL+EKF+DWB) · MoveIt 2 · slam_toolbox · ArUco · 真空吸盘插件
+- **技术栈**:ROS 2 Humble · Gazebo Classic 11 · Nav2(AMCL+EKF+DWB) · MoveIt 2 · slam_toolbox · ArUco · 并联夹爪软附着
 - **移植蓝本**:eyrc-24-25-logistic-cobot(MIT,分离式小车+固定臂)→ 我们自建一体化麦轮移动机械臂
 
 ## 2. 当前状态(完成度)
 
 ### ✅ 已完成并验证(headless)
 - **8 个包全部 colcon build 通过**,25 单元测试全绿,5 launch 可解析
-- **本体**:一体化麦轮 URDF(底盘+立柱+UR5e+吸盘+激光/IMU/RGBD),RViz/Gazebo 显示正常、装配正确(check_urdf 27 link)
+- **本体**:一体化麦轮 URDF(底盘+立柱+UR5e+并联夹爪+激光/IMU/RGBD),RViz/Gazebo 显示正常、装配正确
 - **场景**:双工位 world + ArUco 样件(贴桌上)
 - **建图**:slam_toolbox 栈可用,建出干净图(5 簇)
 - **导航**:**单次导航实测打通**(发 1 个 goal,机器人从 0 走到 1.22m,planner 出 29 点路径、controller 发 0.26m/s)
@@ -27,18 +27,18 @@
 ### ⚠️ 未完成 / 待验证(接手重点)
 - **连续多次导航的稳定性**:用户反馈"导航 2 次后图乱/停住"。已诊断为 **AMCL 配置简陋导致定位漂移**,已补全参数(commit 964ffa4)但**未最终验证**(被 WSL nav2 启动偶发卡顿挡住)。**接手第一优先级:GUI 连续导航 3-4 次确认 AMCL 加固是否解决**。
 - **阶段 5 未做**:MoveIt 抓取实跑、ArUco 感知实跑、端到端 mission(`/task/instruction`→状态机)——代码骨架都在(`lab_cobot_manipulation`/`lab_cobot_perception`/`lab_cobot_bringup`),但没在 GUI 跑通过。
-- **标定**:吸盘抓取姿态 DOWN_QUAT、放置点坐标、相机内参——预设值,需运行时标定。
+- **标定**:抓取姿态 DOWN_QUAT、放置点坐标、相机内参——预设值,需运行时标定。
 
 ## 3. 包结构(8 包)
 
 | 包 | 职责 | 关键文件 |
 |---|---|---|
-| `lab_cobot_description` | 一体化 URDF + SRDF | `urdf/lab_cobot.urdf.xacro` + `urdf/inc/{mecanum_base,pillar,sensors,vacuum_gripper}.xacro` + `config/initial_positions.yaml` |
+| `lab_cobot_description` | 一体化 URDF + SRDF | `urdf/lab_cobot.urdf.xacro` + `urdf/inc/{mecanum_base,pillar,sensors,parallel_gripper}.xacro` + `config/initial_positions.yaml` |
 | `lab_cobot_gazebo` | 双工位 world + 样件 + spawn | `worlds/lab.world` + `models/aruco_sample/` + `launch/world.launch.py` |
 | `lab_cobot_navigation` | Nav2 + EKF + 建图 + 地图 | `config/{nav2_params,ekf,mapping}.yaml` + `launch/{navigation,mapping}.launch.py` + `maps/map.{pgm,yaml}` + `maps/{check_map,denoise_map}.py` |
 | `lab_cobot_moveit` | UR5e MoveIt 配置 | `config/*` + `launch/move_group.launch.py` |
 | `lab_cobot_perception` | ArUco 检测 + 针孔反投影 | `pose_math.py` + `aruco_detector.py` |
-| `lab_cobot_manipulation` | pick/place(pymoveit2+吸盘) | `pick_place_node.py` |
+| `lab_cobot_manipulation` | pick/place(pymoveit2+并联夹爪) | `pick_place_node.py` |
 | `lab_cobot_bringup` | 跨工位状态机 + 一键 launch | `task_state_machine.py` + `mission_node.py` + `launch/lab_cobot.launch.py` |
 | `pymoveit2` | vendored MoveIt2 Python 接口 | (第三方 BSD-3) |
 
@@ -124,8 +124,8 @@ cd src && python3 -m pytest lab_cobot_perception/test lab_cobot_bringup/test lab
 
 1. **【最高】GUI 连续导航 3-4 次,验证 AMCL 加固(commit 964ffa4)是否解决"多次导航后乱"**。若仍乱:看 RViz 激光红点和墙是否重合(=定位漂移,继续调 AMCL)还是机器人被一圈 costmap 障碍围住(=改 costmap clearing/inflation)。
 2. 阶段 5:GUI 跑通 MoveIt 抓取 + ArUco 感知 + 端到端 mission。
-3. 标定:吸盘 DOWN_QUAT、放置点、相机内参。
-4. (可选增强)平行夹爪替换吸盘、真实点云识别、轨道交通主题场景。
+3. 标定:DOWN_QUAT、放置点、相机内参。
+4. (可选增强)真实接触夹爪、真实点云识别、轨道交通主题场景。
 
 ## 8. 关键参数速查
 
