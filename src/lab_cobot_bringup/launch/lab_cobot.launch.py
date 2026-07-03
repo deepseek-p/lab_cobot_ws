@@ -16,6 +16,7 @@ from launch.actions import (
     SetEnvironmentVariable,
     TimerAction,
 )
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -82,6 +83,7 @@ def generate_launch_description():
         executable="mission_node",
         output="screen",
         parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("launch_mission")),
     )
 
     # 等 Gazebo + spawn + 控制器起来后再起规划/导航/感知

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from launch import LaunchContext
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
@@ -122,6 +123,17 @@ def test_mission_launch_does_not_globally_remap_internal_node_names(monkeypatch)
     mission = _node("lab_cobot_bringup", "mission_node", launch_description)
 
     assert getattr(mission, "_Node__node_name") is None
+
+
+def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    mission = _node("lab_cobot_bringup", "mission_node", launch_description)
+
+    assert isinstance(mission.condition, IfCondition)
+    predicate = getattr(mission.condition, "_IfCondition__predicate_expression")
+    assert len(predicate) == 1
+    assert isinstance(predicate[0], LaunchConfiguration)
+    assert _text(predicate[0].variable_name) == "launch_mission"
 
 
 def test_bringup_drives_mecanum_wheel_visuals_from_cmd_vel(monkeypatch):
