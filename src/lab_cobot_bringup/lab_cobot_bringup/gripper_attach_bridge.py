@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 
 import rclpy
@@ -33,6 +34,7 @@ GAZEBO_REFERENCE_FRAME = "world"
 TCP_FRAME = "gripper_tcp"
 OBJECT_LINK_NAME = f"{OBJECT_NAME}::link"
 VISUAL_HOLD_OFFSET_TCP = (0.0, 0.0, 0.0)
+PENDING_SET_ENTITY_TIMEOUT_SEC = 1.0
 
 
 @dataclass
@@ -212,6 +214,7 @@ class GripperAttachBridge(Node):
         self._attachment_generation = 0
         self._object_link_properties: LinkPhysicsProperties | None = None
         self._pending = None
+        self._pending_started_at: float | None = None
         self._grasp_config = GraspValidationConfig(
             max_center_distance_m=float(
                 self.get_parameter("grasp.max_center_distance_m").value
@@ -300,6 +303,10 @@ class GripperAttachBridge(Node):
         self._attach_status_pub.publish(msg)
 
     def _attach(self, _msg: Empty) -> None:
+        if self._attachment is not None:
+            self._publish_attach_status("attached")
+            return
+
         tcp = self._tcp_pose()
         obj = self._model_pose
         if tcp is None or obj is None:
@@ -401,20 +408,25 @@ class GripperAttachBridge(Node):
             )
             return
 
-        self._object_link_properties = properties
+        if self._object_link_properties is None:
+            self._object_link_properties = properties
         self._set_object_gravity(properties, gravity_mode=False)
 
     def _restore_object_gravity(self) -> None:
         properties = self._object_link_properties
-        self._object_link_properties = None
         if properties is None:
             return
-        self._set_object_gravity(properties, gravity_mode=properties.gravity_mode)
+        self._set_object_gravity(
+            properties,
+            gravity_mode=properties.gravity_mode,
+            clear_properties_on_success=True,
+        )
 
     def _set_object_gravity(
         self,
         properties: LinkPhysicsProperties,
         gravity_mode: bool,
+        clear_properties_on_success: bool = False,
     ) -> None:
         if not self._set_link_properties.service_is_ready():
             self.get_logger().warn(
@@ -433,10 +445,16 @@ class GripperAttachBridge(Node):
             lambda result: self._on_set_object_gravity(
                 result,
                 gravity_mode,
+                clear_properties_on_success,
             )
         )
 
-    def _on_set_object_gravity(self, future, gravity_mode: bool) -> None:
+    def _on_set_object_gravity(
+        self,
+        future,
+        gravity_mode: bool,
+        clear_properties_on_success: bool = False,
+    ) -> None:
         try:
             response = future.result()
         except Exception as ex:  # pragma: no cover - defensive ROS callback path
@@ -458,12 +476,25 @@ class GripperAttachBridge(Node):
         self.get_logger().info(
             "set %s gravity_mode=%s" % (self._object_link_name, gravity_mode)
         )
+        if clear_properties_on_success:
+            self._object_link_properties = None
 
     def _tick(self) -> None:
         if self._attachment is None:
             return
         if self._pending is not None and not self._pending.done():
-            return
+            started_at = self._pending_started_at
+            if (
+                started_at is not None
+                and time.monotonic() - started_at <= PENDING_SET_ENTITY_TIMEOUT_SEC
+            ):
+                return
+            self.get_logger().warning(
+                "set_entity_state for %s timed out; retrying" % self._object_name,
+                once=True,
+            )
+            self._pending = None
+            self._pending_started_at = None
 
         tcp = self._tcp_pose()
         if tcp is None:
@@ -486,6 +517,7 @@ class GripperAttachBridge(Node):
             reference_frame=self._gazebo_reference_frame,
         )
         self._pending = self._set_entity_state.call_async(request)
+        self._pending_started_at = time.monotonic()
 
 
 def main() -> None:

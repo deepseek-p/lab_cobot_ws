@@ -12,8 +12,8 @@ from lab_cobot_bringup.grasp_validator import (
     GraspValidationResult,
     validate_tcp_object_grasp,
 )
-from gazebo_msgs.srv import GetLinkProperties
-from geometry_msgs.msg import Pose
+from gazebo_msgs.srv import GetLinkProperties, SetLinkProperties
+from geometry_msgs.msg import Pose, Quaternion
 
 
 BRINGUP = Path(__file__).resolve().parents[1]
@@ -54,6 +54,59 @@ def _all_launch_entities(launch_description):
 
 def _node_arguments(node):
     return list(getattr(node, "_Node__arguments", []) or [])
+
+
+class _Future:
+    def __init__(self, result=None, done=True):
+        self._result = result
+        self._done = done
+
+    def done(self):
+        return self._done
+
+    def result(self):
+        return self._result
+
+
+class _Logger:
+    def __init__(self):
+        self.warnings = []
+
+    def debug(self, *args, **kwargs):
+        pass
+
+    def info(self, *args, **kwargs):
+        pass
+
+    def warn(self, message, **kwargs):
+        self.warning(message, **kwargs)
+
+    def warning(self, message, **kwargs):
+        self.warnings.append((message, kwargs))
+
+
+def _identity_pose():
+    pose = Pose()
+    pose.orientation.w = 1.0
+    return pose
+
+
+def _link_properties_response(gravity_mode: bool):
+    response = GetLinkProperties.Response()
+    response.success = True
+    response.com.orientation.w = 1.0
+    response.gravity_mode = gravity_mode
+    response.mass = 0.05
+    response.ixx = 4.0e-5
+    response.iyy = 5.0e-5
+    response.izz = 6.0e-5
+    return response
+
+
+def _set_link_properties_response(success: bool):
+    response = SetLinkProperties.Response()
+    response.success = success
+    return response
 
 
 def test_gripper_attach_bridge_default_contract_constants_are_coherent():
@@ -126,6 +179,7 @@ def test_attach_converts_world_offset_to_tcp_frame_before_validation(monkeypatch
     bridge._tcp_pose = lambda: tcp
     bridge._model_pose = obj
     bridge._grasp_config = GraspValidationConfig()
+    bridge._attachment = None
     bridge._attachment_generation = 0
     bridge._object_name = "aruco_sample"
     bridge._tcp_frame = "gripper_tcp"
@@ -142,6 +196,116 @@ def test_attach_converts_world_offset_to_tcp_frame_before_validation(monkeypatch
     assert seen["offset_tcp"] == pytest.approx(expected_offset_tcp)
     assert seen["config"] is bridge._grasp_config
     assert bridge._attachment.offset_tcp == pytest.approx((0.0, 0.0, 0.0))
+
+
+def test_duplicate_attach_preserves_original_gravity_baseline():
+    bridge = object.__new__(gripper_attach_bridge.GripperAttachBridge)
+    tcp = _identity_pose()
+    obj = _identity_pose()
+    logger = _Logger()
+    set_gravity_calls = []
+    gravity_reads = [
+        _link_properties_response(gravity_mode=True),
+        _link_properties_response(gravity_mode=False),
+    ]
+
+    def request_object_gravity_disabled(generation):
+        bridge._on_object_link_properties(_Future(gravity_reads.pop(0)), generation)
+
+    def set_object_gravity(
+        properties,
+        gravity_mode,
+        clear_properties_on_success=False,
+    ):
+        set_gravity_calls.append((properties.gravity_mode, gravity_mode))
+        if clear_properties_on_success:
+            bridge._object_link_properties = None
+
+    bridge._tcp_pose = lambda: tcp
+    bridge._model_pose = obj
+    bridge._grasp_config = GraspValidationConfig()
+    bridge._attachment = None
+    bridge._attachment_generation = 0
+    bridge._object_link_properties = None
+    bridge._object_name = "aruco_sample"
+    bridge._object_link_name = "aruco_sample::link"
+    bridge._tcp_frame = "gripper_tcp"
+    bridge._request_object_gravity_disabled = request_object_gravity_disabled
+    bridge._set_object_gravity = set_object_gravity
+    bridge._publish_attach_status = lambda status, reason="": None
+    bridge.get_logger = lambda: logger
+
+    bridge._attach(None)
+    bridge._attach(None)
+    bridge._detach(None)
+
+    assert set_gravity_calls[-1] == (True, True)
+
+
+def test_failed_gravity_restore_keeps_saved_link_properties():
+    bridge = object.__new__(gripper_attach_bridge.GripperAttachBridge)
+    logger = _Logger()
+    properties = gripper_attach_bridge.capture_link_properties(
+        _link_properties_response(gravity_mode=True)
+    )
+
+    def set_object_gravity(
+        properties,
+        gravity_mode,
+        clear_properties_on_success=False,
+    ):
+        bridge._on_set_object_gravity(
+            _Future(_set_link_properties_response(success=False)),
+            gravity_mode,
+            clear_properties_on_success,
+        )
+
+    bridge._object_link_properties = properties
+    bridge._object_link_name = "aruco_sample::link"
+    bridge._set_object_gravity = set_object_gravity
+    bridge.get_logger = lambda: logger
+
+    bridge._restore_object_gravity()
+
+    assert bridge._object_link_properties is properties
+
+
+def test_tick_resends_stale_pending_set_entity_state(monkeypatch):
+    bridge = object.__new__(gripper_attach_bridge.GripperAttachBridge)
+    logger = _Logger()
+    tcp = _identity_pose()
+    new_future = _Future(done=False)
+    calls = []
+
+    class FakeSetEntityStateClient:
+        def call_async(self, request):
+            calls.append(request)
+            return new_future
+
+    class FakeTime:
+        @staticmethod
+        def monotonic():
+            return 12.25
+
+    monkeypatch.setattr(gripper_attach_bridge, "time", FakeTime, raising=False)
+
+    bridge._attachment = gripper_attach_bridge.Attachment(
+        offset_tcp=(0.0, 0.0, 0.0),
+        relative_orientation=Quaternion(w=1.0),
+    )
+    bridge._pending = _Future(done=False)
+    bridge._pending_started_at = 11.0
+    bridge._tcp_pose = lambda: tcp
+    bridge._object_name = "aruco_sample"
+    bridge._gazebo_reference_frame = "world"
+    bridge._set_entity_state = FakeSetEntityStateClient()
+    bridge.get_logger = lambda: logger
+
+    bridge._tick()
+
+    assert len(calls) == 1
+    assert bridge._pending is new_future
+    assert logger.warnings[-1][1] == {"once": True}
 
 
 def test_gazebo_world_loads_state_service_plugin():
