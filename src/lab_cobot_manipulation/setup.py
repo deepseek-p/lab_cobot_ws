@@ -18,9 +18,4 @@ setup(
     description='机械臂抓放执行(pymoveit2 运动规划 + 平行夹爪后端)',
     license='Apache-2.0',
     extras_require={'test': ['pytest']},
-    entry_points={
-        'console_scripts': [
-            'pick_place_node = lab_cobot_manipulation.pick_place_node:main',
-        ],
-    },
 )

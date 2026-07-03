@@ -2,7 +2,7 @@
 """
 Pick-and-place execution with MoveIt2 and the parallel gripper backend.
 
-PickPlace 类供 mission_node 复用;main() 提供独立节点(订阅简单指令做冒烟测试)。
+PickPlace 类供 mission_node 复用;mission_node 是跨工位任务的正式入口。
 实际执行需运行时(move_group + Gazebo 控制器 + gripper attach bridge)。
 
 约定:
@@ -170,7 +170,7 @@ def main():
     executor = rclpy.executors.MultiThreadedExecutor(2)
     executor.add_node(node)
     Thread(target=executor.spin, daemon=True).start()
-    node.get_logger().info("pick_place_node 就绪(等待 mission 调用或手动测试)")
+    node.get_logger().info("pick_place_node 就绪")
     try:
         while rclpy.ok():
             time.sleep(1.0)
