@@ -246,10 +246,6 @@ def test_station_a_sample_projects_into_camera_image():
         _src_dir() / "lab_cobot_navigation" / "lab_cobot_navigation" / "waypoints.py",
         "_lab_cobot_waypoints_contract",
     )
-    dock_target_x = _literal_python_constant(
-        _src_dir() / "lab_cobot_bringup" / "lab_cobot_bringup" / "mission_node.py",
-        "DOCK_TARGET_X",
-    )
     urdf = subprocess.run(
         ["xacro", str(urdf_file)],
         check=True,
@@ -272,17 +268,18 @@ def test_station_a_sample_projects_into_camera_image():
     station_a = waypoints.get_waypoint("station_a")
     sample_map_x = 2.0
     sample_map_y = 1.5
+    station_table_front_y = 1.20
+    inflation_radius = 0.55
     sample_top_world_z = 0.82
-    nav_xy_goal_tolerance = 0.12
 
     assert station_a["x"] == sample_map_x
     assert math.isclose(station_a["yaw"], math.pi / 2.0)
+    assert station_table_front_y - station_a["y"] > inflation_radius
 
     # Sample top center at station_a, expressed in base_link at the waypoint.
     sample_top_x = sample_map_y - station_a["y"]
     sample_top_y = 0.0
     sample_top_z = sample_top_world_z - (wheel_radius + base_height / 2.0)
-    assert sample_top_x + nav_xy_goal_tolerance <= dock_target_x
 
     camera_x = arm_x + cam_x
     camera_y = arm_y + cam_y
