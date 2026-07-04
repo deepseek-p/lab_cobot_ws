@@ -1,4 +1,4 @@
-"""Unit tests for waypoint helpers."""
+"""waypoints 单元测试(纯逻辑,headless pytest 可跑)."""
 import math
 
 import pytest

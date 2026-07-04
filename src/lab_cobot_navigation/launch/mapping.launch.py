@@ -1,5 +1,5 @@
 r"""
-SLAM mapping launch file for lab.world.
+SLAM 建图(slam_toolbox async + EKF),用于在 lab.world 重建实验室地图.
 
 配合 Gazebo 使用(四个终端):
     终端1: ros2 launch lab_cobot_gazebo world.launch.py

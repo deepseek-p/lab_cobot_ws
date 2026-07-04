@@ -1,5 +1,5 @@
 """
-Nav2 navigation launch stack.
+Nav2 导航栈:map_server + AMCL + EKF + 规划/控制.
 
 需运行时(配合 Gazebo + 机器人 spawn):
     ros2 launch lab_cobot_navigation navigation.launch.py

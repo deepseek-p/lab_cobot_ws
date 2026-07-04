@@ -1,5 +1,5 @@
 """
-Camera geometry helpers for RGB-D perception.
+相机几何:像素+深度 → 相机系 3D 坐标(针孔模型),以及相机系→目标系的辅助.
 
 这是 ArUco / RGB-D 6D 位姿估计的核心数学,纯函数无 ROS 依赖,便于单元测试。
 """
@@ -13,7 +13,7 @@ def pixel_to_camera(
     fx: float, fy: float, cx: float, cy: float,
 ) -> Tuple[float, float, float]:
     """
-    Back-project a depth pixel into the camera optical frame.
+    针孔模型反投影:像素 (u,v) + 深度 depth → 相机光学系 (x,y,z).
 
     相机光学系约定(REP-103):z 沿光轴向前,x 向右,y 向下。
     x = (u - cx) * z / fx
@@ -50,7 +50,7 @@ def offset_along_camera_ray(
 
 
 def fov_to_focal(width_px: int, hfov_rad: float) -> float:
-    """Convert horizontal FOV and image width into focal length in pixels."""
+    """由水平视场角与图像宽度反算焦距(像素). fx = (W/2) / tan(hfov/2)."""
     import math
     if hfov_rad <= 0.0:
         raise ValueError("hfov 必须为正")
@@ -63,7 +63,7 @@ def camera_to_base(
     r_base_cam,
 ) -> Tuple[float, float, float]:
     """
-    Transform a camera-frame point into the base frame.
+    把相机系点变换到基座系:p_base = R * p_cam + t.
 
     r_base_cam 为 3x3 旋转矩阵(行优先嵌套序列),t_base_cam 为平移。
     """
