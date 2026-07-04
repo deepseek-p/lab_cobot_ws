@@ -1,12 +1,12 @@
 # CS-202618 实验室移动协作机器人
 
-面向实验室智能管理的移动协作机器人仿真系统。项目基于 ROS 2 Humble、Gazebo Classic、Nav2、MoveIt 2 和 ArUco 感知，完成一体化麦克纳姆底盘机械臂在双工位场景中的识别、抓取、搬运、放置和返航。
+面向实验室智能管理的移动协作机器人仿真系统。项目基于 ROS 2 Humble、Gazebo Classic、Nav2、MoveIt 2 和 ArUco 感知，完成一体化麦克纳姆底盘 + UR5e + 平行双指夹爪在双工位场景中的识别、抓取、搬运、放置和返航。
 
 赛题：CS-202618 中车株洲电力机车有限公司「面向实验室智能管理的协作机器人环境感知与动作规划方法研究」。
 
 ## 当前状态
 
-本分支完成了导航地图、任务编排、抓取失败恢复、吸盘 attach、ArUco 位姿、MoveIt 等运行链路的修复和加固。
+当前实现已完成导航地图、任务编排、抓取失败恢复、平行夹爪软附着、ArUco 位姿、MoveIt 等运行链路的修复和加固。
 
 - `colcon build --cmake-force-configure`：8 个包构建通过
 - `colcon test --return-code-on-test-failure`：229 个测试，0 错误，0 失败，2 跳过
@@ -14,6 +14,7 @@
 - `launch_mission:=false` 时不会启动 `mission_node`
 - headless 端到端任务已验证到 `DONE`
 - `mission_node` 是正式任务入口；旧的 `pick_place` console entry point 已移除
+- 末端执行器是平行双指夹爪；旧的真空吸盘模型和 `/suction/switch` 运行路径已移除
 
 ## 系统流程
 
@@ -24,7 +25,9 @@
   -> /cmd_vel -> 麦克纳姆底盘
   -> aruco_detector -> TF/PoseStamped
   -> MoveIt 2 + pymoveit2
-  -> gripper_attach_bridge
+  -> SimAttachGripperDriver
+  -> /gripper_position_controller/commands
+  -> gripper_attach_bridge soft attach/detach
   -> /task/status
 ```
 
@@ -34,19 +37,19 @@
 NAV_TO_PICK -> DETECT -> PICK -> NAV_TO_PLACE -> PLACE -> RETURN_HOME -> DONE
 ```
 
-失败时会执行退让、停止底盘、释放吸附对象等清理动作，避免任务失败后留下不一致的仿真状态。
+失败时会执行退让、停止底盘、释放夹爪软附着对象等清理动作，避免任务失败后留下不一致的仿真状态。
 
 ## 包结构
 
 | 包 | 职责 |
 |---|---|
-| `lab_cobot_description` | 一体化机器人 URDF/SRDF：麦克纳姆底盘、立柱、UR5e、末端执行器、激光、IMU、相机 |
+| `lab_cobot_description` | 一体化机器人 URDF/SRDF：麦克纳姆底盘、立柱、UR5e、平行双指夹爪、激光、IMU、相机 |
 | `lab_cobot_gazebo` | 双工位实验室 world、样件模型、Gazebo spawn 和控制器启动 |
 | `lab_cobot_navigation` | Nav2、AMCL、EKF、地图、工位 waypoints、导航 launch |
 | `lab_cobot_moveit` | UR5e MoveIt 2 配置、controller 配置、`move_group` launch |
 | `lab_cobot_perception` | ArUco 检测、相机反投影、Gazebo model pose fallback、TF/PoseStamped 输出 |
-| `lab_cobot_manipulation` | pick/place 执行逻辑、MoveIt 调用、抓取序列 |
-| `lab_cobot_bringup` | 一键全栈 launch、跨工位任务状态机、mission 编排、吸盘 attach bridge |
+| `lab_cobot_manipulation` | pick/place 执行逻辑、MoveIt 调用、平行夹爪驱动边界和抓取序列 |
+| `lab_cobot_bringup` | 一键全栈 launch、跨工位任务状态机、mission 编排、夹爪软附着 bridge |
 | `pymoveit2` | vendored MoveIt 2 Python 接口，第三方许可见 `THIRD_PARTY_LICENSES.md` |
 
 ## 环境要求
@@ -166,6 +169,7 @@ PASS: map covers four walls, has low obstacle noise, and key points are free
 ## 运行注意
 
 - `lab_cobot.launch.py` 默认延迟启动 MoveIt/Nav2/感知/mission，以等待 Gazebo、spawn 和控制器就绪。
+- 平行夹爪通过 `gripper_position_controller` 驱动手指开合；样件搬运在仿真中由 `gripper_attach_bridge` 固定到 `gripper_tcp`，不是 Gazebo 接触物理抓取。
 - WSLg 下 launch 会设置 D3D12 和 Qt 相关环境变量以提高 Gazebo/RViz 稳定性。
 - headless 结束 launch 时，MoveIt/rclpy 可能输出 SIGINT/shutdown 噪声；判断任务结果以 `/task/status` 是否到 `DONE` 为准。
 - Gazebo GUI、物理步进和渲染性能会影响端到端任务耗时。
