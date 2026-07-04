@@ -1,47 +1,79 @@
-# CS-202618 实验室移动协作机器人(lab_cobot)
+# CS-202618 实验室移动协作机器人
 
-> 面向实验室智能管理的协作机器人 —— **一体化麦轮移动机械臂跨工位识别抓取仿真系统**
-> ROS 2 Humble · Gazebo Classic 11 · Nav2 · MoveIt 2 · ArUco 感知 · 真空吸盘
+面向实验室智能管理的移动协作机器人仿真系统。项目基于 ROS 2 Humble、Gazebo Classic、Nav2、MoveIt 2 和 ArUco 感知，完成一体化麦克纳姆底盘机械臂在双工位场景中的识别、抓取、搬运、放置和返航。
 
-赛题:CS-202618 中车株洲电力机车有限公司「面向实验室智能管理的协作机器人环境感知与动作规划方法研究」
+赛题：CS-202618 中车株洲电力机车有限公司「面向实验室智能管理的协作机器人环境感知与动作规划方法研究」。
 
-## 1. 系统概述
+## 当前状态
 
-一台**麦克纳姆全向底盘 + 基座立柱 + UR5e + 真空吸盘**的一体化移动机械臂,在实验室双工位场景中完成:
+本分支完成了导航地图、任务编排、抓取失败恢复、吸盘 attach、ArUco 位姿、MoveIt 等运行链路的修复和加固。
 
+- `colcon build --cmake-force-configure`：8 个包构建通过
+- `colcon test --return-code-on-test-failure`：229 个测试，0 错误，0 失败，2 跳过
+- 静态地图已重建，四墙覆盖 `x/y=[-3.525, 3.525]`，起点和两个工位停靠点均为 free
+- `launch_mission:=false` 时不会启动 `mission_node`
+- headless 端到端任务已验证到 `DONE`
+- `mission_node` 是正式任务入口；旧的 `pick_place` console entry point 已移除
+
+## 系统流程
+
+```text
+/task/instruction
+  -> mission_node
+  -> Nav2 AMCL/EKF + DWB
+  -> /cmd_vel -> 麦克纳姆底盘
+  -> aruco_detector -> TF/PoseStamped
+  -> MoveIt 2 + pymoveit2
+  -> gripper_attach_bridge
+  -> /task/status
 ```
-文本指令 → 导航到工位A → ArUco 识别样件 → 抓取 → 导航到工位B → 放置 → 返回 home
+
+任务状态机：
+
+```text
+NAV_TO_PICK -> DETECT -> PICK -> NAV_TO_PLACE -> PLACE -> RETURN_HOME -> DONE
 ```
 
-端到端数据流:
-```
-/task/instruction → mission_node(状态机)
-   → Nav2(AMCL+EKF) → /cmd_vel → 麦轮底盘(planar_move)
-   → aruco_detector → TF: base_link→obj_<id>
-   → MoveIt2 + pymoveit2 → UR5e 轨迹 → 真空吸盘 attach
-   → /task/status
-```
+失败时会执行退让、停止底盘、释放吸附对象等清理动作，避免任务失败后留下不一致的仿真状态。
 
-## 2. 包结构
+## 包结构
 
 | 包 | 职责 |
 |---|---|
-| `lab_cobot_description` | 一体化机器人 URDF(麦轮底盘+立柱+UR5e+吸盘+激光/IMU/RGBD)+ SRDF |
-| `lab_cobot_gazebo` | 实验室双工位 world + 带 ArUco 纹理样件 + spawn launch |
-| `lab_cobot_navigation` | Nav2 配置(AMCL+EKF+costmap)+ 工位 waypoints + 导航 launch |
-| `lab_cobot_moveit` | UR5e MoveIt2 配置(kinematics/ompl/controllers)+ move_group launch |
-| `lab_cobot_perception` | ArUco 检测 + 针孔反投影 6D 位姿(pose_math)+ TF/PoseStamped |
-| `lab_cobot_manipulation` | pick/place 执行(pymoveit2 + 真空吸盘) |
-| `lab_cobot_bringup` | 跨工位任务状态机 + mission_node 编排 + 一键全栈 launch |
-| `pymoveit2`(vendored) | MoveIt2 Python 接口(第三方,BSD-3,见 THIRD_PARTY_LICENSES.md) |
+| `lab_cobot_description` | 一体化机器人 URDF/SRDF：麦克纳姆底盘、立柱、UR5e、末端执行器、激光、IMU、相机 |
+| `lab_cobot_gazebo` | 双工位实验室 world、样件模型、Gazebo spawn 和控制器启动 |
+| `lab_cobot_navigation` | Nav2、AMCL、EKF、地图、工位 waypoints、导航 launch |
+| `lab_cobot_moveit` | UR5e MoveIt 2 配置、controller 配置、`move_group` launch |
+| `lab_cobot_perception` | ArUco 检测、相机反投影、Gazebo model pose fallback、TF/PoseStamped 输出 |
+| `lab_cobot_manipulation` | pick/place 执行逻辑、MoveIt 调用、抓取序列 |
+| `lab_cobot_bringup` | 一键全栈 launch、跨工位任务状态机、mission 编排、吸盘 attach bridge |
+| `pymoveit2` | vendored MoveIt 2 Python 接口，第三方许可见 `THIRD_PARTY_LICENSES.md` |
 
-## 3. 环境要求
+## 环境要求
 
-- Ubuntu 22.04 + ROS 2 Humble
-- Gazebo Classic 11、MoveIt 2、Nav2、robot_localization、slam_toolbox(均 apt 安装)
-- Python: opencv(cv2)、cv_bridge、numpy(本机已具备)
+- Ubuntu 22.04
+- ROS 2 Humble
+- Gazebo Classic 11
+- Nav2、MoveIt 2、robot_localization、slam_toolbox
+- Python 3.10，OpenCV/cv_bridge/numpy
 
-## 4. 构建
+示例依赖安装：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  ros-humble-navigation2 \
+  ros-humble-nav2-bringup \
+  ros-humble-moveit \
+  ros-humble-robot-localization \
+  ros-humble-slam-toolbox \
+  ros-humble-gazebo-ros-pkgs \
+  ros-humble-gazebo-ros2-control \
+  ros-humble-cv-bridge \
+  python3-opencv
+```
+
+## 构建
 
 ```bash
 cd ~/projects/lab_cobot_ws
@@ -50,73 +82,103 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-> ⚠️ **已知坑**:若 pymoveit2 报 `failed to create symbolic link ... Is a directory`,
-> 是 symlink-install 缓存污染。执行 `rm -rf build install && colcon build --symlink-install` 即可。
+如果 `pymoveit2` 的 symlink-install 缓存污染导致符号链接创建失败，清理后重建：
 
-## 5. 运行
-
-### 一键全栈(需 GUI / WSLg)
 ```bash
+rm -rf build install log
+colcon build --symlink-install
+```
+
+## 运行
+
+启动完整仿真：
+
+```bash
+cd ~/projects/lab_cobot_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
 ros2 launch lab_cobot_bringup lab_cobot.launch.py
 ```
-启动顺序:Gazebo+机器人+控制器 →(10s 后)move_group+Nav2+感知 →(15s 后)mission 编排。
 
-### 发任务指令(另开终端)
+另开终端发送任务：
+
 ```bash
+source /opt/ros/humble/setup.bash
 source ~/projects/lab_cobot_ws/install/setup.bash
 ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
-ros2 topic echo /task/status     # 观察状态机进展
 ```
 
-### 分模块调试
+查看状态：
+
 ```bash
-# 仅看模型(RViz)
+ros2 topic echo /task/status
+```
+
+headless 运行：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false
+```
+
+只启动全栈但不启动任务节点：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false launch_mission:=false
+```
+
+分模块调试：
+
+```bash
 ros2 launch lab_cobot_description view_robot.launch.py
-# 仅 Gazebo + 机器人
 ros2 launch lab_cobot_gazebo world.launch.py
-# 仅 MoveIt
 ros2 launch lab_cobot_moveit move_group.launch.py
-# 仅导航
 ros2 launch lab_cobot_navigation navigation.launch.py
+ros2 launch lab_cobot_navigation mapping.launch.py
 ```
 
-## 6. 测试
+## 验证
 
-纯逻辑单元测试(headless,共 25 项):
+本机如果存在 user-level `anyio` pytest 插件问题，给 pytest/colcon 测试命令加上 `PYTEST_ADDOPTS='-p no:anyio'`。
+
+完整构建和测试：
+
 ```bash
-cd ~/projects/lab_cobot_ws/src
-python3 -m pytest lab_cobot_perception/test/test_pose_math.py \
-                  lab_cobot_bringup/test/test_task_state_machine.py \
-                  lab_cobot_navigation/test/test_waypoints.py -v
+cd ~/projects/lab_cobot_ws
+source /opt/ros/humble/setup.bash
+PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
+PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure
+colcon test-result --verbose
 ```
 
-## 7. 已验证 / 待运行时验证
+地图检查：
 
-**已 headless 自动验证**:
-- URDF 结构(check_urdf,26 links)、world 加载、样件 SDF
-- pose_math(8)、状态机(10)、waypoints(7)单元测试
-- MoveIt 配置加载(MoveItConfigsBuilder 处理 URDF+SRDF+config)
-- 各节点 import、launch 可构建、全量 colcon build
+```bash
+python3 src/lab_cobot_navigation/maps/check_map.py
+```
 
-**待运行时(GUI)验证**(用户在 WSLg 进行):
-- Gazebo 中机器人正确落地、控制器激活、传感器出数据
-- AMCL 定位 + Nav2 跨工位到点(需先建图替换占位 map)
-- MoveIt 抓取轨迹 + 真空吸附效果(吸盘姿态四元数 DOWN_QUAT 可能需标定)
-- ArUco 检测(样件贴码,相机内参标定)
-- 端到端闭环连续成功率
+期望汇总：
 
-## 8. 已知限制 / 后续
+```text
+Summary: 229 tests, 0 errors, 0 failures, 2 skipped
+PASS: map covers four walls, has low obstacle noise, and key points are free
+```
 
-- 地图为占位(eyrc warehouse),需用 slam_toolbox 在 lab.world 重建实验室地图。
-- 局部规划先用 DWB 差速兼容模式;麦轮全向潜力(vy)待升级。
-- 抓取吸盘姿态、放置点坐标为预设值,需运行时标定。
-- 增量方向:平行夹爪、颜色/点云真实识别、动态障碍、多对象、LLM 任务解析、轨道交通主题场景。
+## 运行注意
 
-## 9. 设计与计划文档
+- `lab_cobot.launch.py` 默认延迟启动 MoveIt/Nav2/感知/mission，以等待 Gazebo、spawn 和控制器就绪。
+- WSLg 下 launch 会设置 D3D12 和 Qt 相关环境变量以提高 Gazebo/RViz 稳定性。
+- headless 结束 launch 时，MoveIt/rclpy 可能输出 SIGINT/shutdown 噪声；判断任务结果以 `/task/status` 是否到 `DONE` 为准。
+- Gazebo GUI、物理步进和渲染性能会影响端到端任务耗时。
 
-- `docs/plans/2026-06-28-mobile-manipulator-cross-station-design.md` — 设计
-- `docs/plans/2026-06-28-mobile-manipulator-cross-station-plan.md` — 实现计划
-- `docs/notes/eyrc-smoke-test.md` — 蓝本冒烟测试结论
-- `docs/notes/overnight-progress.md` — 自主推进进度
+## 文档
 
-许可:本仓库自有代码 Apache-2.0;第三方组件见 `THIRD_PARTY_LICENSES.md`。
+- `docs/HANDOVER.md`：项目交接和运行记录
+- `docs/STATUS_HONEST.md`：阶段性状态说明
+- `docs/plans/2026-06-28-mobile-manipulator-cross-station-design.md`：系统设计
+- `docs/plans/2026-06-28-mobile-manipulator-cross-station-plan.md`：实现计划
+- `docs/notes/eyrc-smoke-test.md`：参考工程冒烟测试
+- `docs/notes/overnight-progress.md`：历史推进记录
+
+## 许可
+
+本仓库自有代码采用 Apache-2.0；第三方组件许可见 `THIRD_PARTY_LICENSES.md`。
