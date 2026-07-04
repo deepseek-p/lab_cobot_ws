@@ -14,7 +14,7 @@
 - `launch_mission:=false` 时不会启动 `mission_node`
 - headless 端到端任务已验证到 `DONE`
 - `mission_node` 是正式任务入口；旧的 `pick_place` console entry point 已移除
-- 末端执行器是平行双指夹爪；旧的真空吸盘模型和 `/suction/switch` 运行路径已移除
+- 末端执行器是平行双指夹爪；运行路径使用夹爪控制器和软附着 bridge
 
 ## 系统流程
 
