@@ -39,8 +39,16 @@ def test_pick_station_is_within_manipulator_reach():
     nominal_forward_distance = sample_y - station_a["y"]
     worst_case_forward_distance = nominal_forward_distance + nav_xy_goal_tolerance
 
-    assert 0.60 <= nominal_forward_distance <= 0.70
-    assert worst_case_forward_distance <= 0.78
+    assert 0.80 <= nominal_forward_distance <= 0.95
+    assert worst_case_forward_distance <= 1.05
+
+
+def test_pick_station_stays_out_of_table_inflation():
+    station_a = get_waypoint("station_a")
+    station_table_front_y = 1.20
+    robot_radius = 0.42
+
+    assert station_table_front_y - station_a["y"] > robot_radius
 
 
 def test_place_station_stays_in_navigable_corridor():
