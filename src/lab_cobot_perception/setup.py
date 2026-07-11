@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'aruco_detector = lab_cobot_perception.aruco_detector:main',
+            'object_detector = lab_cobot_perception.object_detector:main',
         ],
     },
 )

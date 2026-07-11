@@ -1,6 +1,7 @@
 """Mission visual docking policy tests."""
 
 import pytest
+from builtin_interfaces.msg import Time
 
 from lab_cobot_bringup.mission_node import (
     DOCK_TARGET_X,
@@ -10,6 +11,7 @@ from lab_cobot_bringup.mission_node import (
     DOCK_TOLERANCE_X,
     DOCK_TOLERANCE_Y,
     dock_velocity_for_object,
+    transform_stamp_is_fresh,
 )
 
 
@@ -54,6 +56,17 @@ def test_dock_velocity_accepts_reachable_lateral_offset_for_tcp_pick():
     assert DOCK_TOLERANCE_Y <= 0.07
 
 
+def test_dock_velocity_accepts_force_model_longitudinal_deadband():
+    done, cmd = dock_velocity_for_object([
+        DOCK_TARGET_X + 0.042,
+        DOCK_TARGET_Y,
+        0.63,
+    ])
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+
+
 def test_dock_velocity_accepts_gui_verified_near_lateral_offset():
     done, cmd = dock_velocity_for_object([
         DOCK_TARGET_X,
@@ -69,3 +82,17 @@ def test_dock_velocity_accepts_gui_verified_near_lateral_offset():
 def test_docking_policy_allows_one_precise_lateral_alignment_attempt():
     assert DOCK_TIMEOUT_SEC >= 18.0
     assert DOCK_MAX_LINEAR_Y >= 0.08
+
+
+def test_detection_stamp_rejects_stale_aruco_tf():
+    now = Time(sec=12, nanosec=0)
+    stale = Time(sec=9, nanosec=800_000_000)
+
+    assert not transform_stamp_is_fresh(now, stale)
+
+
+def test_detection_stamp_accepts_recent_aruco_tf():
+    now = Time(sec=12, nanosec=0)
+    recent = Time(sec=11, nanosec=600_000_000)
+
+    assert transform_stamp_is_fresh(now, recent)

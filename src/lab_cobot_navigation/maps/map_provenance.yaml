@@ -1,0 +1,53 @@
+map: map.yaml
+source: slam_toolbox_async
+generated_at: "2026-07-07T10:34:44+08:00"
+generator: slam_toolbox async_slam_toolbox_node
+launch:
+  world: ros2 launch lab_cobot_gazebo world.launch.py gui:=false
+  mapping: ros2 launch lab_cobot_navigation mapping.launch.py use_rviz:=false
+  map_saver: ros2 run nav2_map_server map_saver_cli -f /tmp/lab_cobot_slam_candidate
+input_topics:
+  scan: /scan
+  odom: /odom
+frames:
+  map: map
+  odom: odom
+  base: base_footprint
+map_metadata:
+  width: 148
+  height: 147
+  resolution: 0.05
+  origin: [-3.8, -3.61, 0.0]
+quality_gate:
+  occupied_pixels: 1796
+  connected_components: 4
+  largest_components: [1586, 118, 86, 6]
+  obstacle_range:
+    x: [-3.525, 3.575]
+    y: [-3.535, 3.715]
+  free_points:
+    origin:
+      pixel: [75, 74]
+      value: 254
+      window_min: 254
+    station_a_dock:
+      pixel: [105, 74]
+      value: 254
+      window_min: 254
+    station_b_dock:
+      pixel: [45, 74]
+      value: 254
+      window_min: 254
+drive_sequence:
+  source: /cmd_vel through mecanum_wheel_visualizer
+  commands:
+    - {vx: 0.25, vy: 0.0, wz: 0.0, duration_s: 7.0}
+    - {vx: 0.0, vy: 0.25, wz: 0.0, duration_s: 7.0}
+    - {vx: -0.25, vy: 0.0, wz: 0.0, duration_s: 14.0}
+    - {vx: 0.0, vy: -0.25, wz: 0.0, duration_s: 14.0}
+    - {vx: 0.25, vy: 0.0, wz: 0.0, duration_s: 14.0}
+    - {vx: 0.0, vy: 0.25, wz: 0.0, duration_s: 7.0}
+    - {vx: 0.0, vy: 0.0, wz: 0.45, duration_s: 8.0}
+notes:
+  - This map was saved from slam_toolbox /map, not drawn from world geometry.
+  - The mapping run used the current wheel-command pose odometry model; it is valid SLAM pipeline evidence, but not evidence of physical mecanum roller dynamics.

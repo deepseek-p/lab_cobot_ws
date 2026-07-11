@@ -3,10 +3,15 @@ install/
 log/
 __pycache__/
 *.pyc
-.claude/
+*.pt
+.claude/*
+!.claude/skills/
 
 # Local GUI/debug artifacts
 屏幕截图*.png
 docs/NIGHT_REPORT.md
 docs/superpowers/plans/
 src/lab_cobot_navigation/maps/*_backup.pgm
+.codex/*
+!.codex/skills/
+benchmarks/results/

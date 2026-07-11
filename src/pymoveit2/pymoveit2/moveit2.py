@@ -1014,6 +1014,7 @@ class MoveIt2:
         max_step: float = 0.0025,
         wait_for_server_timeout_sec: Optional[float] = 1.0,
         frame_id: Optional[str] = None,
+        min_fraction: float = 0.95,
     ) -> Optional[JointTrajectory]:
         # Re-use request from move action goal
         self.__cartesian_path_request.start_state = (
@@ -1022,11 +1023,34 @@ class MoveIt2:
         self.__cartesian_path_request.group_name = (
             self.__move_action_goal.request.group_name
         )
-        self.__cartesian_path_request.link_name = self.__end_effector_name
+        # 与 MoveGroup action 语义对齐:目标约束里声明的 link/frame 就是
+        # 直线段的控制对象与参考系。此前写死 end_effector + base_link_name,
+        # 当调用方用 target_link=gripper_tcp/frame_id=base_link 设定目标时,
+        # 直线终点被双重错位解释(E2E 实测:多数轮靠 fraction 截断侥幸,
+        # 规划报错轮直接失败)。
+        last_position_constraints = (
+            self.__move_action_goal.request.goal_constraints[-1]
+            .position_constraints
+        )
+        constraint_link = (
+            last_position_constraints[-1].link_name
+            if last_position_constraints
+            else ""
+        )
+        constraint_frame = (
+            last_position_constraints[-1].header.frame_id
+            if last_position_constraints
+            else ""
+        )
+        self.__cartesian_path_request.link_name = (
+            constraint_link if constraint_link else self.__end_effector_name
+        )
         self.__cartesian_path_request.max_step = max_step
 
         self.__cartesian_path_request.header.frame_id = (
-            frame_id if frame_id is not None else self.__base_link_name
+            frame_id
+            if frame_id is not None
+            else (constraint_frame if constraint_frame else self.__base_link_name)
         )
 
         stamp = self._node.get_clock().now().to_msg()
@@ -1071,6 +1095,13 @@ class MoveIt2:
         res = self._plan_cartesian_path_service.call(self.__cartesian_path_request)
 
         if MoveItErrorCodes.SUCCESS == res.error_code.val:
+            # fraction<1 表示直线被碰撞/关节限位截断;执行部分轨迹会让
+            # 末端停在中途并被上层误判为到位,必须按规划失败处理。
+            if res.fraction < min_fraction:
+                self._node.get_logger().warn(
+                    f"Cartesian path incomplete (fraction: {res.fraction})."
+                )
+                return None
             return res.solution.joint_trajectory
         else:
             self._node.get_logger().warn(

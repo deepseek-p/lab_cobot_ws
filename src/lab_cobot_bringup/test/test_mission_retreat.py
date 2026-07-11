@@ -4,6 +4,7 @@ import rclpy.duration
 from std_msgs.msg import String
 
 from lab_cobot_bringup import mission_node
+from lab_cobot_bringup import mecanum_wheel_visualizer
 from lab_cobot_bringup.mission_node import (
     DEFAULT_PLACE_POSE,
     MissionNode,
@@ -42,6 +43,18 @@ class FakeClock:
         self.seconds += seconds
 
 
+class FakeNavActionClient:
+    """Fake nav action client with a configurable availability probe."""
+
+    def __init__(self, available=True):
+        self.available = available
+        self.wait_calls = []
+
+    def wait_for_server(self, timeout_sec=None):
+        self.wait_calls.append(timeout_sec)
+        return self.available
+
+
 class FakeLogger:
     def __init__(self):
         self.messages = []
@@ -64,15 +77,15 @@ class FakePublisher:
         self.messages.append(msg)
 
 
-def test_departure_retreat_uses_nav_velocity_chain_and_backs_up():
-    assert RETREAT_TOPIC == "/cmd_vel_nav"
+def test_departure_retreat_uses_mecanum_driver_command_topic_and_backs_up():
+    assert RETREAT_TOPIC == mecanum_wheel_visualizer.CMD_VEL_TOPIC
     assert RETREAT_LINEAR_X <= -0.15
     assert RETREAT_DURATION_SEC >= 5.0
 
 
 def test_departure_retreat_runs_after_manipulation_steps_only():
     assert requires_departure_retreat(TaskState.PICK)
-    assert requires_departure_retreat(TaskState.PLACE)
+    assert not requires_departure_retreat(TaskState.PLACE)
     assert not requires_departure_retreat(TaskState.NAV_TO_PICK)
     assert not requires_departure_retreat(TaskState.NAV_TO_PLACE)
     assert not requires_departure_retreat(TaskState.RETURN_HOME)
@@ -110,12 +123,83 @@ def test_instruction_marks_busy_before_starting_worker_thread(monkeypatch):
     assert len(starts) == 1
 
 
+def test_navigate_fails_fast_when_action_server_unavailable():
+    """Navigation must fail bounded when bt_navigator never comes up."""
+    # 根因回归(E2E 重复统计实测):bt_navigator 偶发未就绪时,
+    # BasicNavigator.goToPose 内部 wait_for_server 无限等待,
+    # 任务挂死 NAV_TO_PICK 直到 420s 超时。导航前必须有界探测。
+    node = MissionNode.__new__(MissionNode)
+    node.get_logger = lambda: FakeLogger()
+
+    goto_calls = []
+
+    class UnavailableNav:
+        def __init__(self):
+            self.header_clock = FakeClock()
+            self.nav_to_pose_client = FakeNavActionClient(available=False)
+
+        def get_clock(self):
+            return self.header_clock
+
+        def goToPose(self, goal):
+            goto_calls.append(goal)
+
+    node.nav = UnavailableNav()
+
+    assert MissionNode._navigate(node, "station_a") is False
+    assert goto_calls == []  # 服务不可用时绝不发送目标
+    assert node.nav.nav_to_pose_client.wait_calls  # 确实做了有界探测
+
+
+def test_navigate_waits_for_map_tf_before_sending_goal(monkeypatch):
+    # Nav2 can accept an action goal before AMCL has populated map TF history.
+    # That stamps the goal too early and can poison the BT with past extrapolation.
+    clock = FakeClock()
+    goto_calls = []
+
+    class FakeNav:
+        def __init__(self):
+            self.header_clock = clock
+            self.nav_to_pose_client = FakeNavActionClient(available=True)
+
+        def get_clock(self):
+            return self.header_clock
+
+        def goToPose(self, goal):
+            goto_calls.append(goal)
+
+        def isTaskComplete(self):
+            return True
+
+        def getResult(self):
+            return None
+
+    monkeypatch.setattr(
+        mission_node.time,
+        "sleep",
+        lambda seconds: clock.advance(max(float(seconds), 100.0)),
+    )
+
+    node = MissionNode.__new__(MissionNode)
+    node.nav = FakeNav()
+    node._wait_for_nav_active = lambda: True
+    node._base_pose_in_map = lambda timeout_sec=2.0: None
+    node._navigation_handoff_ready = lambda _station: False
+    node._stop_base = lambda _duration: None
+    node.get_clock = lambda: clock
+    node.get_logger = lambda: FakeLogger()
+
+    assert MissionNode._navigate(node, "station_a") is False
+    assert goto_calls == []
+
+
 def test_navigate_cancels_nav_task_when_timeout_expires(monkeypatch):
     class FakeNav:
         def __init__(self):
             self.cancel_calls = 0
             self.task_checks = 0
             self.header_clock = FakeClock()
+            self.nav_to_pose_client = FakeNavActionClient(available=True)
 
         def get_clock(self):
             return self.header_clock
@@ -135,7 +219,7 @@ def test_navigate_cancels_nav_task_when_timeout_expires(monkeypatch):
 
     class TimeoutClock:
         def __init__(self):
-            self.times = iter([0.0, 10.0, 30.0, 61.0])
+            self.times = iter([0.0, 0.0, 0.0, 10.0, 30.0, 61.0])
 
         def now(self):
             return FakeStamp(next(self.times))
@@ -145,6 +229,8 @@ def test_navigate_cancels_nav_task_when_timeout_expires(monkeypatch):
     node = MissionNode.__new__(MissionNode)
     timeout_clock = TimeoutClock()
     node.nav = FakeNav()
+    node._wait_for_nav_active = lambda: True
+    node._base_pose_in_map = lambda timeout_sec=2.0: [0.0, 0.0, 0.0]
     node._navigation_handoff_ready = lambda _station: False
     node._stop_base = lambda _duration: None
     node.get_clock = lambda: timeout_clock
@@ -177,7 +263,7 @@ def test_failed_mission_releases_object_stops_base_and_goes_home(monkeypatch):
     events = []
 
     class FakeTask:
-        def __init__(self, max_retries):
+        def __init__(self, steps, max_retries):
             self.state = TaskState.PICK
 
         def start(self):
@@ -202,7 +288,7 @@ def test_failed_mission_releases_object_stops_base_and_goes_home(monkeypatch):
         def go_home(self):
             events.append("home")
 
-    monkeypatch.setattr(mission_node, "CrossStationTask", FakeTask)
+    monkeypatch.setattr(mission_node, "SequentialTask", FakeTask)
 
     node = MissionNode.__new__(MissionNode)
     node._busy = True

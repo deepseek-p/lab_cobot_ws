@@ -6,7 +6,7 @@ SLAM 建图(slam_toolbox async + EKF),用于在 lab.world 重建实验室地图.
     终端2: ros2 launch lab_cobot_navigation mapping.launch.py
     终端3: ros2 run teleop_twist_keyboard teleop_twist_keyboard
            (遥控机器人在场景里转一圈,把四周墙/工位扫全)
-    终端4(建好后保存,覆盖占位地图):
+    终端4(建好后保存,覆盖默认地图):
            ros2 run nav2_map_server map_saver_cli -f \\
              ~/projects/lab_cobot_ws/src/lab_cobot_navigation/maps/map
 
@@ -28,7 +28,7 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration("use_rviz")
     rviz_config = os.path.join(nav_pkg, "config", "mapping.rviz")
 
-    # EKF: /odom(planar_move) + /imu/data -> odom->base_footprint TF
+    # EKF: /odom(底盘插件位姿积分模型) + /imu/data -> odom->base_footprint TF
     ekf = Node(
         package="robot_localization",
         executable="ekf_node",

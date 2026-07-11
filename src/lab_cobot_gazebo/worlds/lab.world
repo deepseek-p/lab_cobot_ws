@@ -90,6 +90,16 @@
       <name>aruco_sample</name>
       <pose>2.0 1.5 0.785 0 0 0</pose>
     </include>
+    <include>
+      <uri>model://reagent_bottle</uri>
+      <name>reagent_bottle</name>
+      <pose>2.28 1.62 0.83 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://toolbox_yellow</uri>
+      <name>toolbox_yellow</name>
+      <pose>1.72 1.62 0.80 0 0 0</pose>
+    </include>
 
     <physics name="default_physics" type="ode">
       <max_step_size>0.001</max_step_size>

@@ -1,8 +1,13 @@
 <?xml version="1.0"?>
 <!--
   麦克纳姆全向底盘(纯几何,不依赖外部 mesh)。
-  全向运动由 gazebo_ros_planar_move 插件实现(直接对 base 施加 x/y/yaw 速度),
-  轮子为视觉装饰(无 collision,避免与运动学插件冲突)。
+  车体运动来自 wheel_velocity_controller 轮速命令,再由
+  lab_cobot_mecanum_drive pose_from_wheel_commands 按麦轮正解
+  做有界位姿积分并逐 tick SetWorldPose 推进底盘。
+  该模型不声称 Gazebo Classic 中的麦轮滚子接触物理真实:
+  已移除 gazebo_ros_planar_move,但默认推进仍是位姿驱动
+  (非力/速度级物理,底盘不受碰撞阻挡);轮碰撞经 collide_bitmask
+  0x00 禁用,下方滚子摩擦参数为预留配置,当前不生效。
   依赖顶层定义的全局 property: base_length, base_width, base_height, wheel_radius, wheel_width
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -22,13 +27,12 @@
         <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
         <material name="base_blue"><color rgba="0.20 0.30 0.60 1.0"/></material>
       </visual>
-      <!-- 碰撞体向下延伸到轮子底部(footprint z=0):轮子无 collision,若仅用车体 box
-           会让 box 底面(footprint z=wheel_radius)贴地、轮子陷入地面 wheel_radius。
-           延伸后 footprint 贴地、轮子接地、车体离地约 wheel_radius(真实底盘外观)。
-           仍是单一 box 碰撞,不引入轮子侧向摩擦,麦轮全向不受影响。 -->
       <collision>
-        <origin xyz="0 0 ${-wheel_radius/2.0}" rpy="0 0 0"/>
-        <geometry><box size="${base_length} ${base_width} ${base_height + wheel_radius}"/></geometry>
+        <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
+      </collision>
+      <collision name="base_ground_support">
+        <origin xyz="0 0 ${-base_z + 0.01}" rpy="0 0 0"/>
+        <geometry><box size="${base_length} ${base_width} 0.02"/></geometry>
       </collision>
       <xacro:box_inertia m="${base_mass}" x="${base_length}" y="${base_width}" z="${base_height}"/>
     </link>
@@ -38,7 +42,7 @@
       <origin xyz="0 0 ${base_z}" rpy="0 0 0"/>
     </joint>
 
-    <!-- 4 个麦轮(纯视觉装饰) -->
+    <!-- 4 个麦轮:简化圆柱碰撞 + 视觉滚子条纹 -->
     <xacro:macro name="mec_wheel" params="name x y roller_slant">
       <link name="${name}">
         <visual>
@@ -46,8 +50,11 @@
           <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
           <material name="wheel_dark"><color rgba="0.10 0.10 0.10 1.0"/></material>
         </visual>
-        <!-- Side-face roller strips make the wheels read as mecanum in Gazebo/RViz
-             while keeping the wheel collision-free for planar_move. -->
+        <collision>
+          <origin xyz="0 0 0" rpy="${pi/2.0} 0 0"/>
+          <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        </collision>
+        <!-- Side-face roller strips make the wheels read as mecanum in Gazebo/RViz. -->
         <visual name="${name}_roller_outer_0">
           <origin xyz="0 ${wheel_width/2.0 + 0.003} ${-wheel_radius*0.46}" rpy="0 ${roller_slant*pi/4.0} 0"/>
           <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>
@@ -106,34 +113,23 @@
         <origin xyz="${x} ${y} ${-base_height/2.0}" rpy="0 0 0"/>
         <axis xyz="0 1 0"/>
       </joint>
-      <gazebo reference="${name}"><material>Gazebo/FlatBlack</material></gazebo>
+      <gazebo reference="${name}">
+        <material>Gazebo/FlatBlack</material>
+        <collide_bitmask>0x00</collide_bitmask>
+        <mu1>1.0</mu1>
+        <mu2>0.02</mu2>
+        <fdir1>${cos(roller_slant*pi/4.0)} ${sin(roller_slant*pi/4.0)} 0</fdir1>
+        <kp>1000000.0</kp>
+        <kd>100.0</kd>
+        <maxVel>0.1</maxVel>
+        <minDepth>0.001</minDepth>
+      </gazebo>
     </xacro:macro>
 
     <xacro:mec_wheel name="wheel_fl" x="${wx}"  y="${wy}"  roller_slant="1"/>
     <xacro:mec_wheel name="wheel_fr" x="${wx}"  y="${-wy}" roller_slant="-1"/>
     <xacro:mec_wheel name="wheel_rl" x="${-wx}" y="${wy}"  roller_slant="-1"/>
     <xacro:mec_wheel name="wheel_rr" x="${-wx}" y="${-wy}" roller_slant="1"/>
-
-    <!-- 全向驱动插件:订阅 /cmd_vel(Twist 全向),发布 /odom -->
-    <gazebo>
-      <plugin name="gazebo_ros_planar_move" filename="libgazebo_ros_planar_move.so">
-        <ros>
-          <namespace>/</namespace>
-          <remapping>cmd_vel:=cmd_vel</remapping>
-          <remapping>odom:=odom</remapping>
-        </ros>
-        <update_rate>50</update_rate>
-        <publish_rate>50</publish_rate>
-        <publish_odom>true</publish_odom>
-        <!-- EKF 负责发布 odom->base_footprint TF;故此处默认 false -->
-        <publish_odom_tf>${publish_odom_tf}</publish_odom_tf>
-        <odometry_frame>odom</odometry_frame>
-        <robot_base_frame>base_footprint</robot_base_frame>
-        <covariance_x>0.0001</covariance_x>
-        <covariance_y>0.0001</covariance_y>
-        <covariance_yaw>0.01</covariance_yaw>
-      </plugin>
-    </gazebo>
 
     <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
   </xacro:macro>

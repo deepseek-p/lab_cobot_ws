@@ -1,8 +1,10 @@
 """
-单对象跨工位抓取任务状态机(纯逻辑,不依赖 ROS,便于单元测试).
+可编排原子动作序列状态机(纯逻辑,不依赖 ROS,便于单元测试).
 
 运行时由 mission_node 驱动:每个状态对应一个动作(导航/识别/抓取/放置),
 执行后用 on_result(success) 推进、重试或判失败。
+序列可由 LLM 任务拆解动态给出(SequentialTask),也可用默认跨工位
+全流程(CrossStationTask)。
 """
 from __future__ import annotations
 
@@ -31,19 +33,28 @@ STEP_ORDER = [
     TaskState.RETURN_HOME,
 ]
 
+# 可被任务拆解编排的原子动作全集(IDLE/DONE/FAILED 是引擎内部态,不可编排)
+PLANNABLE_STATES = frozenset(STEP_ORDER)
 
-class CrossStationTask:
+
+class SequentialTask:
     """
-    跨工位抓取状态机.
+    按给定原子动作序列执行的状态机.
 
     - start(): 从 IDLE 进入第一步
     - on_result(success): 成功→下一步;失败→在 max_retries 内重试,超出→FAILED
     - is_terminal(): 是否到达 DONE / FAILED
     """
 
-    def __init__(self, max_retries: int = 1):
+    def __init__(self, steps: list[TaskState], max_retries: int = 1):
         if max_retries < 0:
             raise ValueError("max_retries 不能为负")
+        if not steps:
+            raise ValueError("steps 不能为空")
+        invalid = [s for s in steps if s not in PLANNABLE_STATES]
+        if invalid:
+            raise ValueError(f"steps 含不可编排状态: {invalid}")
+        self.steps = list(steps)
         self.max_retries = max_retries
         self.state = TaskState.IDLE
         self._idx = -1
@@ -51,7 +62,7 @@ class CrossStationTask:
 
     def start(self) -> TaskState:
         self._idx = 0
-        self.state = STEP_ORDER[0]
+        self.state = self.steps[0]
         self.attempts = 0
         return self.state
 
@@ -74,7 +85,14 @@ class CrossStationTask:
     def _advance(self) -> None:
         self._idx += 1
         self.attempts = 0
-        if self._idx >= len(STEP_ORDER):
+        if self._idx >= len(self.steps):
             self.state = TaskState.DONE
         else:
-            self.state = STEP_ORDER[self._idx]
+            self.state = self.steps[self._idx]
+
+
+class CrossStationTask(SequentialTask):
+    """默认跨工位全流程(A 取件→B 放置→回家)的便捷构造."""
+
+    def __init__(self, max_retries: int = 1):
+        super().__init__(list(STEP_ORDER), max_retries)

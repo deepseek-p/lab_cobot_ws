@@ -3,6 +3,7 @@ import pytest
 
 from lab_cobot_bringup.task_state_machine import (
     CrossStationTask,
+    SequentialTask,
     TaskState,
     STEP_ORDER,
 )
@@ -91,3 +92,47 @@ def test_retry_counter_resets_between_steps():
     t.on_result(False)   # DETECT 失败1次(应允许重试,而非直接失败)
     assert t.state == TaskState.DETECT
     assert not t.is_terminal()
+
+
+# ---- SequentialTask: LLM 拆解出的自定义原子动作序列 ----
+
+def test_sequential_task_runs_custom_plan_to_done():
+    plan = [TaskState.NAV_TO_PICK, TaskState.DETECT, TaskState.RETURN_HOME]
+    t = SequentialTask(plan, max_retries=1)
+    t.start()
+    visited = [t.state]
+    for _ in range(len(plan)):
+        t.on_result(True)
+        visited.append(t.state)
+    assert visited[:3] == plan
+    assert t.state == TaskState.DONE
+    assert t.is_terminal()
+
+
+def test_sequential_task_rejects_empty_plan():
+    with pytest.raises(ValueError):
+        SequentialTask([], max_retries=1)
+
+
+def test_sequential_task_rejects_non_plannable_states():
+    for bad in (TaskState.IDLE, TaskState.DONE, TaskState.FAILED):
+        with pytest.raises(ValueError):
+            SequentialTask([TaskState.NAV_TO_PICK, bad], max_retries=1)
+
+
+def test_sequential_task_mid_plan_retry_exhaustion_fails():
+    plan = [TaskState.NAV_TO_PICK, TaskState.DETECT, TaskState.RETURN_HOME]
+    t = SequentialTask(plan, max_retries=1)
+    t.start()
+    t.on_result(True)    # NAV_TO_PICK 成功 → DETECT
+    t.on_result(False)   # DETECT 失败1次,重试
+    t.on_result(False)   # 第2次失败,超过 max_retries=1
+    assert t.state == TaskState.FAILED
+    assert t.is_terminal()
+
+
+def test_cross_station_task_is_default_sequential_plan():
+    t = CrossStationTask(max_retries=2)
+    assert isinstance(t, SequentialTask)
+    assert t.steps == STEP_ORDER
+    assert t.max_retries == 2

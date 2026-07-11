@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from builtin_interfaces.msg import Time  # noqa: E402
+from gazebo_msgs.msg import ModelStates  # noqa: E402
 from lab_cobot_perception import aruco_detector  # noqa: E402
 from lab_cobot_perception.aruco_detector import (  # noqa: E402
     ARUCO_AREA_THRESHOLD,
@@ -81,7 +82,7 @@ def test_detector_matches_project_sample_texture():
 
 
 def test_area_threshold_accepts_station_a_runtime_marker_size():
-    assert ARUCO_AREA_THRESHOLD <= 850
+    assert ARUCO_AREA_THRESHOLD <= 400
 
 
 def test_depth_cb_converts_16uc1_depth_to_meters():
@@ -108,6 +109,17 @@ def test_depth_cb_keeps_32fc1_depth_in_meters():
 
     assert detector.depth_img.dtype == np.float32
     assert detector.depth_img[0, 0] == pytest.approx(1.5)
+
+
+def test_rgb_cb_preserves_camera_source_stamp():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.bridge = FakeBridge(np.zeros((1, 1, 3), dtype=np.uint8))
+    msg = Image()
+    msg.header.stamp = Time(sec=12, nanosec=345000000)
+
+    detector._rgb_cb(msg)
+
+    assert detector.rgb_stamp == msg.header.stamp
 
 
 def test_info_cb_stores_camera_matrix_and_distortion_coefficients():
@@ -171,6 +183,7 @@ def test_publish_transforms_camera_pose_to_target_frame():
     detector = object.__new__(aruco_detector.ArucoDetector)
     detector.optical_frame = "camera_optical_frame"
     detector.target_frame = "base_link"
+    detector.publish_tf = True
     detector.br = FakeBroadcaster()
     detector.pose_pubs = {3: FakePosePublisher()}
     detector.get_clock = lambda: FakeClock()
@@ -209,6 +222,7 @@ def test_publish_transforms_camera_pose_to_target_frame():
 def test_process_offsets_marker_surface_depth_to_sample_center():
     detector = object.__new__(aruco_detector.ArucoDetector)
     detector.rgb_img = np.zeros((200, 200, 3), dtype=np.uint8)
+    detector.rgb_stamp = Time(sec=42, nanosec=125000000)
     detector.depth_img = np.full((200, 200), 1.5, dtype=np.float32)
     detector.fx = 100.0
     detector.fy = 100.0
@@ -231,7 +245,55 @@ def test_process_offsets_marker_surface_depth_to_sample_center():
         np.array([[7]], dtype=np.int32),
     )
     published = {}
-    detector._publish = lambda mid, position, orientation: published.update(
+    detector._publish = lambda mid, position, orientation, stamp=None: published.update(
+        {
+            "mid": mid,
+            "position": position,
+            "orientation": orientation,
+            "stamp": stamp,
+        }
+    )
+
+    detector._process()
+
+    assert published["mid"] == 7
+    assert published["position"] == pytest.approx((0.0, 0.0, 1.535))
+    assert len(published["orientation"]) == 4
+    assert published["stamp"] == detector.rgb_stamp
+
+
+def test_process_offsets_marker_surface_along_marker_normal_not_camera_ray(monkeypatch):
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.rgb_img = np.zeros((200, 200, 3), dtype=np.uint8)
+    detector.depth_img = np.full((200, 200), 1.5, dtype=np.float32)
+    detector.fx = 100.0
+    detector.fy = 100.0
+    detector.cx = 100.0
+    detector.cy = 100.0
+    detector.camera_matrix = np.array(
+        [[100.0, 0.0, 100.0], [0.0, 100.0, 100.0], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+    detector.dist_coeffs = np.zeros(5)
+    detector.marker_size_m = 0.07
+    detector.marker_to_object_center_m = 0.035
+    detector.detect = lambda _gray: (
+        [
+            np.array(
+                [[[50.0, 50.0], [150.0, 50.0], [150.0, 150.0], [50.0, 150.0]]],
+                dtype=np.float32,
+            )
+        ],
+        np.array([[7]], dtype=np.int32),
+    )
+    normal_x_orientation = (0.0, np.sin(np.pi / 4.0), 0.0, np.cos(np.pi / 4.0))
+    monkeypatch.setattr(
+        aruco_detector,
+        "estimate_marker_pose_from_corners",
+        lambda *_args, **_kwargs: ((0.0, 0.0, 1.5), normal_x_orientation),
+    )
+    published = {}
+    detector._publish = lambda mid, position, orientation, stamp=None: published.update(
         {
             "mid": mid,
             "position": position,
@@ -242,8 +304,7 @@ def test_process_offsets_marker_surface_depth_to_sample_center():
     detector._process()
 
     assert published["mid"] == 7
-    assert published["position"] == pytest.approx((0.0, 0.0, 1.535))
-    assert len(published["orientation"]) == 4
+    assert published["position"] == pytest.approx((0.035, 0.0, 1.5))
 
 
 def test_model_pose_to_object_transform_defaults_to_odom_truth_frame():
@@ -268,3 +329,83 @@ def test_model_pose_to_object_transform_defaults_to_odom_truth_frame():
     assert transform.transform.translation.y == 1.5
     assert transform.transform.translation.z == 0.785
     assert transform.transform.rotation.w == 1.0
+
+
+def test_topic_namespace_prefixes_pose_topic():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.pose_pubs = {}
+    detector.topic_namespace = "/perception/wrist"
+    created = {}
+
+    def create_publisher(_msg_type, topic, depth):
+        created.update({"topic": topic, "depth": depth})
+        return FakePosePublisher()
+
+    detector.create_publisher = create_publisher
+
+    detector._pose_pub(0)
+
+    assert created == {
+        "topic": "/perception/wrist/aruco_0/pose",
+        "depth": 10,
+    }
+
+
+def test_publish_tf_false_skips_broadcaster():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.optical_frame = "camera_optical_frame"
+    detector.target_frame = "camera_optical_frame"
+    detector.publish_tf = False
+    detector.br = FakeBroadcaster()
+    detector.pose_pubs = {0: FakePosePublisher()}
+    detector.get_clock = lambda: FakeClock()
+
+    detector._publish(0, (0.1, 0.2, 0.3), (0.0, 0.0, 0.0, 1.0))
+
+    assert detector.br.transforms == []
+    assert len(detector.pose_pubs[0].messages) == 1
+
+
+def test_publish_tf_false_skips_truth_pose_broadcaster():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.object_id = 0
+    detector.gazebo_model_name = "aruco_sample"
+    detector.gazebo_reference_frame = "odom"
+    detector.publish_tf = False
+    detector.br = FakeBroadcaster()
+    detector.pose_pubs = {0: FakePosePublisher()}
+    detector.get_clock = lambda: FakeClock()
+    msg = ModelStates()
+    msg.name = ["aruco_sample"]
+    msg.pose = [aruco_detector.PoseStamped().pose]
+    msg.pose[0].orientation.w = 1.0
+
+    detector._model_states_cb(msg)
+
+    assert detector.br.transforms == []
+    assert len(detector.pose_pubs[0].messages) == 1
+
+
+def test_default_topic_and_tf_behavior_remain_unchanged():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    detector.optical_frame = "camera_optical_frame"
+    detector.target_frame = "camera_optical_frame"
+    detector.topic_namespace = "/perception"
+    detector.publish_tf = True
+    detector.br = FakeBroadcaster()
+    detector.pose_pubs = {}
+    detector.get_clock = lambda: FakeClock()
+    created = {}
+
+    def create_publisher(_msg_type, topic, depth):
+        created.update({"topic": topic, "depth": depth})
+        return FakePosePublisher()
+
+    detector.create_publisher = create_publisher
+
+    detector._publish(3, (0.1, 0.2, 0.3), (0.0, 0.0, 0.0, 1.0))
+
+    assert created["topic"] == "/perception/aruco_3/pose"
+    assert created["depth"] == 10
+    assert len(detector.br.transforms) == 1
+    assert detector.br.transforms[0].child_frame_id == "obj_3"

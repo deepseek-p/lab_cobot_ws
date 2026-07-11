@@ -6,10 +6,12 @@
 MoveIt 抓取(PickPlace)→ 导航 → 放置 → 返回 home。
 
 订阅 /task/instruction(std_msgs/String)触发;发布 /task/status(当前状态)。
-运行时依赖:move_group、Nav2、aruco_detector、Gazebo 控制器、gripper attach bridge。
+运行时依赖:move_group、Nav2、aruco_detector、Gazebo 控制器、
+contact grasp 插件;`gripper_attach_bridge` 仅为显式 sim_attach 调试路径。
 
 注:本节点为运行时编排,需完整系统启动后验证;依赖较多,属集成层。
 """
+import os
 import time
 import math
 from threading import Thread
@@ -19,23 +21,35 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped, Twist
+from nav_msgs.msg import Odometry
 import tf2_ros
+from lifecycle_msgs.msg import State as LifecycleState
+from lifecycle_msgs.srv import GetState
 
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
-from lab_cobot_bringup.task_state_machine import CrossStationTask, TaskState
+from lab_cobot_bringup.task_planner import PlannerConfig, plan_actions
+from lab_cobot_bringup.task_state_machine import SequentialTask, TaskState
 from lab_cobot_navigation.waypoints import get_waypoint, yaw_to_quat
 from lab_cobot_manipulation.pick_place_node import PickPlace
+from lab_cobot_manipulation.gripper_driver import DEFAULT_TARGET_OBJECT
 
-RETREAT_TOPIC = "/cmd_vel_nav"
+RETREAT_TOPIC = "/cmd_vel"
+RAW_ODOM_TOPIC = "/odom"
+DETECTION_TOPIC_TEMPLATE = "/perception/aruco_{object_id}/pose"
+WRIST_DETECTION_TOPIC_TEMPLATE = "/perception/wrist/aruco_{object_id}/pose"
 RETREAT_LINEAR_X = -0.18
 RETREAT_DURATION_SEC = 6.0
 RETREAT_PUBLISH_PERIOD_SEC = 0.05
 RETREAT_STOP_SEC = 0.5
-DEFAULT_PLACE_POSE = [0.82, 0.20, 0.630]
+# base_link 系 TCP 放置点。z=0.725 + 悬空释放余量 0.02(pick_place 侧)
+# 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
+# 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
+DEFAULT_PLACE_POSE = [0.82, 0.20, 0.725]
+PLACE_BASE_TARGET_POSE = (-2.0, 0.62, math.pi / 2.0)
 DOCK_TARGET_X = 0.78
 DOCK_TARGET_Y = 0.0
-DOCK_TOLERANCE_X = 0.035
+DOCK_TOLERANCE_X = 0.05
 DOCK_TOLERANCE_Y = 0.065
 DOCK_GAIN_X = 0.8
 DOCK_GAIN_Y = 0.8
@@ -44,15 +58,42 @@ DOCK_MAX_LINEAR_Y = 0.08
 DOCK_TIMEOUT_SEC = 20.0
 DOCK_PUBLISH_PERIOD_SEC = 0.05
 DOCK_STOP_SEC = 0.3
+DETECTION_MAX_AGE_SEC = 1.0
+REFINE_WAIT_SEC = 2.5
+REFINE_POLL_SEC = 0.05
 NAV_TIMEOUT_SEC = 60.0
+NAV_SERVER_WAIT_SEC = 20.0
+NAV_ACTIVE_WAIT_SEC = 30.0
+NAV_ACTIVE_POLL_SEC = 0.5
+NAV_ACTIVE_CALL_TIMEOUT_SEC = 2.0
+NAV_TF_READY_WAIT_SEC = 12.0
+NAV_TF_READY_LOOKUP_SEC = 0.1
+NAV_TF_READY_POLL_SEC = 0.2
 PICK_NAV_HANDOFF_MIN_X = 0.70
 PICK_NAV_HANDOFF_MAX_X = 0.90
 PICK_NAV_HANDOFF_MAX_ABS_Y = 0.12
+PICK_NAV_HANDOFF_MAX_STATION_DISTANCE = 0.35
 STATION_B_TABLE_MIN_X = -2.4
 STATION_B_TABLE_MAX_X = -1.6
 STATION_B_TABLE_FRONT_Y = 1.2
 STATION_B_TABLE_BACK_Y = 1.8
+STATION_B_SAFE_DROP_FRONT_Y = 1.35
+STATION_B_SAFE_DROP_BACK_Y = 1.65
 NAV_HANDOFF_STOP_SEC = 0.3
+STATION_DOCK_TOLERANCE_X = 0.06
+STATION_DOCK_TOLERANCE_Y = 0.06
+STATION_DOCK_TOLERANCE_YAW = 0.15
+STATION_DOCK_GAIN_X = 0.8
+STATION_DOCK_GAIN_Y = 0.8
+STATION_DOCK_GAIN_YAW = 1.4
+STATION_DOCK_MAX_LINEAR_X = 0.16
+STATION_DOCK_MAX_LINEAR_Y = 0.16
+STATION_DOCK_MAX_ANGULAR = 0.45
+STATION_DOCK_YAW_FIRST_THRESHOLD = 0.35
+STATION_DOCK_YAW_FIRST_LINEAR_SCALE = 0.35
+STATION_DOCK_TIMEOUT_SEC = 80.0
+STATION_DOCK_PUBLISH_PERIOD_SEC = 0.05
+STATION_DOCK_STOP_SEC = 0.3
 PLACE_NAV_HANDOFF_MAX_DISTANCE = 0.30
 PLACE_DOCK_TOLERANCE_X = 0.06
 PLACE_DOCK_TOLERANCE_Y = 0.035
@@ -76,6 +117,19 @@ def _clamp(value: float, limit: float) -> float:
 
 def _angle_wrap(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def _stamp_seconds(stamp) -> float:
+    return float(stamp.sec) + float(stamp.nanosec) * 1.0e-9
+
+
+def transform_stamp_is_fresh(
+    now_stamp,
+    transform_stamp,
+    max_age_sec: float = DETECTION_MAX_AGE_SEC,
+) -> bool:
+    age_sec = _stamp_seconds(now_stamp) - _stamp_seconds(transform_stamp)
+    return -0.25 <= age_sec <= max_age_sec
 
 
 def dock_velocity_for_object(object_pose):
@@ -106,6 +160,16 @@ def pick_navigation_handoff_ready(object_pose) -> bool:
     )
 
 
+def pick_map_handoff_ready(base_pose) -> bool:
+    if base_pose is None:
+        return False
+    station_x, station_y, _station_yaw = _station_base_pose("station_a")
+    return math.hypot(
+        float(base_pose[0]) - station_x,
+        float(base_pose[1]) - station_y,
+    ) <= PICK_NAV_HANDOFF_MAX_STATION_DISTANCE
+
+
 def _base_target_to_map(base_pose, target_xy):
     base_x, base_y, yaw = base_pose
     target_x, target_y = target_xy
@@ -119,6 +183,13 @@ def _station_b_table_contains(map_x: float, map_y: float) -> bool:
     return (
         STATION_B_TABLE_MIN_X <= map_x <= STATION_B_TABLE_MAX_X
         and STATION_B_TABLE_FRONT_Y <= map_y <= STATION_B_TABLE_BACK_Y
+    )
+
+
+def _station_b_safe_drop_contains(map_x: float, map_y: float) -> bool:
+    return (
+        STATION_B_TABLE_MIN_X <= map_x <= STATION_B_TABLE_MAX_X
+        and STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y
     )
 
 
@@ -142,12 +213,56 @@ def place_navigation_handoff_ready(base_pose, place_pose) -> bool:
     return _station_b_table_contains(map_x, map_y)
 
 
+def station_dock_velocity_for_base(base_pose, station: str):
+    cmd = Twist()
+    if base_pose is None:
+        return False, cmd
+
+    base_x, base_y, yaw = [float(v) for v in base_pose]
+    target_x, target_y, target_yaw = _station_base_pose(station)
+    error_x_map = target_x - base_x
+    error_y_map = target_y - base_y
+    error_yaw = _angle_wrap(target_yaw - yaw)
+
+    done = (
+        abs(error_x_map) <= STATION_DOCK_TOLERANCE_X
+        and abs(error_y_map) <= STATION_DOCK_TOLERANCE_Y
+        and abs(error_yaw) <= STATION_DOCK_TOLERANCE_YAW
+    )
+    if done:
+        return True, cmd
+
+    cos_yaw = math.cos(yaw)
+    sin_yaw = math.sin(yaw)
+    error_x_base = cos_yaw * error_x_map + sin_yaw * error_y_map
+    error_y_base = -sin_yaw * error_x_map + cos_yaw * error_y_map
+    linear_scale = (
+        STATION_DOCK_YAW_FIRST_LINEAR_SCALE
+        if abs(error_yaw) > STATION_DOCK_YAW_FIRST_THRESHOLD
+        else 1.0
+    )
+
+    cmd.linear.x = _clamp(
+        STATION_DOCK_GAIN_X * error_x_base * linear_scale,
+        STATION_DOCK_MAX_LINEAR_X,
+    )
+    cmd.linear.y = _clamp(
+        STATION_DOCK_GAIN_Y * error_y_base * linear_scale,
+        STATION_DOCK_MAX_LINEAR_Y,
+    )
+    cmd.angular.z = _clamp(
+        STATION_DOCK_GAIN_YAW * error_yaw,
+        STATION_DOCK_MAX_ANGULAR,
+    )
+    return False, cmd
+
+
 def place_dock_velocity_for_base(base_pose, target_pose=None, place_pose=None):
     cmd = Twist()
     if base_pose is None:
         return False, cmd
     if target_pose is None:
-        target_pose = _station_base_pose("station_b")
+        target_pose = PLACE_BASE_TARGET_POSE
     if place_pose is None:
         place_pose = DEFAULT_PLACE_POSE
 
@@ -157,7 +272,7 @@ def place_dock_velocity_for_base(base_pose, target_pose=None, place_pose=None):
     error_y_map = target_y - base_y
     error_yaw = _angle_wrap(target_yaw - yaw)
     place_x, place_y = _base_target_to_map(base_pose, place_pose[:2])
-    drop_target_on_table = _station_b_table_contains(place_x, place_y)
+    drop_target_on_table = _station_b_safe_drop_contains(place_x, place_y)
 
     done = (
         abs(error_x_map) <= PLACE_DOCK_TOLERANCE_X
@@ -190,20 +305,97 @@ def home_navigation_handoff_ready(base_pose) -> bool:
 
 
 def requires_departure_retreat(state: TaskState) -> bool:
-    return state in {TaskState.PICK, TaskState.PLACE}
+    return state == TaskState.PICK
+
+
+def base_pose_from_odom_msg(msg: Odometry):
+    q = msg.pose.pose.orientation
+    yaw = math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
+    return [
+        msg.pose.pose.position.x,
+        msg.pose.pose.position.y,
+        yaw,
+    ]
+
+
+def build_planner_config(
+    llm_enabled: bool,
+    api_base: str,
+    model: str,
+    timeout_sec: float,
+) -> PlannerConfig:
+    """构造规划器配置;API key 仅从环境变量 LLM_API_KEY 读入,不落参数."""
+    return PlannerConfig(
+        llm_enabled=llm_enabled,
+        api_base=api_base,
+        model=model,
+        timeout_sec=timeout_sec,
+        api_key=os.environ.get("LLM_API_KEY"),
+    )
 
 
 class MissionNode(Node):
     def __init__(self):
         super().__init__("mission_node")
         self.declare_parameter("object_id", 0)
+        # object_id 是感知 marker id;target_object 是 Gazebo 抓取模型名。
+        self.declare_parameter("target_object", DEFAULT_TARGET_OBJECT)
+        self.declare_parameter("use_tactile_grasp", False)
+        self.declare_parameter("use_refine_detect", False)
         self.declare_parameter("place_pose", DEFAULT_PLACE_POSE)  # base_link 系放置点
         self.object_id = int(self.get_parameter("object_id").value)
+        self.target_object = str(self.get_parameter("target_object").value)
+        self.use_tactile_grasp = bool(
+            self.get_parameter("use_tactile_grasp").value
+        )
+        self._use_refine_detect = bool(
+            self.get_parameter("use_refine_detect").value
+        )
         self.place_pose = list(self.get_parameter("place_pose").value)
+        # LLM 任务拆解:默认关闭,E2E/CI 离线;演示时 llm_enabled:=true 打开
+        self.declare_parameter("llm_enabled", False)
+        self.declare_parameter("llm_api_base", "https://api.deepseek.com")
+        self.declare_parameter("llm_model", "deepseek-chat")
+        self.declare_parameter("llm_timeout_sec", 10.0)
+        self._planner_config = build_planner_config(
+            llm_enabled=bool(self.get_parameter("llm_enabled").value),
+            api_base=str(self.get_parameter("llm_api_base").value),
+            model=str(self.get_parameter("llm_model").value),
+            timeout_sec=float(self.get_parameter("llm_timeout_sec").value),
+        )
 
         self.nav = BasicNavigator()
-        self.pp = PickPlace()
+        # 导航栈就绪探测:wait_for_server 只保证 action server 存在(configure
+        # 即创建),不保证节点 active;inactive 时发 goal 会被拒(实测:manager
+        # 延后启动后 mission 首 goal 与 bt_navigator activate 窗口对撞)。
+        self._bt_state_client = self.create_client(
+            GetState, "/bt_navigator/get_state"
+        )
+        self.pp = PickPlace(
+            target_object=self.target_object,
+            use_tactile_grasp=self.use_tactile_grasp,
+        )
         self.retreat_pub = self.create_publisher(Twist, RETREAT_TOPIC, 10)
+        self._latest_odom_pose = None
+        self._latest_detection_pose = None
+        self._latest_wrist_detection_pose = None
+        self.create_subscription(Odometry, RAW_ODOM_TOPIC, self._on_odom, 10)
+        self.create_subscription(
+            PoseStamped,
+            DETECTION_TOPIC_TEMPLATE.format(object_id=self.object_id),
+            self._on_detection_pose,
+            10,
+        )
+        if self._use_refine_detect:
+            self.create_subscription(
+                PoseStamped,
+                WRIST_DETECTION_TOPIC_TEMPLATE.format(object_id=self.object_id),
+                self._on_wrist_detection_pose,
+                10,
+            )
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -217,12 +409,28 @@ class MissionNode(Node):
             self.get_logger().warn("任务进行中,忽略新指令")
             return
         self.get_logger().info(f"收到指令: {msg.data}")
+        self._instruction = msg.data
         self._busy = True
         Thread(target=self._run_mission, daemon=True).start()
 
+    def _on_odom(self, msg: Odometry) -> None:
+        self._latest_odom_pose = base_pose_from_odom_msg(msg)
+
+    def _on_detection_pose(self, msg: PoseStamped) -> None:
+        self._latest_detection_pose = msg
+
+    def _on_wrist_detection_pose(self, msg: PoseStamped) -> None:
+        self._latest_wrist_detection_pose = msg
+
     def _run_mission(self):
         try:
-            task = CrossStationTask(max_retries=1)
+            instruction = getattr(self, "_instruction", "")
+            config = getattr(self, "_planner_config", None)
+            result = plan_actions(instruction, config)
+            self.get_logger().info(
+                f"任务拆解[{result.source}]: {[s.name for s in result.steps]}"
+            )
+            task = SequentialTask(result.steps, max_retries=1)
             task.start()
             self._publish(task.state)
             while not task.is_terminal():
@@ -240,21 +448,38 @@ class MissionNode(Node):
     def _execute(self, state: TaskState) -> bool:
         try:
             if state == TaskState.NAV_TO_PICK:
-                return self._navigate("station_a") and self._dock_to_pick_target()
+                return (
+                    self._navigate("station_a")
+                    and self._dock_to_station_pose("station_a")
+                    and self._dock_to_pick_target()
+                )
             if state == TaskState.DETECT:
                 return self._detect() is not None
             if state == TaskState.PICK:
                 pose = self._detect()
-                ok = pose is not None and self.pp.pick(pose)
+                refine_cb = (
+                    self._make_refine_cb()
+                    if getattr(self, "_use_refine_detect", False)
+                    else None
+                )
+                ok = pose is not None and self.pp.pick(
+                    pose,
+                    refine_cb=refine_cb,
+                )
                 return self._finish_station_step(state, ok)
             if state == TaskState.NAV_TO_PLACE:
-                return self._navigate("station_b") and self._dock_to_place_target()
+                return (
+                    self._navigate("station_b")
+                    and self._dock_to_station_pose("station_b")
+                    and self._dock_to_place_target()
+                )
             if state == TaskState.PLACE:
                 ok = self.pp.place(self.place_pose)
                 return self._finish_station_step(state, ok)
             if state == TaskState.RETURN_HOME:
-                nav_ok = self._navigate("home")
-                return nav_ok and self.pp.go_home()
+                if not self.pp.go_home():
+                    return False
+                return self._navigate("home") and self._dock_to_station_pose("home")
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f"步骤 {state.name} 异常: {e}")
             return False
@@ -329,11 +554,41 @@ class MissionNode(Node):
             )
         return False
 
+    def _dock_to_station_pose(self, station: str) -> bool:
+        self.get_logger().info(f"地图精停到 {station}")
+        start = self.get_clock().now()
+        last_pose = None
+        while not self._duration_elapsed(start, STATION_DOCK_TIMEOUT_SEC):
+            pose = self._base_pose_in_odom(timeout_sec=0.05)
+            if pose is not None:
+                last_pose = pose
+                done, cmd = station_dock_velocity_for_base(pose, station)
+                if done:
+                    self._stop_base(STATION_DOCK_STOP_SEC)
+                    self.get_logger().info(
+                        f"地图精停完成 base=({pose[0]:.3f},{pose[1]:.3f},"
+                        f"{math.degrees(pose[2]):.1f}deg)"
+                    )
+                    return True
+                self.retreat_pub.publish(cmd)
+            time.sleep(STATION_DOCK_PUBLISH_PERIOD_SEC)
+
+        self._stop_base(STATION_DOCK_STOP_SEC)
+        if last_pose is None:
+            self.get_logger().warn(f"地图精停失败: 未获取 {station} base_link odom 位姿")
+        else:
+            self.get_logger().warn(
+                f"地图精停超时 {station}: "
+                f"base=({last_pose[0]:.3f},{last_pose[1]:.3f},"
+                f"{math.degrees(last_pose[2]):.1f}deg)"
+            )
+        return False
+
     def _dock_to_place_target(self) -> bool:
         self.get_logger().info("放置停靠到B工位")
         start = self.get_clock().now()
         last_pose = None
-        target_pose = _station_base_pose("station_b")
+        target_pose = PLACE_BASE_TARGET_POSE
         while not self._duration_elapsed(start, PLACE_DOCK_TIMEOUT_SEC):
             pose = self._base_pose_in_map(timeout_sec=0.05)
             if pose is not None:
@@ -372,6 +627,20 @@ class MissionNode(Node):
 
     def _navigate(self, station: str) -> bool:
         wp = get_waypoint(station)
+        self.get_logger().info(f"导航到 {station} ({wp['x']:.2f},{wp['y']:.2f})")
+        # 有界探测:BasicNavigator.goToPose 内部 wait_for_server 是无限等待,
+        # bt_navigator 偶发未就绪会让任务挂死到 E2E 420s 超时(重复统计实测)。
+        # 探测失败按导航失败处理,交给状态机重试与 FAILED 兜底。
+        if not self.nav.nav_to_pose_client.wait_for_server(
+            timeout_sec=NAV_SERVER_WAIT_SEC
+        ):
+            self.get_logger().warn(f"导航服务未就绪,放弃导航到 {station}")
+            return False
+        if not self._wait_for_nav_active():
+            self.get_logger().warn(f"bt_navigator 未 active,放弃导航到 {station}")
+            return False
+        if not self._wait_for_navigation_tf(station):
+            return False
         goal = PoseStamped()
         goal.header.frame_id = "map"
         goal.header.stamp = self.nav.get_clock().now().to_msg()
@@ -380,7 +649,6 @@ class MissionNode(Node):
         qx, qy, qz, qw = yaw_to_quat(wp["yaw"])
         goal.pose.orientation.z = qz
         goal.pose.orientation.w = qw
-        self.get_logger().info(f"导航到 {station} ({wp['x']:.2f},{wp['y']:.2f})")
         self.nav.goToPose(goal)
         t0 = self.get_clock().now()
         timeout = rclpy.duration.Duration(seconds=NAV_TIMEOUT_SEC)
@@ -399,9 +667,41 @@ class MissionNode(Node):
             time.sleep(0.2)
         return self.nav.getResult() == TaskResult.SUCCEEDED
 
+    def _wait_for_nav_active(self) -> bool:
+        """Wait until bt_navigator lifecycle state reaches active."""
+        start = self.get_clock().now()
+        while not self._duration_elapsed(start, NAV_ACTIVE_WAIT_SEC):
+            if self._bt_state_client.service_is_ready():
+                future = self._bt_state_client.call_async(GetState.Request())
+                deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
+                while not future.done() and time.time() < deadline:
+                    time.sleep(0.05)
+                result = future.result() if future.done() else None
+                if (
+                    result is not None
+                    and result.current_state.id
+                    == LifecycleState.PRIMARY_STATE_ACTIVE
+                ):
+                    return True
+            time.sleep(NAV_ACTIVE_POLL_SEC)
+        return False
+
+    def _wait_for_navigation_tf(self, station: str) -> bool:
+        start = self.get_clock().now()
+        while not self._duration_elapsed(start, NAV_TF_READY_WAIT_SEC):
+            if self._base_pose_in_map(timeout_sec=NAV_TF_READY_LOOKUP_SEC) is not None:
+                return True
+            time.sleep(NAV_TF_READY_POLL_SEC)
+        self.get_logger().warn(f"导航到 {station} 前 map TF 未就绪")
+        return False
+
     def _navigation_handoff_ready(self, station: str) -> bool:
         if station == "station_a":
-            return pick_navigation_handoff_ready(self._detect(timeout_sec=0.05))
+            return pick_navigation_handoff_ready(
+                self._detect(timeout_sec=0.05)
+            ) or pick_map_handoff_ready(
+                self._base_pose_in_map(timeout_sec=0.05)
+            )
         if station == "station_b":
             return place_navigation_handoff_ready(
                 self._base_pose_in_map(timeout_sec=0.05),
@@ -414,9 +714,18 @@ class MissionNode(Node):
         return False
 
     def _base_pose_in_map(self, timeout_sec: float = 2.0):
+        return self._base_pose_in_frame("map", timeout_sec)
+
+    def _base_pose_in_odom(self, timeout_sec: float = 2.0):
+        del timeout_sec
+        if self._latest_odom_pose is None:
+            return None
+        return list(self._latest_odom_pose)
+
+    def _base_pose_in_frame(self, frame: str, timeout_sec: float = 2.0):
         try:
             t = self.tf_buffer.lookup_transform(
-                "map", "base_link", rclpy.time.Time(),
+                frame, "base_link", rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=timeout_sec),
             )
             q = t.transform.rotation
@@ -433,12 +742,33 @@ class MissionNode(Node):
             return None
 
     def _detect(self, timeout_sec: float = 2.0):
+        pose = self._latest_detection_pose
+        if pose is not None and pose.header.frame_id == "base_link":
+            if transform_stamp_is_fresh(
+                self.get_clock().now().to_msg(),
+                pose.header.stamp,
+            ):
+                return [
+                    pose.pose.position.x,
+                    pose.pose.position.y,
+                    pose.pose.position.z,
+                ]
+            self.get_logger().warn(
+                f"未检测到 obj_{self.object_id}: 感知位姿已过期"
+            )
+
         frame = f"obj_{self.object_id}"
         try:
             t = self.tf_buffer.lookup_transform(
                 "base_link", frame, rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=timeout_sec),
             )
+            if not transform_stamp_is_fresh(
+                self.get_clock().now().to_msg(),
+                t.header.stamp,
+            ):
+                self.get_logger().warn(f"未检测到 {frame}: TF 已过期")
+                return None
             return [
                 t.transform.translation.x,
                 t.transform.translation.y,
@@ -447,6 +777,30 @@ class MissionNode(Node):
         except Exception as e:  # noqa: BLE001
             self.get_logger().warn(f"未检测到 {frame}: {e}")
             return None
+
+    def _make_refine_cb(self):
+        def wait_for_refined_position():
+            start = self.get_clock().now()
+            start_seconds = _stamp_seconds(start.to_msg())
+            while not self._duration_elapsed(start, REFINE_WAIT_SEC):
+                pose = self._latest_wrist_detection_pose
+                if pose is not None and pose.header.frame_id == "base_link":
+                    pose_seconds = _stamp_seconds(pose.header.stamp)
+                    if pose_seconds > start_seconds:
+                        now_seconds = _stamp_seconds(
+                            self.get_clock().now().to_msg()
+                        )
+                        age_seconds = now_seconds - pose_seconds
+                        if -0.25 <= age_seconds < DETECTION_MAX_AGE_SEC:
+                            return [
+                                pose.pose.position.x,
+                                pose.pose.position.y,
+                                pose.pose.position.z,
+                            ]
+                time.sleep(REFINE_POLL_SEC)
+            return None
+
+        return wait_for_refined_position
 
     def _publish(self, state: TaskState):
         m = String()

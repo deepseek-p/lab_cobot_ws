@@ -4,6 +4,7 @@ import importlib.util
 import math
 from pathlib import Path
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 
 import yaml
@@ -106,7 +107,7 @@ def test_generated_urdf_exports_gripper_joints_to_ros2_control():
     } <= ros2_control_joints
 
 
-def test_parallel_gripper_is_visual_only_for_soft_attach_simulation():
+def test_parallel_gripper_fingers_have_collision_for_physical_grasp():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
     urdf = subprocess.run(
         ["xacro", str(urdf_file)],
@@ -117,13 +118,228 @@ def test_parallel_gripper_is_visual_only_for_soft_attach_simulation():
     root = ET.fromstring(urdf)
 
     for link_name in (
-        "gripper_base",
         "gripper_left_finger",
         "gripper_right_finger",
     ):
         link = root.find(f"./link[@name='{link_name}']")
         assert link is not None
-        assert link.find("collision") is None
+        collisions = link.findall("collision")
+        assert len(collisions) == 1
+        main_box = collisions[0].find("./geometry/box")
+        assert main_box is not None
+        assert main_box.attrib["size"] == "0.045 0.012 0.075"
+
+
+def test_tactile_probe_collisions_are_gazebo_only():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    for side in ("left", "right"):
+        link = root.find(f"./link[@name='gripper_{side}_finger']")
+        assert link is not None
+        assert not link.findall("collision[@name]")
+
+
+def test_gazebo_tactile_probe_collision_names_match_bumper_sensors():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file), "gazebo_tactile_probe:=true"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".urdf") as urdf_file_obj:
+        urdf_file_obj.write(urdf)
+        urdf_file_obj.flush()
+        sdf = subprocess.run(
+            ["gz", "sdf", "-p", urdf_file_obj.name],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout
+    root = ET.fromstring(sdf)
+
+    for side in ("left", "right"):
+        link = root.find(f".//link[@name='gripper_{side}_finger']")
+        assert link is not None
+        assert link.find(
+            f"./collision[@name='gripper_{side}_finger_tactile_probe_collision_1']"
+        ) is not None
+
+        sensor = link.find(f"./sensor[@name='gripper_{side}_finger_bumper']")
+        assert sensor is not None
+        assert sensor.findtext("./contact/collision") == (
+            f"gripper_{side}_finger_tactile_probe_collision_1"
+        )
+
+
+def test_generated_urdf_uses_wheel_command_pose_drive_instead_of_planar_move_plugin():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    assert "gazebo_ros_planar_move" not in urdf
+    assert "libgazebo_ros_planar_move.so" not in urdf
+    for wheel_name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"):
+        wheel = root.find(f"./link[@name='{wheel_name}']")
+        assert wheel is not None
+        assert wheel.find("collision") is not None
+
+
+def test_camera_is_offset_from_arm_centerline_to_avoid_self_occlusion():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+    origin = root.find("./joint[@name='camera_joint']/origin")
+
+    assert origin is not None
+    x, y, z = [float(value) for value in origin.attrib["xyz"].split()]
+    assert x >= 0.15
+    assert abs(y) >= 0.18
+    assert z >= 0.50
+
+
+def test_generated_urdf_loads_wheel_joint_mecanum_traction_plugin():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+    plugin = root.find(".//plugin[@name='lab_cobot_mecanum_traction']")
+
+    assert plugin is not None
+    assert plugin.attrib["filename"] == "liblab_cobot_mecanum_drive.so"
+    assert plugin.findtext("control_mode") == "pose_from_wheel_commands"
+    assert plugin.findtext("wheel_command_topic") == "/wheel_velocity_controller/commands"
+    assert plugin.findtext("base_link") == "base_link"
+    assert plugin.findtext("wheel_radius") == "0.08"
+    assert plugin.findtext("wheelbase_radius") == "0.47000000000000003"
+    assert float(plugin.findtext("max_linear_accel")) <= 1.0
+    assert float(plugin.findtext("max_angular_accel")) <= 2.0
+    assert [
+        elem.text for elem in plugin.findall("wheel_joint")
+    ] == [
+        "wheel_fl_joint",
+        "wheel_fr_joint",
+        "wheel_rl_joint",
+        "wheel_rr_joint",
+    ]
+
+
+def test_default_mecanum_drive_uses_commanded_wheel_velocity_mode_for_headless_stability():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+    plugin = root.find(".//plugin[@name='lab_cobot_mecanum_traction']")
+
+    assert plugin.findtext("control_mode") == "pose_from_wheel_commands"
+    assert float(plugin.findtext("max_linear_accel")) <= 1.0
+    assert float(plugin.findtext("max_angular_accel")) <= 2.0
+
+
+def test_commanded_velocity_drive_uses_ground_support_not_wheel_contact_traction():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    assert root.find(".//plugin[@name='lab_cobot_mecanum_traction']").findtext(
+        "control_mode"
+    ) == "pose_from_wheel_commands"
+    support = root.find("./link[@name='base_link']/collision[@name='base_ground_support']")
+    assert support is not None
+    support_z = float(support.find("origin").attrib["xyz"].split()[2])
+    assert support_z < -0.10
+
+    for wheel_name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"):
+        gazebo = root.find(f"./gazebo[@reference='{wheel_name}']")
+        assert gazebo is not None
+        assert gazebo.findtext("collide_bitmask") == "0x00"
+
+
+def test_generated_urdf_loads_grasp_fix_for_contact_based_holding():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+    plugin = root.find(".//plugin[@name='lab_cobot_grasp_fix']")
+
+    assert plugin is not None
+    assert plugin.attrib["filename"] == "liblab_cobot_grasp_fix.so"
+    assert plugin.findtext("object_model") == "aruco_sample"
+    assert plugin.findtext("object_link") == "link"
+    assert plugin.findtext("tcp_link") == "gripper_tcp"
+    assert plugin.findtext("left_joint") == "gripper_left_finger_joint"
+    assert plugin.findtext("right_joint") == "gripper_right_finger_joint"
+    assert float(plugin.findtext("close_threshold")) <= 0.003
+    assert plugin.findtext("grip_count_threshold") == "1"
+    assert plugin.findtext("grasp_center_offset") == "-0.037 0.0 0.030"
+    assert float(plugin.findtext("max_center_distance")) >= 0.090
+    assert plugin.findtext("max_abs_x") == "0.065"
+    assert plugin.findtext("max_abs_y") == "0.055"
+    assert float(plugin.findtext("max_z")) >= 0.075
+
+
+def test_generated_urdf_adds_contact_sensors_to_both_fingers():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    for side in ("left", "right"):
+        gazebo = root.find(f"./gazebo[@reference='gripper_{side}_finger']")
+        sensor = gazebo.find(f"./sensor[@name='gripper_{side}_finger_bumper']")
+        plugin = sensor.find(f"./plugin[@name='gripper_{side}_finger_bumper_plugin']")
+
+        assert sensor.attrib["type"] == "contact"
+        assert sensor.findtext("./contact/collision") == (
+            f"gripper_{side}_finger_tactile_probe_collision_1"
+        )
+        assert sensor.findtext("always_on") == "true"
+        assert sensor.findtext("update_rate") == "50.0"
+        assert gazebo.findtext("maxVel") == "0.01"
+        assert plugin.attrib["filename"] == "libgazebo_ros_bumper.so"
+        assert plugin.findtext("./ros/namespace") == "/gripper"
+        assert plugin.findtext("./ros/remapping") == (
+            f"bumper_states:={side}_finger_contacts"
+        )
+        assert plugin.findtext("frame_name") == f"gripper_{side}_finger"
 
 
 def test_moveit_marks_uncontrolled_wheel_joints_passive():
@@ -227,6 +443,9 @@ def test_srdf_declares_gripper_group_and_collision_pairs():
     assert frozenset(("gripper_left_finger", "gripper_right_finger")) in disabled_pairs
     assert frozenset(("gripper_base", "ur_wrist_3_link")) in disabled_pairs
     assert frozenset(("gripper_base", "ur_forearm_link")) in disabled_pairs
+    for finger in ("gripper_left_finger", "gripper_right_finger"):
+        assert frozenset((finger, "ur_wrist_1_link")) in disabled_pairs
+        assert frozenset((finger, "ur_forearm_link")) in disabled_pairs
 
 
 def _origin_xyz_rpy(urdf: str, joint_name: str):
@@ -295,3 +514,56 @@ def test_station_a_sample_projects_into_camera_image():
     assert optical_z > 0.05
     assert abs(optical_x / optical_z) < math.tan(1.047 / 2.0)
     assert abs(optical_y / optical_z) < math.tan(1.047 / 2.0) * (480 / 640)
+
+
+def test_wrist_refine_camera_is_absent_by_default():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    assert root.find("./link[@name='wrist_camera_link']") is None
+    assert root.find(".//sensor[@name='wrist_camera']") is None
+
+
+def test_wrist_refine_camera_contract_when_enabled():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file), "wrist_refine_camera:=true"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    assert root.find("./link[@name='wrist_camera_link']") is not None
+    assert root.find("./link[@name='wrist_camera_optical_frame']") is not None
+    camera_joint = root.find("./joint[@name='wrist_camera_joint']")
+    assert camera_joint is not None
+    assert camera_joint.find("parent").attrib["link"] == "gripper_base"
+    assert camera_joint.find("child").attrib["link"] == "wrist_camera_link"
+    camera_xyz = [
+        float(value)
+        for value in camera_joint.find("origin").attrib["xyz"].split()
+    ]
+    camera_rpy = [
+        float(value)
+        for value in camera_joint.find("origin").attrib["rpy"].split()
+    ]
+    # The marker is on the sample face toward the robot. Mount the camera on
+    # that side and aim forward/down instead of back into the UR wrist or at
+    # the untextured top face.
+    assert camera_xyz[0] < -0.07
+    assert -math.pi / 2.0 < camera_rpy[1] < 0.0
+    optical_joint = root.find("./joint[@name='wrist_camera_optical_joint']")
+    assert optical_joint is not None
+    sensor = root.find(".//sensor[@name='wrist_camera']")
+    assert sensor is not None
+    assert sensor.attrib["type"] == "depth"
+    gazebo = root.find("./gazebo[@reference='wrist_camera_link']")
+    assert gazebo is not None
+    assert gazebo.findtext("material") == "Gazebo/DarkGrey"

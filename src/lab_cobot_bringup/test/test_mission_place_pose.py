@@ -4,8 +4,14 @@ import math
 
 import pytest
 
-from lab_cobot_bringup.mission_node import DEFAULT_PLACE_POSE
-from lab_cobot_navigation.waypoints import get_waypoint
+from lab_cobot_bringup.mission_node import (
+    DEFAULT_PLACE_POSE,
+    PLACE_BASE_TARGET_POSE,
+    STATION_B_SAFE_DROP_BACK_Y,
+    STATION_B_SAFE_DROP_FRONT_Y,
+    _base_target_to_map,
+)
+from lab_cobot_manipulation.pick_place_node import PLACE_RELEASE_CLEARANCE
 
 
 def _base_to_map(base_xy, station):
@@ -18,12 +24,20 @@ def _base_to_map(base_xy, station):
 
 
 def test_default_place_pose_targets_reachable_station_b_table_front():
-    station_b = get_waypoint("station_b")
+    station_b = {
+        "x": PLACE_BASE_TARGET_POSE[0],
+        "y": PLACE_BASE_TARGET_POSE[1],
+        "yaw": PLACE_BASE_TARGET_POSE[2],
+    }
     base_link_world_z = 0.155
-    sample_center_world_z = 0.785
+    # 焊接偏移按 E2E 实测标定:pick 时 TCP=检测z+PICK_TCP_Z_CLEARANCE(0.06),
+    # 视觉 z 系统偏差约 +5mm,故物块中心距 TCP 约 -0.065(非早期误估的 -0.027)
+    held_sample_center_from_tcp_z = -0.065
+    vision_z_error_band = 0.015
+    table_top_world_z = 0.75
+    sample_half_height = 0.035
     table_min_x = -2.4
     table_max_x = -1.6
-    table_front_y = 1.2
     table_mid_y = 1.5
     max_reachable_forward = 0.82
     minimum_nominal_front_margin = 0.07
@@ -32,9 +46,29 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
 
     assert DEFAULT_PLACE_POSE[0] <= max_reachable_forward
     assert table_min_x <= map_x <= table_max_x
-    assert table_front_y <= map_y <= table_mid_y
-    assert map_y - table_front_y >= minimum_nominal_front_margin
-    assert DEFAULT_PLACE_POSE[2] + base_link_world_z == pytest.approx(
-        sample_center_world_z,
-        abs=0.02,
+    assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= table_mid_y
+    assert map_y - STATION_B_SAFE_DROP_FRONT_Y >= minimum_nominal_front_margin
+    assert DEFAULT_PLACE_POSE[2] == pytest.approx(0.725)
+    # 悬空释放几何:释放瞬间(descend 到 target+clearance)物块底面必须
+    # 高出台面一个视觉误差带,确保带焊物块永不压入台面(约束爆炸根因);
+    # 同时落差不超过 8cm,避免 0.05kg 样件弹跳出安全落区。
+    release_bottom_world_z = (
+        DEFAULT_PLACE_POSE[2]
+        + PLACE_RELEASE_CLEARANCE
+        + base_link_world_z
+        + held_sample_center_from_tcp_z
+        - sample_half_height
     )
+    drop_height = release_bottom_world_z - table_top_world_z
+    assert drop_height >= vision_z_error_band
+    assert drop_height <= 0.08
+
+
+def test_place_base_target_projects_drop_point_into_safe_table_band():
+    map_x, map_y = _base_target_to_map(
+        PLACE_BASE_TARGET_POSE,
+        DEFAULT_PLACE_POSE[:2],
+    )
+
+    assert -2.4 <= map_x <= -1.6
+    assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y

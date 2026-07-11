@@ -45,7 +45,7 @@
   <!-- ===== 末端执行器 ===== -->
   <end_effector name="gripper" parent_link="ur_tool0" group="gripper"/>
 
-  <!-- 底盘平面运动由 gazebo_ros_planar_move 实现;轮关节由 ros2_control 驱动用于 GUI 视觉旋转。 -->
+  <!-- 底盘平面运动由 lab_cobot_mecanum_drive 的轮速命令链路实现;不再使用旧平面移动插件。 -->
   <passive_joint name="wheel_fl_joint"/>
   <passive_joint name="wheel_fr_joint"/>
   <passive_joint name="wheel_rl_joint"/>
@@ -71,6 +71,10 @@
   <disable_collisions link1="gripper_right_finger" link2="ur_wrist_3_link" reason="Never"/>
   <disable_collisions link1="gripper_left_finger" link2="ur_wrist_2_link" reason="Never"/>
   <disable_collisions link1="gripper_right_finger" link2="ur_wrist_2_link" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="ur_wrist_1_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="ur_wrist_1_link" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="ur_forearm_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="ur_forearm_link" reason="Never"/>
   <!-- 底盘 / 立柱 / UR 基座 / 传感器 -->
   <disable_collisions link1="base_link" link2="pillar_link" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="laser" reason="Adjacent"/>

@@ -31,13 +31,29 @@ def generate_launch_description():
 
     world = os.path.join(gz_pkg, "worlds", "lab.world")
     urdf_xacro = os.path.join(desc_pkg, "urdf", "lab_cobot.urdf.xacro")
-    robot_description = {"robot_description": Command(["xacro ", urdf_xacro])}
+    require_finger_contact = LaunchConfiguration("require_finger_contact")
+    use_refine_detect = LaunchConfiguration("use_refine_detect")
+    robot_description = {
+        "robot_description": Command([
+            "xacro ",
+            urdf_xacro,
+            " require_finger_contact:=",
+            require_finger_contact,
+            " gazebo_tactile_probe:=true",
+            " wrist_refine_camera:=",
+            use_refine_detect,
+        ])
+    }
+    plugin_path = os.path.join(os.path.dirname(os.path.dirname(gz_pkg)), "lib")
 
     gui = LaunchConfiguration("gui")
 
     # 让 Gazebo 能解析 world 里的 model://aruco_sample
     model_path = AppendEnvironmentVariable(
         "GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")
+    )
+    gazebo_plugin_path = AppendEnvironmentVariable(
+        "GAZEBO_PLUGIN_PATH", plugin_path
     )
 
     gzserver = IncludeLaunchDescription(
@@ -70,7 +86,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "0.0", "-y", "0.0", "-z", "0.12",
+            "-x", "0.0", "-y", "0.0", "-z", "0.0",
             # 注:Gazebo Classic 的 spawn_entity.py 不支持 -J 设初始关节;
             # 臂初始姿态由 URDF ros2_control 的 initial_value(=home 收拢)
             # 经 gazebo_ros2_control 设置,见 config/initial_positions.yaml
@@ -123,7 +139,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
+        # 2026-07-10 T-5 翻默认:与 bringup 一致,单独起 world 调试时同样门控 attach。
+        DeclareLaunchArgument("require_finger_contact", default_value="true"),
+        DeclareLaunchArgument("use_refine_detect", default_value="false"),
         model_path,
+        gazebo_plugin_path,
         gzserver,
         gzclient,
         robot_state_publisher,

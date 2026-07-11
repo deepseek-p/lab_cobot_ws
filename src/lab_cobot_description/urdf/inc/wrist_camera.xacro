@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!-- 腕部近拍精修相机；仅在 wrist_refine_camera:=true 时生成。 -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="wrist_refine_camera" params="parent">
+    <link name="wrist_camera_link">
+      <visual>
+        <geometry><box size="0.02 0.02 0.015"/></geometry>
+        <material name="wrist_camera_dark">
+          <color rgba="0.1 0.1 0.1 1"/>
+        </material>
+      </visual>
+      <xacro:box_inertia m="0.02" x="0.02" y="0.02" z="0.015"/>
+    </link>
+    <joint name="wrist_camera_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="wrist_camera_link"/>
+      <origin xyz="-0.08 0 0.0" rpy="0 -1.32 0"/>
+    </joint>
+
+    <!-- 光学系(REP-103:z 向前,x 向右,y 向下)。 -->
+    <link name="wrist_camera_optical_frame"/>
+    <joint name="wrist_camera_optical_joint" type="fixed">
+      <parent link="wrist_camera_link"/>
+      <child link="wrist_camera_optical_frame"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <gazebo reference="wrist_camera_link">
+      <material>Gazebo/DarkGrey</material>
+      <sensor name="wrist_camera" type="depth">
+        <always_on>true</always_on>
+        <update_rate>10</update_rate>
+        <camera>
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip><near>0.05</near><far>3.0</far></clip>
+        </camera>
+        <plugin name="wrist_camera_plugin" filename="libgazebo_ros_camera.so">
+          <ros><namespace>/</namespace></ros>
+          <camera_name>wrist_camera</camera_name>
+          <frame_name>wrist_camera_optical_frame</frame_name>
+          <min_depth>0.05</min_depth>
+          <max_depth>3.0</max_depth>
+        </plugin>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+</robot>

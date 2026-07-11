@@ -178,6 +178,14 @@ def test_local_costmap_has_no_unused_static_layer_block():
     assert "static_layer" not in local_costmap
 
 
+def test_global_costmap_does_not_block_slam_unknown_cells_in_known_lab():
+    params = _nav2_params()
+    global_costmap = params["global_costmap"]["global_costmap"]["ros__parameters"]
+
+    assert global_costmap["track_unknown_space"] is False
+    assert global_costmap["static_layer"]["track_unknown_space"] is False
+
+
 def test_ekf_uses_default_rejection_thresholds():
     ekf_file = Path(__file__).resolve().parents[1] / "config" / "ekf.yaml"
     ekf_params = yaml.safe_load(ekf_file.read_text(encoding="utf-8"))

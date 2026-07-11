@@ -2,7 +2,9 @@
 <!--
   一体化麦轮移动机械臂:麦轮全向底盘 + 基座立柱 + UR5e + 平行夹爪 + 传感器。
   UR5e 用官方 ur_description 的 ur_robot macro(sim_gazebo 模式),装在立柱顶 arm_mount_link。
-  关节由 gazebo_ros2_control 驱动;底盘由 gazebo_ros_planar_move 驱动。
+  关节由 gazebo_ros2_control 驱动;底盘车体运动由 lab_cobot_mecanum_drive 的
+  位姿积分模型(pose_from_wheel_commands,逐 tick SetWorldPose)施加,
+  轮关节旋转仅为视觉同步,不参与推进。
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="lab_cobot">
 
@@ -19,6 +21,7 @@
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/mecanum_base.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/pillar.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/sensors.xacro"/>
+  <xacro:include filename="$(find lab_cobot_description)/urdf/inc/wrist_camera.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/parallel_gripper.xacro"/>
 
   <!-- ===== UR5e 参数 ===== -->
@@ -30,12 +33,15 @@
   <xacro:arg name="visual_params" default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
   <xacro:arg name="initial_positions_file" default="$(find lab_cobot_description)/config/initial_positions.yaml"/>
   <xacro:arg name="simulation_controllers" default="$(find lab_cobot_description)/config/lab_cobot_controllers.yaml"/>
+  <xacro:arg name="require_finger_contact" default="false"/>
+  <xacro:arg name="gazebo_tactile_probe" default="false"/>
+  <xacro:arg name="wrist_refine_camera" default="false"/>
   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
 
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
 
   <!-- ===== 组装:底盘 → 立柱 → 传感器 ===== -->
-  <!-- base_mass 大幅加重以压低重心、提高抗倾覆(配合臂 home 收拢初始姿态) -->
+  <!-- base_mass 加重以压低重心；Gazebo Classic 麦轮接触仍为近似模型。 -->
   <xacro:mecanum_base base_mass="180.0"/>
   <!-- 立柱降低(0.30)以降低臂安装点与整机重心;仍足够 UR5e 够到 0.75 桌面 -->
   <xacro:base_pillar parent="base_link" column_height="0.30"/>
@@ -83,7 +89,12 @@
   </xacro:ur_robot>
 
   <!-- ===== Parallel gripper mounted on UR tool0 ===== -->
-  <xacro:parallel_gripper parent="ur_tool0"/>
+  <xacro:parallel_gripper
+    parent="ur_tool0"
+    gazebo_tactile_probe="$(arg gazebo_tactile_probe)"/>
+  <xacro:if value="$(arg wrist_refine_camera)">
+    <xacro:wrist_refine_camera parent="gripper_base"/>
+  </xacro:if>
 
   <ros2_control name="gripper_and_wheel_visuals" type="system">
     <hardware>
@@ -143,6 +154,59 @@
   <gazebo>
     <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
       <parameters>$(arg simulation_controllers)</parameters>
+    </plugin>
+  </gazebo>
+
+  <gazebo>
+    <plugin name="lab_cobot_mecanum_traction" filename="liblab_cobot_mecanum_drive.so">
+      <control_mode>pose_from_wheel_commands</control_mode>
+      <wheel_command_topic>/wheel_velocity_controller/commands</wheel_command_topic>
+      <base_link>base_link</base_link>
+      <wheel_joint>wheel_fl_joint</wheel_joint>
+      <wheel_joint>wheel_fr_joint</wheel_joint>
+      <wheel_joint>wheel_rl_joint</wheel_joint>
+      <wheel_joint>wheel_rr_joint</wheel_joint>
+      <wheel_radius>${wheel_radius}</wheel_radius>
+      <wheelbase_radius>${base_length/2.0 - wheel_radius + base_width/2.0 + wheel_width/2.0}</wheelbase_radius>
+      <linear_gain>14.0</linear_gain>
+      <angular_gain>24.0</angular_gain>
+      <max_force>2600.0</max_force>
+      <max_torque>1400.0</max_torque>
+      <max_linear_speed>0.45</max_linear_speed>
+      <max_angular_speed>0.9</max_angular_speed>
+      <max_linear_accel>0.8</max_linear_accel>
+      <max_angular_accel>1.5</max_angular_accel>
+      <publish_odom>true</publish_odom>
+      <odom_topic>/odom</odom_topic>
+      <odom_frame>odom</odom_frame>
+      <base_frame>base_footprint</base_frame>
+      <odom_rate>20.0</odom_rate>
+    </plugin>
+  </gazebo>
+
+  <gazebo>
+    <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">
+      <object_model>aruco_sample</object_model>
+      <object_link>link</object_link>
+      <tcp_link>gripper_tcp</tcp_link>
+      <left_joint>gripper_left_finger_joint</left_joint>
+      <right_joint>gripper_right_finger_joint</right_joint>
+      <stable_attach_link>ur_wrist_3_link</stable_attach_link>
+      <close_threshold>0.003</close_threshold>
+      <release_threshold>0.003</release_threshold>
+      <grip_count_threshold>1</grip_count_threshold>
+      <require_finger_contact>$(arg require_finger_contact)</require_finger_contact>
+      <contact_count_threshold>1</contact_count_threshold>
+      <max_center_distance>0.090</max_center_distance>
+      <max_abs_x>0.065</max_abs_x>
+      <max_abs_y>0.055</max_abs_y>
+      <min_z>-0.060</min_z>
+      <max_z>0.085</max_z>
+      <grasp_center_offset>-0.037 0.0 0.030</grasp_center_offset>
+      <!-- 约束力保险丝保持默认禁用(0):位姿驱动底盘下正常搬运的
+           fixed-joint ERP 校正力与压桌异常力同量级,阈值不可分离
+           (实测启用会把物块半路丢掉)。压桌爆炸由 place 悬空释放
+           (PLACE_RELEASE_CLEARANCE)机制性根治。 -->
     </plugin>
   </gazebo>
 

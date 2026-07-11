@@ -12,14 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 from ament_flake8.main import main_with_errors
 import pytest
+
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+_LINT_PATHS = [
+    str(_PACKAGE_ROOT / "lab_cobot_perception"),
+    str(_PACKAGE_ROOT / "test"),
+    str(_PACKAGE_ROOT / "setup.py"),
+]
 
 
 @pytest.mark.flake8
 @pytest.mark.linter
 def test_flake8():
-    rc, errors = main_with_errors(argv=[])
+    rc, errors = main_with_errors(argv=_LINT_PATHS)
     assert rc == 0, \
         'Found %d code style errors / warnings:\n' % len(errors) + \
         '\n'.join(errors)

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Parallel two-finger gripper mounted on the UR tool flange. -->
-  <xacro:macro name="parallel_gripper" params="parent">
+  <xacro:macro name="parallel_gripper" params="parent gazebo_tactile_probe:=false">
     <link name="gripper_base">
       <inertial>
         <mass value="0.35"/>
@@ -32,12 +32,24 @@
       </inertial>
       <visual>
         <geometry>
-          <box size="0.025 0.012 0.075"/>
+          <box size="0.045 0.012 0.075"/>
         </geometry>
         <material name="gripper_light_grey">
           <color rgba="0.78 0.80 0.82 1.0"/>
         </material>
       </visual>
+      <collision>
+        <geometry>
+          <box size="0.045 0.012 0.075"/>
+        </geometry>
+      </collision>
+      <xacro:if value="${gazebo_tactile_probe}">
+        <collision name="gripper_left_finger_tactile_probe">
+          <geometry>
+            <box size="0.045 0.012 0.120"/>
+          </geometry>
+        </collision>
+      </xacro:if>
     </link>
 
     <joint name="gripper_left_finger_joint" type="prismatic">
@@ -56,12 +68,24 @@
       </inertial>
       <visual>
         <geometry>
-          <box size="0.025 0.012 0.075"/>
+          <box size="0.045 0.012 0.075"/>
         </geometry>
         <material name="gripper_light_grey">
           <color rgba="0.78 0.80 0.82 1.0"/>
         </material>
       </visual>
+      <collision>
+        <geometry>
+          <box size="0.045 0.012 0.075"/>
+        </geometry>
+      </collision>
+      <xacro:if value="${gazebo_tactile_probe}">
+        <collision name="gripper_right_finger_tactile_probe">
+          <geometry>
+            <box size="0.045 0.012 0.120"/>
+          </geometry>
+        </collision>
+      </xacro:if>
     </link>
 
     <joint name="gripper_right_finger_joint" type="prismatic">
@@ -79,5 +103,50 @@
       <child link="gripper_tcp"/>
       <origin xyz="0 0 0.105" rpy="0 0 0"/>
     </joint>
+
+    <gazebo reference="gripper_left_finger">
+      <mu1>2.0</mu1>
+      <mu2>2.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>1.0</kd>
+      <minDepth>0.001</minDepth>
+      <maxVel>0.01</maxVel>
+      <sensor name="gripper_left_finger_bumper" type="contact">
+        <always_on>true</always_on>
+        <update_rate>50.0</update_rate>
+        <contact>
+          <collision>gripper_left_finger_tactile_probe_collision_1</collision>
+        </contact>
+        <plugin name="gripper_left_finger_bumper_plugin" filename="libgazebo_ros_bumper.so">
+          <ros>
+            <namespace>/gripper</namespace>
+            <remapping>bumper_states:=left_finger_contacts</remapping>
+          </ros>
+          <frame_name>gripper_left_finger</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+    <gazebo reference="gripper_right_finger">
+      <mu1>2.0</mu1>
+      <mu2>2.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>1.0</kd>
+      <minDepth>0.001</minDepth>
+      <maxVel>0.01</maxVel>
+      <sensor name="gripper_right_finger_bumper" type="contact">
+        <always_on>true</always_on>
+        <update_rate>50.0</update_rate>
+        <contact>
+          <collision>gripper_right_finger_tactile_probe_collision_1</collision>
+        </contact>
+        <plugin name="gripper_right_finger_bumper_plugin" filename="libgazebo_ros_bumper.so">
+          <ros>
+            <namespace>/gripper</namespace>
+            <remapping>bumper_states:=right_finger_contacts</remapping>
+          </ros>
+          <frame_name>gripper_right_finger</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
   </xacro:macro>
 </robot>

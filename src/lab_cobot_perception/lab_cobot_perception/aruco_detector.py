@@ -19,7 +19,7 @@ import rclpy
 from gazebo_msgs.msg import ModelStates
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import Quaternion, TransformStamped, PoseStamped
+from geometry_msgs.msg import TransformStamped, PoseStamped
 
 try:
     import cv2
@@ -30,10 +30,18 @@ except Exception:  # pragma: no cover - 运行时依赖
 
 import tf2_ros
 
-from lab_cobot_perception.pose_math import offset_along_camera_ray, pixel_to_camera
+from lab_cobot_perception.pose_math import pixel_to_camera
+from lab_cobot_perception.quat_math import (
+    _quat_from_msg,
+    _quat_from_rotation_matrix,
+    _quat_multiply,
+    _quat_normalize,
+    _quat_rotate,
+    _quat_to_msg,
+)
 
 
-ARUCO_AREA_THRESHOLD = 800  # 像素面积阈值,滤除过远/过小标记
+ARUCO_AREA_THRESHOLD = 300  # 像素面积阈值,滤除过远/过小标记
 DEFAULT_MARKER_SIZE_M = 0.07
 DEFAULT_GAZEBO_MODEL_NAME = "aruco_sample"
 DEFAULT_GAZEBO_REFERENCE_FRAME = "odom"
@@ -57,89 +65,6 @@ def _marker_area(corner):
     w = np.linalg.norm(c[0] - c[1])
     h = np.linalg.norm(c[1] - c[2])
     return float(w * h)
-
-
-def _quat_normalize(q):
-    x, y, z, w = [float(v) for v in q]
-    norm = math.sqrt(x * x + y * y + z * z + w * w)
-    if norm == 0.0:
-        return (0.0, 0.0, 0.0, 1.0)
-    return (x / norm, y / norm, z / norm, w / norm)
-
-
-def _quat_multiply_raw(a, b):
-    ax, ay, az, aw = a
-    bx, by, bz, bw = b
-    return (
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-        aw * bw - ax * bx - ay * by - az * bz,
-    )
-
-
-def _quat_multiply(a, b):
-    return _quat_normalize(_quat_multiply_raw(a, b))
-
-
-def _quat_conjugate(q):
-    x, y, z, w = q
-    return (-x, -y, -z, w)
-
-
-def _quat_rotate(q, point):
-    px, py, pz = point
-    rotated = _quat_multiply_raw(
-        _quat_multiply_raw(_quat_normalize(q), (px, py, pz, 0.0)),
-        _quat_conjugate(_quat_normalize(q)),
-    )
-    return (rotated[0], rotated[1], rotated[2])
-
-
-def _quat_from_msg(q: Quaternion):
-    return (q.x, q.y, q.z, q.w)
-
-
-def _quat_to_msg(q):
-    msg = Quaternion()
-    msg.x, msg.y, msg.z, msg.w = _quat_normalize(q)
-    return msg
-
-
-def _quat_from_rotation_matrix(matrix):
-    m = np.asarray(matrix, dtype=np.float64)
-    trace = float(np.trace(m))
-    if trace > 0.0:
-        s = math.sqrt(trace + 1.0) * 2.0
-        return _quat_normalize((
-            (m[2, 1] - m[1, 2]) / s,
-            (m[0, 2] - m[2, 0]) / s,
-            (m[1, 0] - m[0, 1]) / s,
-            0.25 * s,
-        ))
-    if m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
-        s = math.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2.0
-        return _quat_normalize((
-            0.25 * s,
-            (m[0, 1] + m[1, 0]) / s,
-            (m[0, 2] + m[2, 0]) / s,
-            (m[2, 1] - m[1, 2]) / s,
-        ))
-    if m[1, 1] > m[2, 2]:
-        s = math.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2.0
-        return _quat_normalize((
-            (m[0, 1] + m[1, 0]) / s,
-            0.25 * s,
-            (m[1, 2] + m[2, 1]) / s,
-            (m[0, 2] - m[2, 0]) / s,
-        ))
-    s = math.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2.0
-    return _quat_normalize((
-        (m[0, 2] + m[2, 0]) / s,
-        (m[1, 2] + m[2, 1]) / s,
-        0.25 * s,
-        (m[1, 0] - m[0, 1]) / s,
-    ))
 
 
 def estimate_marker_pose_from_corners(
@@ -207,6 +132,8 @@ class ArucoDetector(Node):
         self.declare_parameter("target_frame", "base_link")
         self.declare_parameter("marker_size_m", DEFAULT_MARKER_SIZE_M)
         self.declare_parameter("marker_to_object_center_m", 0.035)
+        self.declare_parameter("topic_namespace", "/perception")
+        self.declare_parameter("publish_tf", True)
 
         self.object_id = int(self.get_parameter("object_id").value)
         self.use_gazebo_model_pose = bool(
@@ -216,6 +143,8 @@ class ArucoDetector(Node):
         self.gazebo_reference_frame = str(
             self.get_parameter("gazebo_reference_frame").value
         )
+        self.topic_namespace = str(self.get_parameter("topic_namespace").value)
+        self.publish_tf = bool(self.get_parameter("publish_tf").value)
         self.pose_pubs = {}
         self.br = tf2_ros.TransformBroadcaster(self)
 
@@ -256,6 +185,7 @@ class ArucoDetector(Node):
         self.camera_matrix = None
         self.dist_coeffs = None
         self.rgb_img = None
+        self.rgb_stamp = None
         self.depth_img = None
 
         self.create_subscription(CameraInfo, info, self._info_cb, 10)
@@ -274,6 +204,7 @@ class ArucoDetector(Node):
 
     def _rgb_cb(self, msg: Image):
         self.rgb_img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        self.rgb_stamp = msg.header.stamp
 
     def _depth_cb(self, msg: Image):
         img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
@@ -329,11 +260,19 @@ class ArucoDetector(Node):
                 self.cx,
                 self.cy,
             )
-            x, y, z = offset_along_camera_ray(
-                marker_point,
-                self.marker_to_object_center_m,
+            offset = _quat_rotate(
+                marker_orientation,
+                (0.0, 0.0, self.marker_to_object_center_m),
             )
-            self._publish(int(mid), (x, y, z), marker_orientation)
+            x = marker_point[0] + offset[0]
+            y = marker_point[1] + offset[1]
+            z = marker_point[2] + offset[2]
+            self._publish(
+                int(mid),
+                (x, y, z),
+                marker_orientation,
+                stamp=getattr(self, "rgb_stamp", None),
+            )
 
     def _model_states_cb(self, msg: ModelStates):
         try:
@@ -347,7 +286,8 @@ class ArucoDetector(Node):
             frame_id=self.gazebo_reference_frame,
         )
         transform.header.stamp = self.get_clock().now().to_msg()
-        self.br.sendTransform(transform)
+        if self.publish_tf:
+            self.br.sendTransform(transform)
 
         ps = PoseStamped()
         ps.header = transform.header
@@ -360,7 +300,10 @@ class ArucoDetector(Node):
     def _pose_pub(self, mid: int):
         if mid not in self.pose_pubs:
             self.pose_pubs[mid] = self.create_publisher(
-                PoseStamped, f"/perception/aruco_{mid}/pose", 10)
+                PoseStamped,
+                f"{self.topic_namespace}/aruco_{mid}/pose",
+                10,
+            )
         return self.pose_pubs[mid]
 
     def _pose_in_target_frame(self, position, orientation):
@@ -393,21 +336,22 @@ class ArucoDetector(Node):
             _quat_multiply(tf_q, orientation),
         )
 
-    def _publish(self, mid, position, orientation):
+    def _publish(self, mid, position, orientation, stamp=None):
         target_pose = self._pose_in_target_frame(position, orientation)
         if target_pose is None:
             return
         frame_id, target_position, target_orientation = target_pose
 
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = stamp or self.get_clock().now().to_msg()
         t.header.frame_id = frame_id
         t.child_frame_id = f"obj_{mid}"
         t.transform.translation.x = target_position[0]
         t.transform.translation.y = target_position[1]
         t.transform.translation.z = target_position[2]
         t.transform.rotation = _quat_to_msg(target_orientation)
-        self.br.sendTransform(t)
+        if self.publish_tf:
+            self.br.sendTransform(t)
 
         ps = PoseStamped()
         ps.header = t.header

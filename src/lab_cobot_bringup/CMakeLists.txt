@@ -23,10 +23,16 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
   find_package(ament_cmake_pytest REQUIRED)
-  set(ENV{PYTEST_ADDOPTS} "-p no:anyio")
+  # 常规单测与诚实 E2E 分开注册:E2E 自身预算约 500s(任务超时 420s +
+  # 服务等待 80s),混在一起时 360s 总超时装不下,失败原因会失真。
   ament_add_pytest_test(${PROJECT_NAME}_pytest test/
-    ENV "PYTEST_ADDOPTS=-p no:anyio"
+    ENV "PYTEST_ADDOPTS=-p no:anyio --ignore=${CMAKE_CURRENT_SOURCE_DIR}/test/test_honest_e2e_launch.py"
     TIMEOUT 120
+  )
+  ament_add_pytest_test(${PROJECT_NAME}_honest_e2e
+    test/test_honest_e2e_launch.py
+    ENV "PYTEST_ADDOPTS=-p no:anyio"
+    TIMEOUT 600
   )
 endif()
 
@@ -48,6 +54,12 @@ install(PROGRAMS
   ${PROJECT_NAME}/gripper_attach_bridge.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME gripper_attach_bridge
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/voice_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME voice_node
 )
 
 install(DIRECTORY launch
