@@ -21,7 +21,7 @@ def test_runtime_executables_are_built_and_installed():
 def test_drive_preserves_confirmed_runtime_contract():
     source = text(GAZEBO / "src/mecanum_gazebo_kinematic_drive.cpp")
     for token in (
-        '"/rover_twist"', '"/cmd_vel"',
+        '"/wheel_velocity_controller/commands"',
         '"model_states_topic", "/model_states"',
         '"/set_entity_state"', '"model_name", "mecanum3"',
         '"max_vx", 0.5', '"max_vy", 0.3', '"max_wz", 1.2',
@@ -31,6 +31,10 @@ def test_drive_preserves_confirmed_runtime_contract():
         "sin_yaw * vx + cos_yaw * vy",
     ):
         assert token in source
+    assert '"/rover_twist"' not in source
+    assert '"/cmd_vel"' not in source
+    assert "create_subscription<std_msgs::msg::Float64MultiArray>" in source
+    assert "wheelSpeedsToTwist" in source
 
 
 def test_drive_parameterizes_model_states_without_changing_source_defaults():

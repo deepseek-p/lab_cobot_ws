@@ -9,6 +9,7 @@
 #include "gazebo_msgs/srv/set_entity_state.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "lab_cobot_gazebo/runtime_motion.hpp"
@@ -34,6 +35,11 @@ public:
     command_timeout_ = this->declare_parameter<double>("command_timeout", 0.3);
     z_height_ = this->declare_parameter<double>("z_height", 0.0);
     update_rate_ = this->declare_parameter<double>("update_rate", 50.0);
+    wheel_radius_ = this->declare_parameter<double>("wheel_radius", 0.07);
+    wheel_separation_width_ = this->declare_parameter<double>(
+      "wheel_separation_width", 0.24);
+    wheel_separation_length_ = this->declare_parameter<double>(
+      "wheel_separation_length", 0.175);
 
     if (update_rate_ < 1.0) {
       update_rate_ = 50.0;
@@ -41,14 +47,10 @@ public:
 
     client_ = this->create_client<gazebo_msgs::srv::SetEntityState>(service_name_);
 
-    sub_twist_ = this->create_subscription<geometry_msgs::msg::Twist>(
-      "/rover_twist",
+    sub_wheel_commands_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/wheel_velocity_controller/commands",
       10,
-      std::bind(&MecanumGazeboKinematicDrive::onTwist, this, std::placeholders::_1));
-    sub_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>(
-      "/cmd_vel",
-      10,
-      std::bind(&MecanumGazeboKinematicDrive::onTwist, this, std::placeholders::_1));
+      std::bind(&MecanumGazeboKinematicDrive::onWheelCommands, this, std::placeholders::_1));
 
     sub_model_states_ = this->create_subscription<gazebo_msgs::msg::ModelStates>(
       model_states_topic_,
@@ -111,11 +113,20 @@ private:
     return q_msg;
   }
 
-  void onTwist(const geometry_msgs::msg::Twist::SharedPtr msg)
+  void onWheelCommands(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
   {
-    target_vx_ = clamp(msg->linear.x, max_vx_);
-    target_vy_ = clamp(msg->linear.y, max_vy_);
-    target_wz_ = clamp(msg->angular.z, max_wz_);
+    if (msg->data.size() != 4) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "ignoring wheel command with %zu values; expected 4", msg->data.size());
+      return;
+    }
+    const auto twist = lab_cobot_gazebo::wheelSpeedsToTwist(
+      {msg->data[0], msg->data[1], msg->data[2], msg->data[3]},
+      wheel_radius_, wheel_separation_width_, wheel_separation_length_);
+    target_vx_ = clamp(twist.vx, max_vx_);
+    target_vy_ = clamp(twist.vy, max_vy_);
+    target_wz_ = clamp(twist.wz, max_wz_);
     last_command_time_ = this->now();
   }
 
@@ -230,6 +241,9 @@ private:
   double command_timeout_{0.3};
   double z_height_{0.0};
   double update_rate_{50.0};
+  double wheel_radius_{0.07};
+  double wheel_separation_width_{0.24};
+  double wheel_separation_length_{0.175};
 
   bool initialized_{false};
   std::atomic_bool request_in_flight_{false};
@@ -247,8 +261,7 @@ private:
   rclcpp::Time last_command_time_;
 
   rclcpp::Client<gazebo_msgs::srv::SetEntityState>::SharedPtr client_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_twist_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_wheel_commands_;
   rclcpp::Subscription<gazebo_msgs::msg::ModelStates>::SharedPtr sub_model_states_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

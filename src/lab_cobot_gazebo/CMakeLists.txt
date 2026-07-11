@@ -48,7 +48,7 @@ target_link_libraries(lab_cobot_mecanum_drive
 
 add_executable(mecanum_gazebo_kinematic_drive src/mecanum_gazebo_kinematic_drive.cpp)
 ament_target_dependencies(mecanum_gazebo_kinematic_drive
-  gazebo_msgs geometry_msgs rclcpp tf2)
+  gazebo_msgs geometry_msgs rclcpp std_msgs tf2)
 
 add_executable(gazebo_odom_bridge src/gazebo_odom_bridge.cpp)
 ament_target_dependencies(gazebo_odom_bridge
