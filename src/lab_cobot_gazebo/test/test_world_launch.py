@@ -25,6 +25,7 @@ def test_world_launch_provides_offline_gazebo_resources():
     assert '"GAZEBO_RESOURCE_PATH", "/usr/share/gazebo-11"' in source
     assert '"GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"' in source
     assert 'SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")' in source
+    assert '"GAZEBO_MODEL_PATH", os.path.dirname(desc_pkg)' in source
 
 
 def _all_actions(launch_description):

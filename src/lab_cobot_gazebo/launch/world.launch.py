@@ -65,6 +65,9 @@ def generate_launch_description():
     gazebo_builtin_models = AppendEnvironmentVariable(
         "GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"
     )
+    description_package_models = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", os.path.dirname(desc_pkg)
+    )
     gazebo_offline = SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")
 
     # 让 Gazebo 能解析 world 里的 model://aruco_sample
@@ -205,6 +208,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
         gazebo_resources,
         gazebo_builtin_models,
+        description_package_models,
         gazebo_offline,
         model_path,
         gazebo_plugin_path,
