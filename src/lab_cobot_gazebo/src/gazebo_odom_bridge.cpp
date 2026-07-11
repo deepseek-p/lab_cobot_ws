@@ -19,6 +19,8 @@ public:
     odom_topic_ = this->declare_parameter<std::string>("odom_topic", "/odom");
     target_link_name_ = this->declare_parameter<std::string>(
       "target_link_name", "lab_cobot::base_footprint");
+    fallback_link_name_ = this->declare_parameter<std::string>(
+      "fallback_link_name", "lab_cobot::base_link");
     odom_frame_ = this->declare_parameter<std::string>("odom_frame", "odom");
     base_frame_ = this->declare_parameter<std::string>("base_frame", "base_footprint");
 
@@ -37,17 +39,46 @@ public:
 
 private:
 
-  void callbackLinkStates(const gazebo_msgs::msg::LinkStates::SharedPtr msg)
+  static bool matchesTargetLink(
+    const std::string & actual,
+    const std::string & expected_terminal,
+    const std::string & model_prefix)
   {
-    int index = -1;
+    const std::string prefix = model_prefix + "::";
+    if (actual.rfind(prefix, 0) != 0) {
+      return false;
+    }
+    const auto separator = actual.rfind("::");
+    return separator != std::string::npos &&
+           actual.substr(separator + 2) == expected_terminal;
+  }
 
-    // Find matching link index
-    for (size_t i = 0; i < msg->name.size(); i++) {
-      if (msg->name[i] == target_link_name_) {
-        index = i;
-        break;
+  int findTargetLinkIndex(const gazebo_msgs::msg::LinkStates & msg) const
+  {
+    for (size_t i = 0; i < msg.name.size(); ++i) {
+      if (msg.name[i] == target_link_name_) {
+        return static_cast<int>(i);
       }
     }
+    for (size_t i = 0; i < msg.name.size(); ++i) {
+      if (msg.name[i] == fallback_link_name_) {
+        return static_cast<int>(i);
+      }
+    }
+
+    const auto separator = target_link_name_.find("::");
+    const std::string model_prefix = target_link_name_.substr(0, separator);
+    for (size_t i = 0; i < msg.name.size(); ++i) {
+      if (matchesTargetLink(msg.name[i], "base_link", model_prefix)) {
+        return static_cast<int>(i);
+      }
+    }
+    return -1;
+  }
+
+  void callbackLinkStates(const gazebo_msgs::msg::LinkStates::SharedPtr msg)
+  {
+    const int index = findTargetLinkIndex(*msg);
 
     if (index < 0) {
       RCLCPP_WARN_THROTTLE(
@@ -86,6 +117,7 @@ private:
   std::string link_states_topic_;
   std::string odom_topic_;
   std::string target_link_name_;
+  std::string fallback_link_name_;
   std::string odom_frame_;
   std::string base_frame_;
   rclcpp::Subscription<gazebo_msgs::msg::LinkStates>::SharedPtr sub_link_states_;

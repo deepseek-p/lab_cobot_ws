@@ -127,6 +127,30 @@ def test_world_launch_spawns_wheel_velocity_controller():
     assert any("wheel_velocity_controller" in args for args in spawner_args)
 
 
+def test_world_launch_uses_namespaced_gazebo_state_api():
+    actions = _all_actions(_load_world_launch())
+    drive = next(
+        node for node in _nodes(actions)
+        if node.node_executable == "mecanum_gazebo_kinematic_drive"
+    )
+    parameters = [
+        item for item in drive._Node__parameters if isinstance(item, dict)
+    ]
+    context = LaunchContext()
+    def _resolve(value):
+        if isinstance(value, (list, tuple)):
+            return perform_substitutions(context, list(value))
+        return value
+
+    merged = {
+        perform_substitutions(context, list(key)): _resolve(value)
+        for item in parameters
+        for key, value in item.items()
+    }
+    assert merged["model_states_topic"].startswith("/gazebo/model_states")
+    assert merged["service_name"].startswith("/gazebo/set_entity_state")
+
+
 def test_world_launch_has_no_default_set_entity_state_calls():
     """Default path must not contain SetEntityState pose interventions."""
     # 原 12s 复位死代码已删(位姿驱动下一 tick 即被插件覆盖,自相矛盾)

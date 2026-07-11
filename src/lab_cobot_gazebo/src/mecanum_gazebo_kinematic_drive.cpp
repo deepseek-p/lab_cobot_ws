@@ -22,6 +22,8 @@ public:
     model_name_ = this->declare_parameter<std::string>("model_name", "mecanum3");
     service_name_ = this->declare_parameter<std::string>(
       "service_name", "/set_entity_state");
+    model_states_topic_ = this->declare_parameter<std::string>(
+      "model_states_topic", "/model_states");
     max_vx_ = this->declare_parameter<double>("max_vx", 0.5);
     max_vy_ = this->declare_parameter<double>("max_vy", 0.3);
     max_wz_ = this->declare_parameter<double>("max_wz", 1.2);
@@ -47,7 +49,7 @@ public:
       std::bind(&MecanumGazeboKinematicDrive::onTwist, this, std::placeholders::_1));
 
     sub_model_states_ = this->create_subscription<gazebo_msgs::msg::ModelStates>(
-      "/model_states",
+      model_states_topic_,
       rclcpp::SystemDefaultsQoS(),
       std::bind(&MecanumGazeboKinematicDrive::onModelStates, this, std::placeholders::_1));
 
@@ -201,6 +203,7 @@ private:
 
   std::string model_name_;
   std::string service_name_;
+  std::string model_states_topic_;
   double max_vx_{0.5};
   double max_vy_{0.3};
   double max_wz_{1.2};

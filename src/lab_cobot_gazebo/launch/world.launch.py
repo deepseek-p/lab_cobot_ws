@@ -114,17 +114,16 @@ def generate_launch_description():
         executable="spawner",
         arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
     )
-    rover_twist_relay = Node(
-        package="lab_cobot_bringup",
-        executable="rover_twist_relay",
-        output="screen",
-        parameters=[{"use_sim_time": True}],
-    )
     mecanum_kinematic_drive = Node(
         package="lab_cobot_gazebo",
         executable="mecanum_gazebo_kinematic_drive",
         output="screen",
-        parameters=[{"use_sim_time": True, "model_name": "lab_cobot"}],
+        parameters=[{
+            "use_sim_time": True,
+            "model_name": "lab_cobot",
+            "model_states_topic": "/gazebo/model_states",
+            "service_name": "/gazebo/set_entity_state",
+        }],
     )
     gazebo_odom_bridge = Node(
         package="lab_cobot_gazebo",
@@ -135,6 +134,7 @@ def generate_launch_description():
             "link_states_topic": "/gazebo/link_states",
             "odom_topic": "/odom",
             "target_link_name": "lab_cobot::base_footprint",
+            "fallback_link_name": "lab_cobot::base_link",
             "odom_frame": "odom",
             "base_frame": "base_footprint",
         }],
@@ -165,7 +165,6 @@ def generate_launch_description():
         OnProcessExit(
             target_action=wheel_velocity_controller,
             on_exit=[
-                rover_twist_relay,
                 mecanum_kinematic_drive,
                 gazebo_odom_bridge,
             ],

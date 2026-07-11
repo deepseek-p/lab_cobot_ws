@@ -21,7 +21,8 @@ def test_runtime_executables_are_built_and_installed():
 def test_drive_preserves_confirmed_runtime_contract():
     source = text(GAZEBO / "src/mecanum_gazebo_kinematic_drive.cpp")
     for token in (
-        '"/rover_twist"', '"/cmd_vel"', '"/model_states"',
+        '"/rover_twist"', '"/cmd_vel"',
+        '"model_states_topic", "/model_states"',
         '"/set_entity_state"', '"model_name", "mecanum3"',
         '"max_vx", 0.5', '"max_vy", 0.3', '"max_wz", 1.2',
         '"max_accel_xy", 0.5', '"max_accel_wz", 1.5',
@@ -30,6 +31,12 @@ def test_drive_preserves_confirmed_runtime_contract():
         "sin_yaw * vx + cos_yaw * vy",
     ):
         assert token in source
+
+
+def test_drive_parameterizes_model_states_without_changing_source_defaults():
+    source = text(GAZEBO / "src/mecanum_gazebo_kinematic_drive.cpp")
+    assert '"model_states_topic", "/model_states"' in source
+    assert "create_subscription<gazebo_msgs::msg::ModelStates>(\n      model_states_topic_" in source
 
 
 def test_bridge_is_parameterized_and_publishes_odom_tf():
@@ -44,22 +51,30 @@ def test_bridge_is_parameterized_and_publishes_odom_tf():
         "create_publisher<nav_msgs::msg::Odometry>",
         "TransformBroadcaster",
         "sendTransform",
+        '"fallback_link_name", "lab_cobot::base_link"',
+        "matchesTargetLink",
     ):
         assert token in source
+    assert '"fallback_link_name", "lab_cobot::base_link"' in source
+    assert "findTargetLinkIndex" in source
+    assert "model_prefix" in source
 
 
-def test_world_launch_starts_exactly_one_runtime_chain_after_wheels():
+def test_world_launch_starts_gazebo_runtime_after_wheels():
     launch = text(GAZEBO / "launch/world.launch.py")
-    assert launch.count('executable="rover_twist_relay"') == 1
+    assert 'executable="rover_twist_relay"' not in launch
     assert launch.count('executable="mecanum_gazebo_kinematic_drive"') == 1
     assert launch.count('executable="gazebo_odom_bridge"') == 1
     assert '"model_name": "lab_cobot"' in launch
+    assert '"model_states_topic": "/gazebo/model_states"' in launch
+    assert '"service_name": "/gazebo/set_entity_state"' in launch
     assert '"target_link_name": "lab_cobot::base_footprint"' in launch
+    assert '"fallback_link_name": "lab_cobot::base_link"' in launch
     assert '"link_states_topic": "/gazebo/link_states"' in launch
     assert '"use_sim_time": True' in launch
     assert "target_action=wheel_velocity_controller" in launch
     wheel_event = launch.index("delay_wheel_velocity")
-    assert "rover_twist_relay" in launch[wheel_event:]
+    assert "mecanum_kinematic_drive" in launch[wheel_event:]
     assert "/home/lenovo/mecanum_ws" not in launch
 
 
@@ -68,8 +83,15 @@ def test_integrated_launch_has_no_legacy_visualizer_or_duplicate_runtime():
     assert "mecanum_wheel_visualizer" not in launch
     assert "mecanum_gazebo_kinematic_drive" not in launch
     assert "gazebo_odom_bridge" not in launch
-    assert "rover_twist_relay" not in launch
+    assert launch.count('executable="rover_twist_relay"') == 1
     assert "/home/lenovo/mecanum_ws" not in launch
+
+
+def test_gazebo_does_not_create_dependency_cycle_with_bringup():
+    package = text(GAZEBO / "package.xml")
+    # bringup already exec-depends on gazebo, so the reverse dependency makes
+    # colcon's package graph impossible to order.
+    assert "<exec_depend>lab_cobot_bringup</exec_depend>" not in package
 
 
 def test_ekf_does_not_duplicate_odom_transform():

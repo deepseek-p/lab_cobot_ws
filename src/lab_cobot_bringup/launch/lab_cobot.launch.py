@@ -121,6 +121,12 @@ def generate_launch_description():
         }],
         condition=IfCondition(use_dl_perception),
     )
+    rover_twist_relay = Node(
+        package="lab_cobot_bringup",
+        executable="rover_twist_relay",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
     gripper_attach_bridge = Node(
         package="lab_cobot_bringup",
         executable="gripper_attach_bridge",
@@ -226,6 +232,7 @@ def generate_launch_description():
         SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
         SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         world,
+        rover_twist_relay,
         gripper_attach_bridge,
         stage2,
         stage3,

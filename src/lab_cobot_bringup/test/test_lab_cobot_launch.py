@@ -176,14 +176,18 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
     assert _text(predicate[0].variable_name) == "launch_mission"
 
 
-def test_bringup_delegates_mecanum_runtime_to_world_launch(monkeypatch):
+def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     executables = {node.node_executable for node in _nodes(launch_description)}
 
     assert "mecanum_wheel_visualizer" not in executables
     assert "wheel_joint_state_publisher" not in executables
+    assert list(executables).count("rover_twist_relay") == 1
     assert "mecanum_gazebo_kinematic_drive" not in executables
     assert "gazebo_odom_bridge" not in executables
+
+    relay = _node("lab_cobot_bringup", "rover_twist_relay", launch_description)
+    assert _node_parameters(relay)["use_sim_time"] is True
 
 
 def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
