@@ -58,3 +58,15 @@ def test_ros2_control_and_controller_yaml_use_source_wheel_order():
     config = yaml.safe_load((PACKAGE / "config" / "lab_cobot_controllers.yaml").read_text())
     assert config["wheel_velocity_controller"]["ros__parameters"]["joints"] == WHEEL_JOINTS
 
+
+def test_srdf_collision_links_exist_in_generated_urdf():
+    _, root = _generated()
+    urdf_links = {node.attrib["name"] for node in root.findall("link")}
+    srdf = ET.fromstring((PACKAGE / "srdf" / "lab_cobot.srdf").read_text())
+    referenced = {collision.attrib[field] for collision in srdf.findall("disable_collisions") for field in ("link1", "link2")}
+    assert referenced <= urdf_links
+
+def test_cmake_installs_mesh_directory_once():
+    cmake = (PACKAGE / "CMakeLists.txt").read_text()
+    directories = cmake.split("install(DIRECTORY", 1)[1].split("DESTINATION", 1)[0].split()
+    assert directories.count("meshes") == 1

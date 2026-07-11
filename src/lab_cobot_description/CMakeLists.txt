@@ -29,7 +29,7 @@ if(BUILD_TESTING)
   )
 endif()
 
-install(DIRECTORY urdf config srdf launch meshes meshes meshes
+install(DIRECTORY urdf config srdf launch meshes
   DESTINATION share/${PROJECT_NAME}
 )
 
