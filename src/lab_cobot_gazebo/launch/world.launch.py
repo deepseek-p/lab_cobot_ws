@@ -17,6 +17,7 @@ from launch.actions import (
     RegisterEventHandler,
     AppendEnvironmentVariable,
     EmitEvent,
+    SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
@@ -57,6 +58,14 @@ def generate_launch_description():
     plugin_path = os.path.join(os.path.dirname(os.path.dirname(gz_pkg)), "lib")
 
     gui = LaunchConfiguration("gui")
+
+    gazebo_resources = AppendEnvironmentVariable(
+        "GAZEBO_RESOURCE_PATH", "/usr/share/gazebo-11"
+    )
+    gazebo_builtin_models = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"
+    )
+    gazebo_offline = SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")
 
     # 让 Gazebo 能解析 world 里的 model://aruco_sample
     model_path = AppendEnvironmentVariable(
@@ -194,6 +203,9 @@ def generate_launch_description():
         # 2026-07-10 T-5 翻默认:与 bringup 一致,单独起 world 调试时同样门控 attach。
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
+        gazebo_resources,
+        gazebo_builtin_models,
+        gazebo_offline,
         model_path,
         gazebo_plugin_path,
         gzserver,

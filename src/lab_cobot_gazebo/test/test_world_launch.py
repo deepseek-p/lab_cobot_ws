@@ -20,6 +20,13 @@ def _load_world_launch():
     return module.generate_launch_description()
 
 
+def test_world_launch_provides_offline_gazebo_resources():
+    source = (GAZEBO / "launch" / "world.launch.py").read_text(encoding="utf-8")
+    assert '"GAZEBO_RESOURCE_PATH", "/usr/share/gazebo-11"' in source
+    assert '"GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"' in source
+    assert 'SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")' in source
+
+
 def _all_actions(launch_description):
     """Recursively expand timers and exit handlers into a flat action list."""
     actions = []
