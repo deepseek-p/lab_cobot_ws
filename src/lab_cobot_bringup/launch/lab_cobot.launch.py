@@ -121,15 +121,6 @@ def generate_launch_description():
         }],
         condition=IfCondition(use_dl_perception),
     )
-    mecanum_wheel_visualizer = Node(
-        package="lab_cobot_bringup",
-        executable="mecanum_wheel_visualizer",
-        output="screen",
-        parameters=[{
-            "use_sim_time": True,
-            "publish_odom": False,
-        }],
-    )
     gripper_attach_bridge = Node(
         package="lab_cobot_bringup",
         executable="gripper_attach_bridge",
@@ -235,7 +226,6 @@ def generate_launch_description():
         SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
         SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         world,
-        mecanum_wheel_visualizer,
         gripper_attach_bridge,
         stage2,
         stage3,

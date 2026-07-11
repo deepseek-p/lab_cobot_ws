@@ -9,9 +9,13 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(gazebo_dev REQUIRED)
 find_package(gazebo_ros REQUIRED)
+find_package(gazebo_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 link_directories(${GAZEBO_LIBRARY_DIRS})
 include_directories(${GAZEBO_INCLUDE_DIRS})
@@ -41,6 +45,14 @@ ament_target_dependencies(lab_cobot_mecanum_drive
 target_link_libraries(lab_cobot_mecanum_drive
   ${GAZEBO_LIBRARIES}
 )
+
+add_executable(mecanum_gazebo_kinematic_drive src/mecanum_gazebo_kinematic_drive.cpp)
+ament_target_dependencies(mecanum_gazebo_kinematic_drive
+  gazebo_msgs geometry_msgs rclcpp tf2)
+
+add_executable(gazebo_odom_bridge src/gazebo_odom_bridge.cpp)
+ament_target_dependencies(gazebo_odom_bridge
+  gazebo_msgs geometry_msgs nav_msgs rclcpp tf2_ros)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
@@ -74,6 +86,8 @@ if(BUILD_TESTING)
     ENV "PYTEST_ADDOPTS=-p no:anyio")
   ament_add_pytest_test(mecanum_drive_plugin test/test_mecanum_drive_plugin.py
     ENV "PYTEST_ADDOPTS=-p no:anyio")
+  ament_add_pytest_test(mecanum_runtime_contract test/test_mecanum_runtime_contract.py
+    ENV "PYTEST_ADDOPTS=-p no:anyio")
 endif()
 
 install(DIRECTORY worlds launch models
@@ -84,6 +98,12 @@ install(TARGETS
   lab_cobot_grasp_fix
   lab_cobot_mecanum_drive
   LIBRARY DESTINATION lib
+)
+
+install(TARGETS
+  mecanum_gazebo_kinematic_drive
+  gazebo_odom_bridge
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_export_libraries(lab_cobot_grasp_fix lab_cobot_mecanum_drive)

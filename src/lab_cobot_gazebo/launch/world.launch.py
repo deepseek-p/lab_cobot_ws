@@ -114,6 +114,31 @@ def generate_launch_description():
         executable="spawner",
         arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
     )
+    rover_twist_relay = Node(
+        package="lab_cobot_bringup",
+        executable="rover_twist_relay",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
+    mecanum_kinematic_drive = Node(
+        package="lab_cobot_gazebo",
+        executable="mecanum_gazebo_kinematic_drive",
+        output="screen",
+        parameters=[{"use_sim_time": True, "model_name": "lab_cobot"}],
+    )
+    gazebo_odom_bridge = Node(
+        package="lab_cobot_gazebo",
+        executable="gazebo_odom_bridge",
+        output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "link_states_topic": "/gazebo/link_states",
+            "odom_topic": "/odom",
+            "target_link_name": "lab_cobot::base_footprint",
+            "odom_frame": "odom",
+            "base_frame": "base_footprint",
+        }],
+    )
 
     # spawn 完成后顺序激活控制器
     delay_jsb = RegisterEventHandler(
@@ -136,6 +161,16 @@ def generate_launch_description():
             on_exit=[wheel_velocity_controller],
         )
     )
+    delay_mecanum_runtime = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wheel_velocity_controller,
+            on_exit=[
+                rover_twist_relay,
+                mecanum_kinematic_drive,
+                gazebo_odom_bridge,
+            ],
+        )
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
@@ -152,4 +187,5 @@ def generate_launch_description():
         delay_jtc,
         delay_gripper,
         delay_wheel_velocity,
+        delay_mecanum_runtime,
     ])

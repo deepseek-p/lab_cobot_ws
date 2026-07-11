@@ -176,20 +176,14 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
     assert _text(predicate[0].variable_name) == "launch_mission"
 
 
-def test_bringup_drives_mecanum_wheel_visuals_from_cmd_vel(monkeypatch):
+def test_bringup_delegates_mecanum_runtime_to_world_launch(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     executables = {node.node_executable for node in _nodes(launch_description)}
 
-    assert "mecanum_wheel_visualizer" in executables
+    assert "mecanum_wheel_visualizer" not in executables
     assert "wheel_joint_state_publisher" not in executables
-
-
-def test_bringup_uses_gazebo_drive_plugin_as_only_odom_source(monkeypatch):
-    launch_description = _load_bringup_launch(monkeypatch)
-    mecanum = _node("lab_cobot_bringup", "mecanum_wheel_visualizer", launch_description)
-    params = _node_parameters(mecanum)
-
-    assert params["publish_odom"] is False
+    assert "mecanum_gazebo_kinematic_drive" not in executables
+    assert "gazebo_odom_bridge" not in executables
 
 
 def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
