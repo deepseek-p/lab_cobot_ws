@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import rclpy
 from rclpy.node import Node
-from rclpy.time_source import TimeSource
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float64MultiArray
 from rclpy.parameter import Parameter
@@ -61,6 +60,47 @@ def zero_if_timed_out(target, elapsed, command_timeout):
     return target
 
 
+def reset_twists_on_clock_jump(target, current, elapsed):
+    if elapsed < 0.0:
+        return SimpleTwist(), SimpleTwist(), True
+    return target, current, False
+
+
+def validate_configuration(
+    wheel_radius,
+    wheel_separation_width,
+    wheel_separation_length,
+    max_vx,
+    max_vy,
+    max_wz,
+    max_accel_xy,
+    max_accel_wz,
+    command_timeout,
+    linear_deadband,
+    angular_deadband,
+):
+    if wheel_radius <= 0.0:
+        raise ValueError('wheel_radius must be greater than zero')
+    if wheel_separation_width <= 0.0:
+        raise ValueError('wheel_separation_width must be greater than zero')
+    if wheel_separation_length <= 0.0:
+        raise ValueError('wheel_separation_length must be greater than zero')
+
+    nonnegative = {
+        'max_vx': max_vx,
+        'max_vy': max_vy,
+        'max_wz': max_wz,
+        'max_accel_xy': max_accel_xy,
+        'max_accel_wz': max_accel_wz,
+        'command_timeout': command_timeout,
+        'linear_deadband': linear_deadband,
+        'angular_deadband': angular_deadband,
+    }
+    for name, value in nonnegative.items():
+        if value < 0.0:
+            raise ValueError(f'{name} must be nonnegative')
+
+
 def twist_msg_to_simple(msg):
     return SimpleTwist(msg.linear.x, msg.linear.y, msg.angular.z)
 
@@ -86,21 +126,8 @@ class RoverTwistRelay(Node):
     def __init__(self):
         super().__init__('rover_twist_relay')
 
-
-        # Force use_sim_time=True
-        self.set_parameters([
-            Parameter('use_sim_time', Parameter.Type.BOOL, True)
-        ])
-
-
-        # Attach time source
-        self._time_source = TimeSource()
-        self._time_source.attach_node(self)
-
-
         # Declare rover selector
         self.rover = self.declare_parameter('rover', 'mecanum3').value
-
 
         # Declare default (fallback) geometry
         self.declare_parameter('wheel_radius', 0.07)
@@ -118,7 +145,6 @@ class RoverTwistRelay(Node):
         self.declare_parameter('linear_deadband', 0.001)
         self.declare_parameter('angular_deadband', 0.001)
 
-
         # Declare per-rover parameters (flat names)
         self.declare_parameter('mecanum3.wheel_radius', 0.07)
         self.declare_parameter('mecanum3.wheel_separation_width', 0.24)
@@ -132,11 +158,8 @@ class RoverTwistRelay(Node):
         self.declare_parameter('g40a_lb.wheel_separation_width', 0.2358)
         self.declare_parameter('g40a_lb.wheel_separation_length', 0.040)
 
-
-
         # Apply rover-specific geometry
         self.apply_rover_geometry()
-
 
         # Publisher
         self.pub_wheel = self.create_publisher(
@@ -144,7 +167,6 @@ class RoverTwistRelay(Node):
             '/wheel_velocity_controller/commands',
             10
         )
-
 
         self.max_vx = self.get_parameter('max_vx').value
         self.max_vy = self.get_parameter('max_vy').value
@@ -154,6 +176,20 @@ class RoverTwistRelay(Node):
         self.command_timeout = self.get_parameter('command_timeout').value
         self.linear_deadband = self.get_parameter('linear_deadband').value
         self.angular_deadband = self.get_parameter('angular_deadband').value
+
+        validate_configuration(
+            self.r,
+            self.W,
+            self.L,
+            self.max_vx,
+            self.max_vy,
+            self.max_wz,
+            self.max_accel_xy,
+            self.max_accel_wz,
+            self.command_timeout,
+            self.linear_deadband,
+            self.angular_deadband,
+        )
 
         # Subscribers: /rover_twist remains the project-native topic, while
         # /cmd_vel lets Nav2 and standard teleop tools drive the rover.
@@ -209,7 +245,9 @@ class RoverTwistRelay(Node):
         self.set_parameters([
             Parameter('wheel_radius', Parameter.Type.DOUBLE, wheel_radius),
             Parameter('wheel_separation_width', Parameter.Type.DOUBLE, width),
-            Parameter('wheel_separation_length', Parameter.Type.DOUBLE, length),
+            Parameter(
+                'wheel_separation_length', Parameter.Type.DOUBLE, length
+            ),
         ])
 
         self.r = wheel_radius
@@ -217,8 +255,8 @@ class RoverTwistRelay(Node):
         self.L = length
         self.k_geom = self.L + self.W
 
-
     # Convert Twist to wheel velocities
+
     def twist_to_wheels(self, twist):
         msg = Float64MultiArray()
         msg.data = twist_to_wheel_speeds(
@@ -254,7 +292,22 @@ class RoverTwistRelay(Node):
         if dt <= 0.0 or dt > 0.2:
             dt = 0.01
 
-        elapsed_since_command = (now - self.last_command_time).nanoseconds * 1e-9
+        elapsed_since_command = (
+            now - self.last_command_time
+        ).nanoseconds * 1e-9
+        self.target_twist, self.current_twist, clock_reset = (
+            reset_twists_on_clock_jump(
+                self.target_twist,
+                self.current_twist,
+                elapsed_since_command,
+            )
+        )
+        if clock_reset:
+            self.last_command_time = now
+            self.last_update_time = now
+            self.pub_wheel.publish(self.twist_to_wheels(self.current_twist))
+            return
+
         if elapsed_since_command > self.command_timeout:
             self.target_twist = SimpleTwist()
             self.current_twist = SimpleTwist()
