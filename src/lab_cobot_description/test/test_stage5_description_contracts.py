@@ -191,7 +191,7 @@ def test_generated_urdf_uses_wheel_command_pose_drive_instead_of_planar_move_plu
 
     assert "gazebo_ros_planar_move" not in urdf
     assert "libgazebo_ros_planar_move.so" not in urdf
-    for wheel_name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"):
+    for wheel_name in ("front_left_wheel_1", "front_right_wheel_1", "back_left_wheel_1", "back_right_wheel_1"):
         wheel = root.find(f"./link[@name='{wheel_name}']")
         assert wheel is not None
         assert wheel.find("collision") is not None
@@ -215,74 +215,25 @@ def test_camera_is_offset_from_arm_centerline_to_avoid_self_occlusion():
     assert z >= 0.50
 
 
-def test_generated_urdf_loads_wheel_joint_mecanum_traction_plugin():
+def test_generated_urdf_omits_legacy_mecanum_traction_plugin():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
-    urdf = subprocess.run(
-        ["xacro", str(urdf_file)],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout
-    root = ET.fromstring(urdf)
-    plugin = root.find(".//plugin[@name='lab_cobot_mecanum_traction']")
-
-    assert plugin is not None
-    assert plugin.attrib["filename"] == "liblab_cobot_mecanum_drive.so"
-    assert plugin.findtext("control_mode") == "pose_from_wheel_commands"
-    assert plugin.findtext("wheel_command_topic") == "/wheel_velocity_controller/commands"
-    assert plugin.findtext("base_link") == "base_link"
-    assert plugin.findtext("wheel_radius") == "0.08"
-    assert plugin.findtext("wheelbase_radius") == "0.47000000000000003"
-    assert float(plugin.findtext("max_linear_accel")) <= 1.0
-    assert float(plugin.findtext("max_angular_accel")) <= 2.0
-    assert [
-        elem.text for elem in plugin.findall("wheel_joint")
-    ] == [
-        "wheel_fl_joint",
-        "wheel_fr_joint",
-        "wheel_rl_joint",
-        "wheel_rr_joint",
-    ]
+    urdf = subprocess.run(["xacro", str(urdf_file)], check=True, stdout=subprocess.PIPE, text=True).stdout
+    assert "liblab_cobot_mecanum_drive.so" not in urdf
 
 
-def test_default_mecanum_drive_uses_commanded_wheel_velocity_mode_for_headless_stability():
+def test_default_mecanum_drive_uses_physical_roller_contact():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
-    urdf = subprocess.run(
-        ["xacro", str(urdf_file)],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout
+    urdf = subprocess.run(["xacro", str(urdf_file)], check=True, stdout=subprocess.PIPE, text=True).stdout
     root = ET.fromstring(urdf)
-    plugin = root.find(".//plugin[@name='lab_cobot_mecanum_traction']")
-
-    assert plugin.findtext("control_mode") == "pose_from_wheel_commands"
-    assert float(plugin.findtext("max_linear_accel")) <= 1.0
-    assert float(plugin.findtext("max_angular_accel")) <= 2.0
+    assert root.find("./gazebo[@reference='front_left_barrel_0_link']/mu1").text == "1.0"
 
 
-def test_commanded_velocity_drive_uses_ground_support_not_wheel_contact_traction():
+def test_commanded_velocity_drive_uses_low_front_right_wheel_1iction():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
-    urdf = subprocess.run(
-        ["xacro", str(urdf_file)],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout
+    urdf = subprocess.run(["xacro", str(urdf_file)], check=True, stdout=subprocess.PIPE, text=True).stdout
     root = ET.fromstring(urdf)
-
-    assert root.find(".//plugin[@name='lab_cobot_mecanum_traction']").findtext(
-        "control_mode"
-    ) == "pose_from_wheel_commands"
-    support = root.find("./link[@name='base_link']/collision[@name='base_ground_support']")
-    assert support is not None
-    support_z = float(support.find("origin").attrib["xyz"].split()[2])
-    assert support_z < -0.10
-
-    for wheel_name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"):
-        gazebo = root.find(f"./gazebo[@reference='{wheel_name}']")
-        assert gazebo is not None
-        assert gazebo.findtext("collide_bitmask") == "0x00"
+    for wheel in ("front_left_wheel_1", "front_right_wheel_1", "back_left_wheel_1", "back_right_wheel_1"):
+        assert root.find(f"./gazebo[@reference='{wheel}']/mu1").text == "0.05"
 
 
 def test_generated_urdf_loads_grasp_fix_for_contact_based_holding():
@@ -347,34 +298,19 @@ def test_moveit_marks_uncontrolled_wheel_joints_passive():
     text = srdf_file.read_text(encoding="utf-8")
 
     for joint in (
-        "wheel_fl_joint",
-        "wheel_fr_joint",
-        "wheel_rl_joint",
-        "wheel_rr_joint",
+        "front_left_joint",
+        "front_right_joint",
+        "back_left_joint",
+        "back_right_joint",
     ):
         assert f'<passive_joint name="{joint}"/>' in text
 
 
 def test_generated_urdf_renders_mecanum_roller_visuals():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
-    urdf = subprocess.run(
-        ["xacro", str(urdf_file)],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout
+    urdf = subprocess.run(["xacro", str(urdf_file)], check=True, stdout=subprocess.PIPE, text=True).stdout
     root = ET.fromstring(urdf)
-
-    for wheel_name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"):
-        wheel = root.find(f"./link[@name='{wheel_name}']")
-        assert wheel is not None
-        roller_visuals = [
-            visual
-            for visual in wheel.findall("visual")
-            if "roller" in visual.attrib.get("name", "")
-        ]
-
-        assert len(roller_visuals) >= 10
+    assert len([link for link in root.findall("link") if "_barrel_" in link.attrib["name"]]) == 60
 
 
 def test_generated_urdf_exports_wheel_velocity_interfaces_to_ros2_control():
@@ -393,10 +329,10 @@ def test_generated_urdf_exports_wheel_velocity_interfaces_to_ros2_control():
     }
 
     for joint_name in (
-        "wheel_fl_joint",
-        "wheel_fr_joint",
-        "wheel_rl_joint",
-        "wheel_rr_joint",
+        "front_left_joint",
+        "front_right_joint",
+        "back_left_joint",
+        "back_right_joint",
     ):
         joint = ros2_control_joints[joint_name]
         command_interfaces = [
@@ -423,10 +359,10 @@ def test_wheel_velocity_controller_commands_mecanum_wheel_joints():
         == "velocity_controllers/JointGroupVelocityController"
     )
     assert controller["joints"] == [
-        "wheel_fl_joint",
-        "wheel_fr_joint",
-        "wheel_rl_joint",
-        "wheel_rr_joint",
+        "front_left_joint",
+        "front_right_joint",
+        "back_left_joint",
+        "back_right_joint",
     ]
 
 

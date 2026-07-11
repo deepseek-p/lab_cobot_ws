@@ -46,10 +46,10 @@
   <end_effector name="gripper" parent_link="ur_tool0" group="gripper"/>
 
   <!-- 底盘平面运动由 lab_cobot_mecanum_drive 的轮速命令链路实现;不再使用旧平面移动插件。 -->
-  <passive_joint name="wheel_fl_joint"/>
-  <passive_joint name="wheel_fr_joint"/>
-  <passive_joint name="wheel_rl_joint"/>
-  <passive_joint name="wheel_rr_joint"/>
+  <passive_joint name="front_left_joint"/>
+  <passive_joint name="front_right_joint"/>
+  <passive_joint name="back_left_joint"/>
+  <passive_joint name="back_right_joint"/>
 
   <!-- ===== 碰撞禁用 ===== -->
   <!-- UR5e 相邻链 -->
