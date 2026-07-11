@@ -100,7 +100,7 @@
     </collision>
   </link>
 
- 
+
   <!-- Arm link macro -->
   <xacro:macro name="mecanum_arm_link" params="name">
     <link name="${name}">
@@ -372,4 +372,3 @@
   <xacro:m3_barrel_friction link="back_right_barrel_14_link"/>
   </xacro:macro>
 </robot>
-
