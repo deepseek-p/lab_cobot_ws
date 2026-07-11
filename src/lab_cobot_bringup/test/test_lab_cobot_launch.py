@@ -190,6 +190,18 @@ def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     assert _node_parameters(relay)["use_sim_time"] is True
 
 
+def test_bringup_publishes_passive_mecanum_joint_states(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    nodes = [
+        node for node in _nodes(launch_description)
+        if node.node_executable == "passive_mecanum_joint_states"
+    ]
+
+    assert len(nodes) == 1
+    assert nodes[0].node_package == "lab_cobot_bringup"
+    assert _node_parameters(nodes[0])["use_sim_time"] is True
+
+
 def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)

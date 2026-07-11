@@ -127,6 +127,12 @@ def generate_launch_description():
         output="screen",
         parameters=[{"use_sim_time": True}],
     )
+    passive_mecanum_joint_states = Node(
+        package="lab_cobot_bringup",
+        executable="passive_mecanum_joint_states",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
     gripper_attach_bridge = Node(
         package="lab_cobot_bringup",
         executable="gripper_attach_bridge",
@@ -233,6 +239,7 @@ def generate_launch_description():
         SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         world,
         rover_twist_relay,
+        passive_mecanum_joint_states,
         gripper_attach_bridge,
         stage2,
         stage3,
