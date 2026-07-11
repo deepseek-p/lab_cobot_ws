@@ -32,6 +32,20 @@ def test_all_sixty_rollers_are_preserved():
     assert expected <= links
     assert {name[:-5] + "_joint" for name in expected} <= joints
 
+def test_suspension_joints_export_real_state_without_commands():
+    _, root = _generated()
+    control = root.find("./ros2_control[@name='gripper_and_wheel_visuals']")
+    for name in (
+        "front_left_suspension_joint", "front_right_suspension_joint",
+        "back_left_suspension_joint", "back_right_suspension_joint",
+    ):
+        joint = control.find(f"./joint[@name='{name}']")
+        assert joint is not None
+        assert joint.findall("command_interface") == []
+        assert {state.attrib["name"] for state in joint.findall("state_interface")} == {
+            "position", "velocity", "effort",
+        }
+
 def test_meshes_are_packaged_and_uris_and_base_scale_are_correct():
     text, root = _generated()
     names = ["base_link.stl", "arms.stl", "mecanum_wheel.stl", "mecanum_wheel_rev.stl", "mecanum_barrel.stl"]

@@ -8,13 +8,12 @@ from sensor_msgs.msg import JointState
 
 def passive_joint_names():
     wheels = ("front_left", "front_right", "back_left", "back_right")
-    suspension = [f"{wheel}_suspension_joint" for wheel in wheels]
     rollers = [
         f"{wheel}_barrel_{index}_joint"
         for wheel in wheels
         for index in range(15)
     ]
-    return suspension + rollers
+    return rollers
 
 
 def shutdown_if_running():
