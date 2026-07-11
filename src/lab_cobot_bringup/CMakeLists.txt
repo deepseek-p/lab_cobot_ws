@@ -51,6 +51,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  ${PROJECT_NAME}/rover_twist_relay.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME rover_twist_relay
+)
+
+install(PROGRAMS
   ${PROJECT_NAME}/gripper_attach_bridge.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME gripper_attach_bridge
