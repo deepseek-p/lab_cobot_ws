@@ -63,7 +63,10 @@ def test_zero_if_timed_out_preserves_recent_twist():
 
 def test_clock_rollback_clears_commands_before_they_can_be_reused():
     target, current, reset = reset_twists_on_clock_jump(
-        SimpleTwist(0.2, -0.1, 0.4), SimpleTwist(0.1, 0.0, 0.2), -0.01
+        SimpleTwist(0.2, -0.1, 0.4),
+        SimpleTwist(0.1, 0.0, 0.2),
+        raw_dt=0.01,
+        elapsed=-0.01,
     )
 
     assert reset is True
@@ -75,11 +78,24 @@ def test_normal_clock_progress_preserves_commands():
     target = SimpleTwist(0.2, -0.1, 0.4)
     current = SimpleTwist(0.1, 0.0, 0.2)
 
-    assert reset_twists_on_clock_jump(target, current, 0.01) == (
+    assert reset_twists_on_clock_jump(target, current, 0.01, 0.01) == (
         target,
         current,
         False,
     )
+
+
+def test_clock_rollback_before_new_twist_still_clears_old_current_speed():
+    target, current, reset = reset_twists_on_clock_jump(
+        SimpleTwist(0.2, -0.1, 0.4),
+        SimpleTwist(0.1, 0.0, 0.2),
+        raw_dt=-0.01,
+        elapsed=0.0,
+    )
+
+    assert reset is True
+    assert target == SimpleTwist()
+    assert current == SimpleTwist()
 
 
 @pytest.mark.parametrize(

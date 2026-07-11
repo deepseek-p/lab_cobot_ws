@@ -60,8 +60,8 @@ def zero_if_timed_out(target, elapsed, command_timeout):
     return target
 
 
-def reset_twists_on_clock_jump(target, current, elapsed):
-    if elapsed < 0.0:
+def reset_twists_on_clock_jump(target, current, raw_dt, elapsed):
+    if raw_dt < 0.0 or elapsed < 0.0:
         return SimpleTwist(), SimpleTwist(), True
     return target, current, False
 
@@ -287,7 +287,8 @@ class RoverTwistRelay(Node):
     # ------------------------------------------------------------
     def on_timer(self):
         now = self.get_clock().now()
-        dt = (now - self.last_update_time).nanoseconds * 1e-9
+        raw_dt = (now - self.last_update_time).nanoseconds * 1e-9
+        dt = raw_dt
         self.last_update_time = now
         if dt <= 0.0 or dt > 0.2:
             dt = 0.01
@@ -299,6 +300,7 @@ class RoverTwistRelay(Node):
             reset_twists_on_clock_jump(
                 self.target_twist,
                 self.current_twist,
+                raw_dt,
                 elapsed_since_command,
             )
         )
