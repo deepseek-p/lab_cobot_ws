@@ -2,9 +2,9 @@
 <!--
   一体化麦轮移动机械臂:麦轮全向底盘 + 基座立柱 + UR5e + 平行夹爪 + 传感器。
   UR5e 用官方 ur_description 的 ur_robot macro(sim_gazebo 模式),装在立柱顶 arm_mount_link。
-  关节由 gazebo_ros2_control 驱动;底盘车体运动由 lab_cobot_mecanum_drive 的
-  位姿积分模型(pose_from_wheel_commands,逐 tick SetWorldPose)施加,
-  轮关节旋转仅为视觉同步,不参与推进。
+  底盘视觉轮由 wheel_velocity_controller 驱动；整机位姿由后续/外部
+  mecanum_gazebo_kinematic_drive 节点通过 /set_entity_state 推进。
+  URDF 不再内嵌旧 lab_cobot_mecanum_drive 插件。
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="lab_cobot">
 
