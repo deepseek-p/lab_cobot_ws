@@ -178,7 +178,7 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
 
 def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
-    executables = {node.node_executable for node in _nodes(launch_description)}
+    executables = [node.node_executable for node in _nodes(launch_description)]
 
     assert "mecanum_wheel_visualizer" not in executables
     assert "wheel_joint_state_publisher" not in executables
