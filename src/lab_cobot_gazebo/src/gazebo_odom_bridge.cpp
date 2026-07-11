@@ -7,6 +7,8 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "gazebo_msgs/msg/link_states.hpp"
+#include "lab_cobot_gazebo/runtime_motion.hpp"
+#include "tf2/LinearMath/Matrix3x3.h"
 
 class GazeboOdomBridge : public rclcpp::Node
 {
@@ -38,6 +40,15 @@ public:
   }
 
 private:
+  static double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q_msg)
+  {
+    tf2::Quaternion q(q_msg.x, q_msg.y, q_msg.z, q_msg.w);
+    double roll = 0.0;
+    double pitch = 0.0;
+    double yaw = 0.0;
+    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+    return yaw;
+  }
 
   static bool matchesTargetLink(
     const std::string & actual,
@@ -60,6 +71,7 @@ private:
         return static_cast<int>(i);
       }
     }
+    // Safe only because base_footprint and base_link have an identity fixed transform.
     for (size_t i = 0; i < msg.name.size(); ++i) {
       if (msg.name[i] == fallback_link_name_) {
         return static_cast<int>(i);
@@ -96,7 +108,13 @@ private:
     odom.pose.pose.position = msg->pose[index].position;
     odom.pose.pose.orientation = msg->pose[index].orientation;
 
-    odom.twist.twist.linear = msg->twist[index].linear;
+    const auto base_velocity = lab_cobot_gazebo::rotateWorldToBase(
+      msg->twist[index].linear.x,
+      msg->twist[index].linear.y,
+      yawFromQuaternion(msg->pose[index].orientation));
+    odom.twist.twist.linear.x = base_velocity.x;
+    odom.twist.twist.linear.y = base_velocity.y;
+    odom.twist.twist.linear.z = msg->twist[index].linear.z;
     odom.twist.twist.angular = msg->twist[index].angular;
 
     pub_odom_->publish(odom);

@@ -16,12 +16,22 @@ from launch.actions import (
     IncludeLaunchDescription,
     RegisterEventHandler,
     AppendEnvironmentVariable,
+    EmitEvent,
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
+
+
+def _continue_on_success(event, next_actions, controller_name):
+    if event.returncode == 0:
+        return next_actions
+    return [EmitEvent(event=Shutdown(
+        reason=f"controller {controller_name} failed with code {event.returncode}"
+    ))]
 
 
 def generate_launch_description():
@@ -146,28 +156,36 @@ def generate_launch_description():
     )
     delay_jtc = RegisterEventHandler(
         OnProcessExit(
-            target_action=joint_state_broadcaster, on_exit=[joint_trajectory_controller]
+            target_action=joint_state_broadcaster,
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [joint_trajectory_controller], "joint_state_broadcaster"
+            ),
         )
     )
     delay_gripper = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_trajectory_controller,
-            on_exit=[gripper_position_controller],
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [gripper_position_controller], "joint_trajectory_controller"
+            ),
         )
     )
     delay_wheel_velocity = RegisterEventHandler(
         OnProcessExit(
             target_action=gripper_position_controller,
-            on_exit=[wheel_velocity_controller],
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [wheel_velocity_controller], "gripper_position_controller"
+            ),
         )
     )
     delay_mecanum_runtime = RegisterEventHandler(
         OnProcessExit(
             target_action=wheel_velocity_controller,
-            on_exit=[
-                mecanum_kinematic_drive,
-                gazebo_odom_bridge,
-            ],
+            on_exit=lambda event, _context: _continue_on_success(
+                event,
+                [mecanum_kinematic_drive, gazebo_odom_bridge],
+                "wheel_velocity_controller",
+            ),
         )
     )
 

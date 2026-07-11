@@ -36,7 +36,11 @@ def test_drive_preserves_confirmed_runtime_contract():
 def test_drive_parameterizes_model_states_without_changing_source_defaults():
     source = text(GAZEBO / "src/mecanum_gazebo_kinematic_drive.cpp")
     assert '"model_states_topic", "/model_states"' in source
-    assert "create_subscription<gazebo_msgs::msg::ModelStates>(\n      model_states_topic_" in source
+    subscription = (
+        "create_subscription<gazebo_msgs::msg::ModelStates>"
+        "(\n      model_states_topic_"
+    )
+    assert subscription in source
 
 
 def test_bridge_is_parameterized_and_publishes_odom_tf():
@@ -97,3 +101,31 @@ def test_gazebo_does_not_create_dependency_cycle_with_bringup():
 def test_ekf_does_not_duplicate_odom_transform():
     config = text(NAV / "config/ekf.yaml")
     assert "publish_tf: false" in config
+
+
+def test_drive_pauses_without_sim_time_and_limits_service_backlog():
+    source = text(GAZEBO / "src/mecanum_gazebo_kinematic_drive.cpp")
+    assert "if (dt <= 0.0) {\n      return;" in source
+    assert "std::atomic_bool request_in_flight_" in source
+    assert "request_in_flight_.exchange(true)" in source
+    assert "request_in_flight_.store(false)" in source
+    assert "rotateBaseToWorld" in source
+
+
+def test_bridge_converts_world_twist_and_documents_safe_fallback():
+    source = text(GAZEBO / "src/gazebo_odom_bridge.cpp")
+    assert "rotateWorldToBase" in source
+    assert "base_footprint and base_link have an identity fixed transform" in source
+
+
+def test_mecanum3_fallback_link_has_identity_fixed_transform():
+    xacro_path = (
+        ROOT / "lab_cobot_description" / "urdf" / "inc" / "mecanum3_base.xacro"
+    )
+    xacro = text(xacro_path)
+    joint = xacro.split('<joint name="base_joint" type="fixed">', 1)[1].split(
+        "</joint>", 1
+    )[0]
+    assert '<parent link="base_footprint"/>' in joint
+    assert '<child link="base_link"/>' in joint
+    assert '<origin xyz="0 0 0" rpy="0 0 0"/>' in joint

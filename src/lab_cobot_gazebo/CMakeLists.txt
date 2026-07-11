@@ -52,7 +52,7 @@ ament_target_dependencies(mecanum_gazebo_kinematic_drive
 
 add_executable(gazebo_odom_bridge src/gazebo_odom_bridge.cpp)
 ament_target_dependencies(gazebo_odom_bridge
-  gazebo_msgs geometry_msgs nav_msgs rclcpp tf2_ros)
+  gazebo_msgs geometry_msgs nav_msgs rclcpp tf2 tf2_ros)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
@@ -74,6 +74,8 @@ if(BUILD_TESTING)
     ${GAZEBO_INCLUDE_DIRS})
   ament_add_gtest(test_finger_contact_gate test/test_finger_contact_gate.cpp)
   target_include_directories(test_finger_contact_gate PRIVATE include)
+  ament_add_gtest(test_runtime_motion test/test_runtime_motion.cpp)
+  target_include_directories(test_runtime_motion PRIVATE include)
   # 本机 ~/.local 的 anyio pytest 插件与系统 pytest 不兼容(装 DL 依赖后
   # 版本漂移引爆),所有 pytest 注册必须带 -p no:anyio 防护(bringup 范本)
   ament_add_pytest_test(world_launch test/test_world_launch.py

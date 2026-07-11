@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <memory>
@@ -10,6 +11,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Matrix3x3.h"
+#include "lab_cobot_gazebo/runtime_motion.hpp"
 
 using namespace std::chrono_literals;
 
@@ -141,11 +143,24 @@ private:
     double dt = (now - last_update_time_).seconds();
     last_update_time_ = now;
 
-    if (dt <= 0.0 || dt > 0.2) {
+    if (dt <= 0.0) {
+      return;
+    }
+    if (dt > 0.2) {
       dt = 1.0 / update_rate_;
     }
 
     if (!initialized_) {
+      return;
+    }
+
+    if (!client_->service_is_ready()) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "waiting for %s", service_name_.c_str());
+      return;
+    }
+    if (request_in_flight_.exchange(true)) {
       return;
     }
 
@@ -180,13 +195,6 @@ private:
       yaw_ += 2.0 * M_PI;
     }
 
-    if (!client_->service_is_ready()) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 2000,
-        "waiting for %s", service_name_.c_str());
-      return;
-    }
-
     auto request = std::make_shared<gazebo_msgs::srv::SetEntityState::Request>();
     request->state.name = model_name_;
     request->state.reference_frame = "world";
@@ -194,11 +202,21 @@ private:
     request->state.pose.position.y = y_;
     request->state.pose.position.z = z_height_;
     request->state.pose.orientation = quaternionFromYaw(yaw_);
-    request->state.twist.linear.x = vx;
-    request->state.twist.linear.y = vy;
+    const auto world_velocity = lab_cobot_gazebo::rotateBaseToWorld(vx, vy, yaw_);
+    request->state.twist.linear.x = world_velocity.x;
+    request->state.twist.linear.y = world_velocity.y;
     request->state.twist.angular.z = wz;
 
-    client_->async_send_request(request);
+    try {
+      client_->async_send_request(
+        request,
+        [this](rclcpp::Client<gazebo_msgs::srv::SetEntityState>::SharedFuture) {
+          request_in_flight_.store(false);
+        });
+    } catch (...) {
+      request_in_flight_.store(false);
+      throw;
+    }
   }
 
   std::string model_name_;
@@ -214,6 +232,7 @@ private:
   double update_rate_{50.0};
 
   bool initialized_{false};
+  std::atomic_bool request_in_flight_{false};
   double x_{0.0};
   double y_{0.0};
   double yaw_{0.0};

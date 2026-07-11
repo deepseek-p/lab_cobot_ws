@@ -4,6 +4,8 @@ from pathlib import Path
 
 from launch import LaunchContext
 from launch.actions import ExecuteProcess, TimerAction
+from launch.actions import EmitEvent
+from launch.events import Shutdown
 from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
 
@@ -33,6 +35,11 @@ def _all_actions(launch_description):
         on_exit = getattr(handler, "_OnProcessExit__actions", None) or getattr(
             handler, "_OnActionEventBase__actions_on_event", None
         )
+        callback = getattr(handler, "_OnActionEventBase__on_event", None)
+        if callback is not None:
+            on_exit = callback(
+                type("Event", (), {"returncode": 0})(), LaunchContext()
+            )
         for child in on_exit or []:
             _walk(child)
 
@@ -137,6 +144,7 @@ def test_world_launch_uses_namespaced_gazebo_state_api():
         item for item in drive._Node__parameters if isinstance(item, dict)
     ]
     context = LaunchContext()
+
     def _resolve(value):
         if isinstance(value, (list, tuple)):
             return perform_substitutions(context, list(value))
@@ -149,6 +157,26 @@ def test_world_launch_uses_namespaced_gazebo_state_api():
     }
     assert merged["model_states_topic"].startswith("/gazebo/model_states")
     assert merged["service_name"].startswith("/gazebo/set_entity_state")
+
+
+def test_controller_chain_continues_only_after_success():
+    module = _load_world_launch.__globals__["importlib"].util.spec_from_file_location
+    launch_file = GAZEBO / "launch" / "world.launch.py"
+    spec = module("world_launch_guard_test", launch_file)
+    loaded = _load_world_launch.__globals__["importlib"].util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+
+    sentinel = object()
+    success = loaded._continue_on_success(
+        type("Event", (), {"returncode": 0})(), [sentinel], "wheel"
+    )
+    assert success == [sentinel]
+    failure = loaded._continue_on_success(
+        type("Event", (), {"returncode": 1})(), [sentinel], "wheel"
+    )
+    assert len(failure) == 1
+    assert isinstance(failure[0], EmitEvent)
+    assert isinstance(failure[0].event, Shutdown)
 
 
 def test_world_launch_has_no_default_set_entity_state_calls():
