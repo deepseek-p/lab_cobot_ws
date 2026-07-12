@@ -45,14 +45,15 @@ RETREAT_STOP_SEC = 0.5
 # base_link 系 TCP 放置点。z=0.725 + 悬空释放余量 0.02(pick_place 侧)
 # 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
 # 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
-DEFAULT_PLACE_POSE = [0.82, 0.20, 0.725]
-PLACE_BASE_TARGET_POSE = (-2.0, 0.62, math.pi / 2.0)
+DEFAULT_PLACE_POSE = [0.68, 0.20, 0.725]
+PLACE_BASE_TARGET_POSE = (-2.0, 0.64, math.pi / 2.0)
 # Leave reach margin for the vertical gripper pose.  At 0.78 m the detected
 # target plus TCP approach offset sits on the UR5e workspace boundary.
 DOCK_TARGET_X = 0.62
 DOCK_TARGET_Y = 0.0
 DOCK_TOLERANCE_X = 0.05
 DOCK_TOLERANCE_Y = 0.065
+DOCK_SAFE_HANDOFF_MAX_X = 0.80
 DOCK_GAIN_X = 0.8
 DOCK_GAIN_Y = 0.8
 DOCK_MAX_LINEAR_X = 0.08
@@ -81,8 +82,10 @@ STATION_B_TABLE_MIN_X = -2.4
 STATION_B_TABLE_MAX_X = -1.6
 STATION_B_TABLE_FRONT_Y = 1.2
 STATION_B_TABLE_BACK_Y = 1.8
-STATION_B_SAFE_DROP_FRONT_Y = 1.35
-STATION_B_SAFE_DROP_BACK_Y = 1.65
+STATION_B_SAFE_DROP_MIN_X = -2.335
+STATION_B_SAFE_DROP_MAX_X = -1.665
+STATION_B_SAFE_DROP_FRONT_Y = 1.265
+STATION_B_SAFE_DROP_BACK_Y = 1.735
 NAV_HANDOFF_STOP_SEC = 0.3
 STATION_DOCK_TOLERANCE_X = 0.06
 STATION_DOCK_TOLERANCE_Y = 0.06
@@ -203,7 +206,8 @@ def dock_velocity_for_object(object_pose, base_pose=None, station="station_a"):
     )
     blocked_forward_alignment = (
         in_safe_station_deadband
-        and error_x > DOCK_TOLERANCE_X
+        and DOCK_TOLERANCE_X < error_x
+        and float(object_pose[0]) <= DOCK_SAFE_HANDOFF_MAX_X
         and abs(error_y) <= DOCK_TOLERANCE_Y
     )
     done = done or blocked_forward_alignment
@@ -255,7 +259,7 @@ def _station_b_table_contains(map_x: float, map_y: float) -> bool:
 
 def _station_b_safe_drop_contains(map_x: float, map_y: float) -> bool:
     return (
-        STATION_B_TABLE_MIN_X <= map_x <= STATION_B_TABLE_MAX_X
+        STATION_B_SAFE_DROP_MIN_X <= map_x <= STATION_B_SAFE_DROP_MAX_X
         and STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y
     )
 

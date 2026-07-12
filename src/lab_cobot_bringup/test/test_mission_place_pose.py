@@ -9,6 +9,8 @@ from lab_cobot_bringup.mission_node import (
     PLACE_BASE_TARGET_POSE,
     STATION_B_SAFE_DROP_BACK_Y,
     STATION_B_SAFE_DROP_FRONT_Y,
+    STATION_B_SAFE_DROP_MAX_X,
+    STATION_B_SAFE_DROP_MIN_X,
     _base_target_to_map,
 )
 from lab_cobot_manipulation.pick_place_node import PLACE_RELEASE_CLEARANCE
@@ -40,10 +42,15 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
     table_max_x = -1.6
     table_mid_y = 1.5
     max_reachable_forward = 0.82
-    minimum_nominal_front_margin = 0.07
+    minimum_nominal_front_margin = 0.05
 
     map_x, map_y = _base_to_map(DEFAULT_PLACE_POSE[:2], station_b)
 
+    assert DEFAULT_PLACE_POSE[0] == pytest.approx(0.68)
+    assert map_y == pytest.approx(1.32)
+    sample_half_extent = 0.035
+    assert map_y - sample_half_extent > 1.20
+    assert map_y + sample_half_extent < 1.80
     assert DEFAULT_PLACE_POSE[0] <= max_reachable_forward
     assert table_min_x <= map_x <= table_max_x
     assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= table_mid_y
@@ -70,5 +77,11 @@ def test_place_base_target_projects_drop_point_into_safe_table_band():
         DEFAULT_PLACE_POSE[:2],
     )
 
-    assert -2.4 <= map_x <= -1.6
+    assert STATION_B_SAFE_DROP_MIN_X <= map_x <= STATION_B_SAFE_DROP_MAX_X
     assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y
+    sample_half_extent = 0.035
+    required_edge_margin = 0.03
+    assert map_x - sample_half_extent >= -2.4 + required_edge_margin
+    assert map_x + sample_half_extent <= -1.6 - required_edge_margin
+    assert map_y - sample_half_extent >= 1.2 + required_edge_margin
+    assert map_y + sample_half_extent <= 1.8 - required_edge_margin

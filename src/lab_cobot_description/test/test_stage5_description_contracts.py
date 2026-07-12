@@ -422,7 +422,7 @@ def test_station_a_sample_projects_into_camera_image():
 
     station_a = waypoints.get_waypoint("station_a")
     sample_map_x = 2.0
-    sample_map_y = 1.5
+    sample_map_y = 1.32
     station_table_front_y = 1.20
     inflation_radius = 0.55
     sample_top_world_z = 0.82

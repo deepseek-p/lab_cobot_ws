@@ -80,7 +80,11 @@ def test_pick_visual_safety_uses_map_pose_when_map_and_odom_are_offset():
     )()
     node.get_clock = lambda: type("Clock", (), {"now": lambda self: object()})()
     node._duration_elapsed = lambda *_args: False
-    node._detect = lambda: [mission_node.DOCK_TARGET_X + 0.2, 0.0, 0.63]
+    node._detect = lambda: [
+        mission_node.DOCK_SAFE_HANDOFF_MAX_X - 0.01,
+        0.0,
+        0.63,
+    ]
     node._base_pose_in_map = lambda timeout_sec=2.0: [2.0, safe_y, math.pi / 2.0]
     node._base_pose_in_odom = lambda timeout_sec=2.0: (_ for _ in ()).throw(
         AssertionError("map safety must not consume offset odom coordinates")
