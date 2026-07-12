@@ -548,31 +548,46 @@ class _FakeBtStateClient:
         return _FakeStateFuture(self._state_id)
 
 
-def _make_wait_node(client, elapsed_results):
+def _make_wait_node(client):
     # 2026-07-10 GUI 竞态修复:wait_for_server 只保证 server 存在,不保证
     # active;本组用例锁定 _wait_for_nav_active 的等待/放行行为。
     node = mission_node.MissionNode.__new__(mission_node.MissionNode)
     node._bt_state_client = client
-    results = iter(elapsed_results)
-    node._duration_elapsed = lambda start, dur: next(results)
-    node.get_clock = lambda: type("C", (), {"now": staticmethod(lambda: 0)})()
+    node.get_logger = lambda: type(
+        "Logger", (), {"warn": staticmethod(lambda _msg: None)}
+    )()
     return node
 
 
+def _install_monotonic_wait_clock(monkeypatch):
+    clock = {"seconds": 0.0}
+    monkeypatch.setattr(
+        mission_node.time, "monotonic", lambda: clock["seconds"]
+    )
+    monkeypatch.setattr(
+        mission_node.time,
+        "sleep",
+        lambda seconds: clock.__setitem__(
+            "seconds", clock["seconds"] + seconds
+        ),
+    )
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+
 def test_wait_for_nav_active_passes_when_bt_navigator_active(monkeypatch):
-    monkeypatch.setattr(mission_node.time, "sleep", lambda s: None)
+    _install_monotonic_wait_clock(monkeypatch)
     client = _FakeBtStateClient(ready=True, state_id=3)
-    node = _make_wait_node(client, [False, False])
+    node = _make_wait_node(client)
 
     assert mission_node.MissionNode._wait_for_nav_active(node)
     assert client.calls == 1
 
 
 def test_wait_for_nav_active_keeps_polling_until_active(monkeypatch):
-    monkeypatch.setattr(mission_node.time, "sleep", lambda s: None)
+    _install_monotonic_wait_clock(monkeypatch)
     # 前两轮 inactive(id=2),第三轮 active
     client = _FakeBtStateClient(ready=True, state_id=2)
-    node = _make_wait_node(client, [False, False, False, False])
+    node = _make_wait_node(client)
     calls = {"n": 0}
     real_call = client.call_async
 
@@ -589,8 +604,10 @@ def test_wait_for_nav_active_keeps_polling_until_active(monkeypatch):
 
 
 def test_wait_for_nav_active_times_out_when_never_active(monkeypatch):
-    monkeypatch.setattr(mission_node.time, "sleep", lambda s: None)
+    _install_monotonic_wait_clock(monkeypatch)
     client = _FakeBtStateClient(ready=True, state_id=2)
-    node = _make_wait_node(client, [False, False, False, True])
+    node = _make_wait_node(client)
 
-    assert not mission_node.MissionNode._wait_for_nav_active(node)
+    assert not mission_node.MissionNode._wait_for_nav_active(
+        node, timeout_sec=1.5
+    )

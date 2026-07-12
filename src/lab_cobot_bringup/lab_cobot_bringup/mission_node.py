@@ -757,11 +757,12 @@ class MissionNode(Node):
         """Wait for cold-start Nav2 without consuming mission retries."""
         deadline = time.monotonic() + timeout_sec
         logged = False
-        while time.monotonic() < deadline:
-            remaining = deadline - time.monotonic()
-            probe = min(NAV_STARTUP_POLL_SEC, max(0.0, remaining))
+        while rclpy.ok() and time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            probe = min(NAV_STARTUP_POLL_SEC, remaining)
             if self.nav.nav_to_pose_client.wait_for_server(timeout_sec=probe):
-                if self._wait_for_nav_active(timeout_sec=max(0.0, remaining)):
+                remaining = max(0.0, deadline - time.monotonic())
+                if self._wait_for_nav_active(timeout_sec=remaining):
                     return True
             if not logged:
                 self.get_logger().info("等待 Nav2 action 与生命周期 active")
@@ -774,20 +775,38 @@ class MissionNode(Node):
     ) -> bool:
         """Wait until bt_navigator lifecycle state reaches active."""
         deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline:
+        while rclpy.ok() and time.monotonic() < deadline:
+            result = None
             if self._bt_state_client.service_is_ready():
-                future = self._bt_state_client.call_async(GetState.Request())
-                call_deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
-                while not future.done() and time.time() < call_deadline:
-                    time.sleep(0.05)
-                result = future.result() if future.done() else None
+                try:
+                    future = self._bt_state_client.call_async(GetState.Request())
+                    call_deadline = min(
+                        deadline,
+                        time.monotonic() + NAV_ACTIVE_CALL_TIMEOUT_SEC,
+                    )
+                    while (
+                        rclpy.ok()
+                        and not future.done()
+                        and time.monotonic() < call_deadline
+                    ):
+                        remaining = max(
+                            0.0, call_deadline - time.monotonic()
+                        )
+                        time.sleep(min(0.05, remaining))
+                    if future.done():
+                        result = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    self.get_logger().warn(
+                        f"bt_navigator 状态探测失败,继续等待: {exc}"
+                    )
                 if (
                     result is not None
                     and result.current_state.id
                     == LifecycleState.PRIMARY_STATE_ACTIVE
                 ):
                     return True
-            time.sleep(NAV_ACTIVE_POLL_SEC)
+            remaining = max(0.0, deadline - time.monotonic())
+            time.sleep(min(NAV_ACTIVE_POLL_SEC, remaining))
         return False
 
     def _wait_for_navigation_tf(self, station: str) -> bool:
@@ -922,8 +941,12 @@ def main():
         executor.spin()
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        executor.shutdown()
+        node.pp.destroy_node()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

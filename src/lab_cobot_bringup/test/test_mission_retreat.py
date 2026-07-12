@@ -190,9 +190,76 @@ def test_navigation_readiness_waits_through_initial_action_unavailability(
     node._wait_for_nav_active = lambda timeout_sec=None: True
     node.get_logger = lambda: FakeLogger()
     monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
 
     assert MissionNode._wait_for_navigation_ready(node, timeout_sec=10.0)
     assert node.nav.nav_to_pose_client.calls == 3
+
+
+def test_nav_active_probe_recovers_from_future_result_exception(monkeypatch):
+    clock = FakeClock()
+
+    class FailedFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            raise RuntimeError("DDS response failed")
+
+    class ActiveFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            state = type(
+                "State",
+                (),
+                {"id": mission_node.LifecycleState.PRIMARY_STATE_ACTIVE},
+            )()
+            return type("Response", (), {"current_state": state})()
+
+    futures = [FailedFuture(), ActiveFuture()]
+
+    class FakeStateClient:
+        def service_is_ready(self):
+            return True
+
+        def call_async(self, _request):
+            return futures.pop(0)
+
+    node = MissionNode.__new__(MissionNode)
+    node._bt_state_client = FakeStateClient()
+    node.get_logger = lambda: FakeLogger()
+    monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+    monkeypatch.setattr(
+        mission_node.time, "sleep", lambda seconds: clock.advance(seconds)
+    )
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+    assert MissionNode._wait_for_nav_active(node, timeout_sec=2.0)
+    assert futures == []
+
+
+def test_navigation_ready_clamps_last_action_probe_to_deadline(monkeypatch):
+    clock = FakeClock()
+    probes = []
+
+    class UnavailableActionClient:
+        def wait_for_server(self, timeout_sec=None):
+            probes.append(timeout_sec)
+            clock.advance(timeout_sec)
+            return False
+
+    node = MissionNode.__new__(MissionNode)
+    node.nav = type("FakeNav", (), {})()
+    node.nav.nav_to_pose_client = UnavailableActionClient()
+    node.get_logger = lambda: FakeLogger()
+    monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+    assert not MissionNode._wait_for_navigation_ready(node, timeout_sec=2.4)
+    assert probes[:2] == [1.0, 1.0]
+    assert abs(probes[2] - 0.4) < 1e-9
 
 
 def test_navigate_waits_for_map_tf_before_sending_goal(monkeypatch):
