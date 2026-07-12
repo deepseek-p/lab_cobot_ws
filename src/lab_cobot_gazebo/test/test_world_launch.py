@@ -180,7 +180,7 @@ def test_world_launch_has_no_default_set_entity_state_calls():
             assert "set_entity_state" not in cmd
 
 
-def test_world_launch_starts_gzclient_with_sanitized_model_path():
+def test_world_launch_gzclient_inherits_complete_model_path():
     actions = _all_actions(_load_world_launch())
     gzclients = []
     for action in actions:
@@ -193,7 +193,7 @@ def test_world_launch_starts_gzclient_with_sanitized_model_path():
     assert any(
         "--gui-client-plugin=libgazebo_ros_eol_gui.so" in str(part) for part in cmd
     )
-    env_pairs = list(action.process_description.env or []) + list(
+    env_pairs = list(
         getattr(action.process_description, "additional_env", None) or []
     )
     env_keys = set()
@@ -202,7 +202,7 @@ def test_world_launch_starts_gzclient_with_sanitized_model_path():
             env_keys.add(key)
         else:
             env_keys.add(perform_substitutions(LaunchContext(), list(key)))
-    assert "GAZEBO_MODEL_PATH" in env_keys
+    assert "GAZEBO_MODEL_PATH" not in env_keys
 
 
 def test_world_robot_description_disables_wrist_camera_by_default():

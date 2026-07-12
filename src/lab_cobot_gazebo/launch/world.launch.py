@@ -88,7 +88,6 @@ def generate_launch_description():
         cmd=["gzclient", "--gui-client-plugin=libgazebo_ros_eol_gui.so"],
         output="screen",
         additional_env={
-            "GAZEBO_MODEL_PATH": os.path.join(gz_pkg, "models"),
             "GAZEBO_MODEL_DATABASE_URI": "",
         },
         condition=IfCondition(gui),
