@@ -39,7 +39,7 @@ joint_trajectory_controller:
       ur_elbow_joint: {trajectory: 0.10, goal: 0.005}
       ur_wrist_1_joint: {trajectory: 0.10, goal: 0.005}
       ur_wrist_2_joint: {trajectory: 0.10, goal: 0.005}
-      ur_wrist_3_joint: {trajectory: 0.10, goal: 0.005}
+      ur_wrist_3_joint: {trajectory: 0.12, goal: 0.005}
 
 gripper_position_controller:
   ros__parameters:

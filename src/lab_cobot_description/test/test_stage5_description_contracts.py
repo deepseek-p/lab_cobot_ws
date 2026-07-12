@@ -521,3 +521,9 @@ def test_arm_trajectory_controller_reports_success_only_after_settling():
     for joint in params["joints"]:
         assert constraints[joint]["trajectory"] >= 0.05
         assert 0.0 < constraints[joint]["goal"] <= 0.005
+    assert constraints["ur_wrist_3_joint"]["trajectory"] == 0.12
+    for joint in params["joints"]:
+        if joint == "ur_wrist_3_joint":
+            continue
+        assert constraints[joint]["trajectory"] == 0.10
+        assert constraints[joint]["goal"] == 0.005
