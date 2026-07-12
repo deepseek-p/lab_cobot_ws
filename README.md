@@ -9,7 +9,7 @@
 当前实现已完成导航地图、任务编排、抓取失败恢复、contact grasp 抓取、ArUco 相机位姿、MoveIt 等运行链路的修复和加固，默认路径不读 Gazebo 真值、不使用瞬移吸附。
 
 - `colcon build`：8 个包构建通过
-- `colcon test`：322 个测试（含 1 个禁真值 Gazebo 端到端与 13 个插件 gtest 行为用例），8 跳过
+- `colcon test`：相关功能与底盘回归测试通过；已知既有 lint 与 mission E2E 问题另行记录
 - 静态地图为 `slam_toolbox` 实跑产物（来源与质量门见 `maps/map_provenance.yaml`）
 - 默认 `use_truth_pose=false`、`use_sim_attach=false`：视觉走相机检测，抓取走 contact grasp 插件
 - headless 端到端（禁真值/禁吸附桥）已多次验证到 `DONE`
@@ -196,7 +196,7 @@ python3 src/lab_cobot_navigation/maps/check_map.py
 期望汇总：
 
 ```text
-Summary: 322 tests, 0 errors, 0 failures, 8 skipped
+PASS: 相关功能与底盘回归测试通过；已知既有 lint 与 mission E2E 问题另行记录
 PASS: map covers four walls, has low obstacle noise, and key points are free
 ```
 
