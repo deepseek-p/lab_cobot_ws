@@ -45,7 +45,7 @@ RETREAT_STOP_SEC = 0.5
 # base_link 系 TCP 放置点。z=0.725 + 悬空释放余量 0.02(pick_place 侧)
 # 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
 # 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
-DEFAULT_PLACE_POSE = [0.68, 0.20, 0.725]
+DEFAULT_PLACE_POSE = [0.78, 0.20, 0.725]
 PLACE_BASE_TARGET_POSE = (-2.0, 0.64, math.pi / 2.0)
 # Leave reach margin for the vertical gripper pose.  At 0.78 m the detected
 # target plus TCP approach offset sits on the UR5e workspace boundary.

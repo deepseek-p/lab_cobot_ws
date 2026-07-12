@@ -46,8 +46,10 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
 
     map_x, map_y = _base_to_map(DEFAULT_PLACE_POSE[:2], station_b)
 
-    assert DEFAULT_PLACE_POSE[0] == pytest.approx(0.68)
-    assert map_y == pytest.approx(1.32)
+    assert DEFAULT_PLACE_POSE[0] == pytest.approx(0.78)
+    assert map_y == pytest.approx(1.42)
+    carried_offset_y = 0.0455
+    assert map_y - carried_offset_y - 0.035 >= 1.20 + 0.03
     sample_half_extent = 0.035
     assert map_y - sample_half_extent > 1.20
     assert map_y + sample_half_extent < 1.80
