@@ -28,8 +28,9 @@
 /task/instruction
   -> mission_node
   -> Nav2 AMCL/EKF + DWB
-  -> /cmd_vel -> mecanum_wheel_visualizer(麦轮逆解)
-  -> /wheel_velocity_controller/commands -> lab_cobot_mecanum_drive(正解+位姿积分)
+  -> /cmd_vel -> rover_twist_relay(移植的麦轮逆解)
+  -> /wheel_velocity_controller/commands -> lab_cobot_planar_drive(同步正解+平面位姿积分)
+  -> gazebo_odom_bridge -> /odom
   -> aruco_detector(RGB-D solvePnP) -> TF/PoseStamped
   -> MoveIt 2 + pymoveit2
   -> ContactGripperDriver
@@ -155,6 +156,20 @@ ros2 launch lab_cobot_moveit move_group.launch.py
 ros2 launch lab_cobot_navigation navigation.launch.py
 ros2 launch lab_cobot_navigation mapping.launch.py
 ```
+
+调试底盘时仍从总启动入口启动完整的 `/cmd_vel` 适配链，但关闭任务节点和 RViz：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_mission:=false use_rviz:=false
+```
+
+另开终端发布一个前进指令：
+
+```bash
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
+```
+
+单独运行 `ros2 launch lab_cobot_gazebo world.launch.py` 只会启动 Gazebo、控制器和底盘插件，不会自动启动 `/cmd_vel` 适配节点；需要完整运行链路时请使用上述 `lab_cobot_bringup` 总启动命令。
 
 ## 验证
 
