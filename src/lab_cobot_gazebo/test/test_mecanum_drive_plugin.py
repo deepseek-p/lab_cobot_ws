@@ -51,7 +51,7 @@ def test_planar_plugin_updates_inside_gazebo_and_disables_model_gravity():
     assert "model_->SetGravityMode(false)" in source
     assert "wheelSpeedsToTwist" in source
     assert '"lab_cobot_gazebo/planar_safety.hpp"' in source
-    assert "isMotionAllowed" in source
+    assert "isSweptMotionAllowed" in source
     assert "RCLCPP_WARN_THROTTLE" in source
 
 

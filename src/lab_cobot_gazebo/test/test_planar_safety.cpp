@@ -68,3 +68,37 @@ TEST(PlanarSafety, SafeChassisMayNotEnterButCanMoveFreelyOutside)
     safety::isMotionAllowed(
       chassis(0.0, 0.0), chassis(0.1, 0.0), {kStationA, kStationB}, kMargin));
 }
+
+TEST(PlanarSafety, SweptTranslationCannotCrossEitherStationWithSafeEndpoints)
+{
+  EXPECT_TRUE(
+    safety::isMotionAllowed(
+      chassis(2.0, 0.0), chassis(2.0, 3.0), {kStationA, kStationB}, kMargin));
+  EXPECT_FALSE(
+    safety::isSweptMotionAllowed(
+      chassis(2.0, 0.0), chassis(2.0, 3.0), {kStationA, kStationB}, kMargin));
+  EXPECT_FALSE(
+    safety::isSweptMotionAllowed(
+      chassis(-2.0, 0.0), chassis(-2.0, 3.0), {kStationA, kStationB}, kMargin));
+}
+
+TEST(PlanarSafety, SweptRotationCannotPassAnUnsafeIntermediateAngle)
+{
+  const auto start = chassis(2.0, 0.63, -kPi / 2.0);
+  const auto finish = chassis(2.0, 0.63, kPi / 2.0);
+  EXPECT_FALSE(safety::intersects(start, kStationA, kMargin));
+  EXPECT_FALSE(safety::intersects(finish, kStationA, kMargin));
+  EXPECT_FALSE(
+    safety::isSweptMotionAllowed(
+      start, finish, {kStationA, kStationB}, kMargin));
+}
+
+TEST(PlanarSafety, SweptExitRequiresEveryUnsafeSubstepToImprove)
+{
+  EXPECT_TRUE(
+    safety::isSweptMotionAllowed(
+      chassis(2.0, 0.72), chassis(2.0, 0.60), {kStationA, kStationB}, kMargin));
+  EXPECT_FALSE(
+    safety::isSweptMotionAllowed(
+      chassis(2.0, 0.72), chassis(2.0, 0.74), {kStationA, kStationB}, kMargin));
+}

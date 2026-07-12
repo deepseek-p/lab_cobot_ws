@@ -172,7 +172,7 @@ private:
       {x_, y_}, yaw_, chassis_length_, chassis_width_};
     const lab_cobot_gazebo::planar_safety::OrientedBox next{
       {next_x, next_y}, next_yaw, chassis_length_, chassis_width_};
-    if (lab_cobot_gazebo::planar_safety::isMotionAllowed(
+    if (lab_cobot_gazebo::planar_safety::isSweptMotionAllowed(
         current, next, {table_a_, table_b_}, table_safety_margin_))
     {
       x_ = next_x;

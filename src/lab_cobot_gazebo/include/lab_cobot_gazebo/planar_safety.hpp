@@ -154,4 +154,37 @@ inline bool isMotionAllowed(
   return current_score <= kContactTolerance &&
          next_score > current_score + kContactTolerance;
 }
+
+inline bool isSweptMotionAllowed(
+  const OrientedBox & current, const OrientedBox & next,
+  std::initializer_list<AxisAlignedBox> obstacles, double margin,
+  double maximum_corner_step = 0.02)
+{
+  if (!isValid(current) || !isValid(next) || !isValidMargin(margin) ||
+    !std::isfinite(maximum_corner_step) || maximum_corner_step <= 0.0)
+  {
+    return false;
+  }
+  const double dx = next.center.x - current.center.x;
+  const double dy = next.center.y - current.center.y;
+  const double yaw_delta = std::atan2(
+    std::sin(next.yaw - current.yaw), std::cos(next.yaw - current.yaw));
+  const double corner_radius = std::hypot(current.length, current.width) * 0.5;
+  const double path_bound = std::hypot(dx, dy) + corner_radius * std::abs(yaw_delta);
+  const auto steps = std::max<std::size_t>(
+    1, static_cast<std::size_t>(std::ceil(path_bound / maximum_corner_step)));
+
+  OrientedBox previous = current;
+  for (std::size_t step = 1; step <= steps; ++step) {
+    const double fraction = static_cast<double>(step) / static_cast<double>(steps);
+    const OrientedBox sample{
+      {current.center.x + dx * fraction, current.center.y + dy * fraction},
+      current.yaw + yaw_delta * fraction, current.length, current.width};
+    if (!isMotionAllowed(previous, sample, obstacles, margin)) {
+      return false;
+    }
+    previous = sample;
+  }
+  return true;
+}
 }  // namespace lab_cobot_gazebo::planar_safety
