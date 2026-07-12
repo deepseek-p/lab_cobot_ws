@@ -411,18 +411,6 @@ private:
       return;
     }
 
-
-    const auto candidate_pose = object_link->WorldPose();
-    const auto candidate_offset = lab_cobot_gazebo::ObjectOffsetInGraspFrame(
-      candidate_pose.Pos(), grasp_frame.position, grasp_frame.rotation);
-    const auto canonical_pose = lab_cobot_gazebo::CanonicalAttachedObjectPose(
-      grasp_frame.position,
-      grasp_frame.rotation,
-      candidate_offset,
-      candidate_pose.Rot());
-    object_link->SetWorldPose(canonical_pose);
-    object_link->SetLinearVel(ignition::math::Vector3d::Zero);
-    object_link->SetAngularVel(ignition::math::Vector3d::Zero);
     fixed_joint_ = world_->Physics()->CreateJoint("fixed", model_);
     fixed_joint_->Load(attach_link, object_link, ignition::math::Pose3d());
     fixed_joint_->Init();
