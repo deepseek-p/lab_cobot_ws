@@ -132,4 +132,52 @@ TEST(GraspEnvelope, NearestOffsetKeepsLowerIndexOnTie)
   EXPECT_EQ(NearestOffsetIndexInsideEnvelope(offsets, UrdfLimits()), 0);
 }
 
+
+TEST(GraspEnvelope, CanonicalAttachIgnoresCandidateOffsetAndOrientation)
+{
+  const Vector3d frame_pos(1.2, -0.4, 0.8);
+  const Quaterniond frame_rot(0.1, -0.2, 0.7);
+  const auto first = lab_cobot_gazebo::CanonicalAttachedObjectPose(
+    frame_pos, frame_rot, {0.04, -0.03, 0.02}, Quaterniond(0.3, 0.1, -1.0));
+  const auto second = lab_cobot_gazebo::CanonicalAttachedObjectPose(
+    frame_pos, frame_rot, {-0.05, 0.02, -0.04}, Quaterniond(-0.2, 0.4, 2.0));
+  EXPECT_EQ(first.Pos(), second.Pos());
+  EXPECT_EQ(first.Rot(), second.Rot());
+  EXPECT_NEAR(first.Pos().X(), frame_pos.X(), 1e-12);
+  EXPECT_NEAR(first.Pos().Y(), frame_pos.Y(), 1e-12);
+  EXPECT_NEAR(first.Pos().Z(), frame_pos.Z(), 1e-12);
+}
+
+TEST(GraspEnvelope, CanonicalAttachPreservesFiniteYawTransform)
+{
+  const Quaterniond yaw_rot(0.0, 0.0, M_PI / 2.0);
+  const auto pose = lab_cobot_gazebo::CanonicalAttachedObjectPose(
+    {2.0, 1.0, 0.75}, yaw_rot, {0.02, 0.03, -0.04}, Quaterniond::Identity);
+  EXPECT_TRUE(std::isfinite(pose.Pos().X()));
+  EXPECT_TRUE(std::isfinite(pose.Pos().Y()));
+  EXPECT_TRUE(std::isfinite(pose.Pos().Z()));
+  EXPECT_TRUE(std::isfinite(pose.Rot().Yaw()));
+  EXPECT_NEAR(pose.Rot().Yaw(), M_PI / 2.0, 1e-12);
+}
+
+TEST(GraspEnvelope, CanonicalAttachMatchesReleaseDropHeightContract)
+{
+  const Quaterniond tool_down(M_PI, 0.0, 0.0);
+  const Vector3d finger_midpoint(0.0, 0.0, 0.0795);
+  const Vector3d tcp(0.0, 0.0, 0.105);
+  const auto frame = GraspFramePosition(
+    finger_midpoint, finger_midpoint, tool_down, {-0.037, 0.0, 0.030});
+  const auto pose = lab_cobot_gazebo::CanonicalAttachedObjectPose(
+    frame, tool_down, Vector3d::Zero, Quaterniond::Identity);
+  const double center_below_tcp_world = tcp.Z() - pose.Pos().Z();
+  EXPECT_NEAR(center_below_tcp_world, 0.0555, 1e-12);
+  const double runtime_base_world_z = 0.117;
+  const double release_tcp_base_z = 0.750;
+  const double sample_half_height = 0.035;
+  const double table_top = 0.750;
+  const double drop_height = runtime_base_world_z + release_tcp_base_z -
+    center_below_tcp_world - sample_half_height - table_top;
+  EXPECT_GT(drop_height, 0.0);
+  EXPECT_LE(drop_height, 0.080);
+}
 }  // namespace

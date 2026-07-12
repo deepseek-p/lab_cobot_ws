@@ -5,6 +5,7 @@
 #define LAB_COBOT_GAZEBO__GRASP_ENVELOPE_HPP_
 
 #include <cmath>
+#include <ignition/math/Pose3.hh>
 #include <vector>
 
 #include <ignition/math/Quaternion.hh>
@@ -42,7 +43,19 @@ inline ignition::math::Vector3d ObjectOffsetInGraspFrame(
   return grasp_rotation.Inverse().RotateVector(object_pos - grasp_frame_pos);
 }
 
-// 盒式封套判定。
+
+// 触觉接触只决定“是否允许抓取”，不应把接触求解造成的随机候选偏置
+// 固化到搬运约束。附着前把物块中心和姿态归一到唯一抓取系位姿。
+inline ignition::math::Pose3d CanonicalAttachedObjectPose(
+  const ignition::math::Vector3d & grasp_frame_pos,
+  const ignition::math::Quaterniond & grasp_rotation,
+  const ignition::math::Vector3d & candidate_offset,
+  const ignition::math::Quaterniond & candidate_rotation)
+{
+  (void)candidate_offset;
+  (void)candidate_rotation;
+  return ignition::math::Pose3d(grasp_frame_pos, grasp_rotation);
+}
 inline bool OffsetInsideGraspEnvelope(
   const ignition::math::Vector3d & offset,
   const GraspEnvelopeLimits & limits)
