@@ -33,6 +33,14 @@ UR_JOINTS = [
 DOWN_QUAT = [1.0, 0.0, 0.0, 0.0]
 GRIPPER_TCP_LINK = "gripper_tcp"
 HOME_CONFIG = [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+OBSERVE_CONFIG = [
+    -0.116421,
+    -0.807952,
+    0.425992,
+    -1.337190,
+    4.581185,
+    -1.844921,
+]
 DEFAULT_APPROACH_HEIGHT = 0.04
 DEFAULT_APPROACH_TOLERANCE_POSITION = 0.005
 DEFAULT_APPROACH_TOLERANCE_ORIENTATION = 0.2
@@ -42,7 +50,7 @@ TACTILE_GRASP_TOLERANCE_ORIENTATION = DEFAULT_GRASP_TOLERANCE_ORIENTATION
 DEFAULT_MOVE_TIMEOUT_SEC = 45.0
 MOVE_RESULT_GRACE_SEC = 2.0
 PICK_TCP_Z_CLEARANCE = 0.06
-TACTILE_PICK_TCP_Z_CLEARANCE = 0.045
+TACTILE_PICK_TCP_Z_CLEARANCE = 0.0125
 TACTILE_PICK_TCP_VISUAL_Y_LIMIT = 0.018
 TACTILE_PICK_LATERAL_RETRY_STEP = 0.006
 TACTILE_PICK_RETRY_Y_LIMIT = 0.036
@@ -52,6 +60,8 @@ TACTILE_APPROACH_HEIGHT = 0.130
 # 注入巨大速度(实测弹飞 181 m/s);悬空释放从机制上避免该约束冲突。
 PLACE_RELEASE_CLEARANCE = 0.02
 TACTILE_PLACE_RELEASE_CLEARANCE = 0.025
+# 2026-07-12 DG-2 双次实测持有偏移约 -15.5mm,相对旧标定 -65mm 抬高约 50mm。
+TACTILE_PLACE_TCP_Z_COMPENSATION = 0.05
 TACTILE_PLACE_DROP_SETTLE_SEC = 0.3
 GRIPPER_CLOSE_SETTLE_SEC = 0.8
 ARM_MAX_VELOCITY_SCALING = 0.75
@@ -373,9 +383,15 @@ class PickPlace(Node):
         # 物块自由落到台面,避免带焊下压引发固定关节 vs 接触约束冲突。
         target = list(pos)
         release_clearance = PLACE_RELEASE_CLEARANCE
+        tcp_z_compensation = 0.0
         if self.use_tactile_grasp:
             release_clearance = TACTILE_PLACE_RELEASE_CLEARANCE
-        release = [target[0], target[1], target[2] + release_clearance]
+            tcp_z_compensation = TACTILE_PLACE_TCP_Z_COMPENSATION
+        release = [
+            target[0],
+            target[1],
+            target[2] + release_clearance - tcp_z_compensation,
+        ]
         above = [target[0], target[1], target[2] + self.approach_height]
         self.get_logger().info(
             "Place start target=%s release=%s approach=%s"
@@ -417,6 +433,16 @@ class PickPlace(Node):
     def go_home(self) -> bool:
         for attempt in range(GO_HOME_MAX_ATTEMPTS):
             self.moveit2.move_to_configuration(HOME_CONFIG)
+            if self.moveit2.wait_until_executed(timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC):
+                return True
+            if attempt + 1 < GO_HOME_MAX_ATTEMPTS:
+                time.sleep(GO_HOME_RETRY_DELAY_SEC)
+        return False
+
+    def move_to_observe(self) -> bool:
+        """Move the arm to the fixed wrist-camera observation configuration."""
+        for attempt in range(GO_HOME_MAX_ATTEMPTS):
+            self.moveit2.move_to_configuration(OBSERVE_CONFIG)
             if self.moveit2.wait_until_executed(timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC):
                 return True
             if attempt + 1 < GO_HOME_MAX_ATTEMPTS:

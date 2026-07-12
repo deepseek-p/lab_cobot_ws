@@ -9,6 +9,7 @@ from lab_cobot_manipulation import gripper_driver
 from lab_cobot_manipulation.gripper_driver import (
     CLOSED_ON_SAMPLE_POSITIONS,
     ContactGripperDriver,
+    DEFAULT_CONTACT_TIMEOUT_SEC,
     SimAttachGripperDriver,
     contact_event_matches,
     contact_object_name,
@@ -285,6 +286,14 @@ def test_make_gripper_driver_defaults_to_contact_backend():
     driver = make_gripper_driver(fake_node, command_settle_sec=0.0)
 
     assert isinstance(driver, ContactGripperDriver)
+
+
+def test_make_contact_gripper_driver_uses_contact_timeout_default():
+    fake_node = FakeNode()
+
+    driver = make_gripper_driver(fake_node, command_settle_sec=0.0)
+
+    assert driver._contact_timeout_sec == DEFAULT_CONTACT_TIMEOUT_SEC
 
 
 def test_contact_status_helpers_parse_object_names():
@@ -570,7 +579,7 @@ def test_tactile_step_close_ignores_contact_gate_until_limit():
 
     assert not driver._step_close_until_contact()
     assert fake_node.float_arrays[0] == [0.006, 0.006]
-    assert fake_node.float_arrays[-1] == [0.0125, 0.0125]
+    assert fake_node.float_arrays[-1] == [0.0185, 0.0185]
     assert any("仍未双指接触" in message for _level, message in fake_node.logs)
 
 
@@ -641,7 +650,7 @@ def test_tactile_acquire_fails_at_limit_without_dual_contact():
 
     assert not driver.acquire_object()
     assert fake_node.float_arrays[0] == [0.006, 0.006]
-    assert fake_node.float_arrays[-1] == [0.0125, 0.0125]
+    assert fake_node.float_arrays[-1] == [0.0185, 0.0185]
 
 
 def test_tactile_step_close_returns_false_after_full_sweep_without_dual_contact():
@@ -654,7 +663,7 @@ def test_tactile_step_close_returns_false_after_full_sweep_without_dual_contact(
 
     assert not driver._step_close_until_contact()
     assert fake_node.float_arrays[0] == [0.006, 0.006]
-    assert fake_node.float_arrays[-1] == [0.0125, 0.0125]
+    assert fake_node.float_arrays[-1] == [0.0185, 0.0185]
     assert any("仍未双指接触" in message for _level, message in fake_node.logs)
 
 

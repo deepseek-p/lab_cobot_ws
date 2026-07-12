@@ -156,6 +156,7 @@ class TestHonestE2E(unittest.TestCase):
             self._assert_attach_bridge_not_running(node)
             self._assert_wrist_detector_not_running(node)
             self._assert_refine_detect_disabled(node)
+            self._assert_wrist_detect_disabled(node)
             started = time.monotonic()
             last_publish = 0.0
             while time.monotonic() - started < TASK_TIMEOUT_SEC:
@@ -234,6 +235,29 @@ class TestHonestE2E(unittest.TestCase):
         )
         request = GetParameters.Request()
         request.names = ["use_refine_detect"]
+        future = None
+        for _attempt in range(3):
+            future = client.call_async(request)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=20.0)
+            if future.done():
+                break
+        self.assertTrue(
+            future is not None and future.done(),
+            "timed out reading mission_node parameters",
+        )
+        values = future.result().values
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0].type, ParameterType.PARAMETER_BOOL)
+        self.assertFalse(values[0].bool_value)
+
+    def _assert_wrist_detect_disabled(self, node):
+        client = node.create_client(GetParameters, "/mission_node/get_parameters")
+        self.assertTrue(
+            client.wait_for_service(timeout_sec=80.0),
+            "mission_node parameter service did not appear",
+        )
+        request = GetParameters.Request()
+        request.names = ["use_wrist_detect"]
         future = None
         for _attempt in range(3):
             future = client.call_async(request)

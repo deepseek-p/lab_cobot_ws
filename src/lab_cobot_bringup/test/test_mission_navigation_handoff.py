@@ -26,6 +26,20 @@ class _SequenceClock:
         return _FakeRosNow(next(self._stamps))
 
 
+class _Logger:
+    def __init__(self):
+        self.messages = []
+
+    def info(self, message):
+        self.messages.append(str(message))
+
+    def warn(self, message):
+        self.messages.append(str(message))
+
+    def error(self, message):
+        self.messages.append(str(message))
+
+
 def _policy(name):
     assert hasattr(mission_node, name), f"{name} policy is missing"
     return getattr(mission_node, name)
@@ -33,6 +47,19 @@ def _policy(name):
 
 def test_mission_local_docking_commands_reach_mecanum_driver():
     assert mission_node.RETREAT_TOPIC == mecanum_wheel_visualizer.CMD_VEL_TOPIC
+
+
+def test_wrist_detection_defaults_to_top_marker_id_one():
+    assert mission_node.DEFAULT_WRIST_MARKER_ID == 1
+    assert mission_node.wrist_detection_topic(1) == (
+        "/perception/wrist/aruco_1/pose"
+    )
+
+
+def test_wrist_marker_id_is_independent_from_bench_object_id():
+    assert mission_node.wrist_detection_topic(1) != (
+        mission_node.DETECTION_TOPIC_TEMPLATE.format(object_id=0)
+    )
 
 
 def test_base_pose_from_odom_msg_extracts_planar_pose():
@@ -125,6 +152,100 @@ def test_refine_callback_rejects_cache_older_than_callback_start(monkeypatch):
     refine_cb = mission_node.MissionNode._make_refine_cb(node)
 
     assert refine_cb() is None
+
+
+def test_wrist_detect_moves_then_accepts_new_fresh_base_link_sample(monkeypatch):
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._latest_wrist_detection_pose = None
+    node.pp = type("PickPlace", (), {"move_to_observe": lambda self: True})()
+    node.get_logger = lambda: _Logger()
+    clock = _SequenceClock([
+        Time(sec=10, nanosec=0),
+        Time(sec=10, nanosec=200_000_000),
+    ])
+    node.get_clock = lambda: clock
+    node._duration_elapsed = lambda _start, _duration: False
+
+    def publish_new_sample(_duration):
+        pose = PoseStamped()
+        pose.header.frame_id = "base_link"
+        pose.header.stamp = Time(sec=10, nanosec=100_000_000)
+        pose.pose.position.x = 0.81
+        pose.pose.position.y = 0.02
+        pose.pose.position.z = 0.79
+        node._latest_wrist_detection_pose = pose
+
+    monkeypatch.setattr(mission_node.time, "sleep", publish_new_sample)
+
+    assert mission_node.MissionNode._wrist_detect(node) == pytest.approx([
+        0.81,
+        0.02,
+        0.79,
+    ])
+
+
+def test_wrist_detect_returns_none_when_observe_move_fails():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node.pp = type("PickPlace", (), {"move_to_observe": lambda self: False})()
+    logger = _Logger()
+    node.get_logger = lambda: logger
+
+    assert mission_node.MissionNode._wrist_detect(node) is None
+    assert any("observe_move_failed" in message for message in logger.messages)
+
+
+def test_wrist_detect_rejects_sample_older_than_move_completion(monkeypatch):
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    pose = PoseStamped()
+    pose.header.frame_id = "base_link"
+    pose.header.stamp = Time(sec=9, nanosec=900_000_000)
+    node._latest_wrist_detection_pose = pose
+    node.pp = type("PickPlace", (), {"move_to_observe": lambda self: True})()
+    logger = _Logger()
+    node.get_logger = lambda: logger
+    node.get_clock = lambda: _SequenceClock([Time(sec=10, nanosec=0)])
+    elapsed = iter([False, True])
+    node._duration_elapsed = lambda _start, _duration: next(elapsed)
+    monkeypatch.setattr(mission_node.time, "sleep", lambda _duration: None)
+
+    assert mission_node.MissionNode._wrist_detect(node) is None
+    assert any("timeout" in message for message in logger.messages)
+
+
+def test_detect_state_uses_wrist_hit_and_pick_consumes_unified_cache():
+    picked = []
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = True
+    node._use_refine_detect = False
+    node._latest_task_detection = None
+    node._wrist_detect = lambda: [0.81, 0.02, 0.79]
+    node._detect = lambda: (_ for _ in ()).throw(
+        AssertionError("bench fallback must not run on wrist hit")
+    )
+    node.get_logger = lambda: _Logger()
+    node.pp = type(
+        "PickPlace",
+        (),
+        {"pick": lambda self, pose, refine_cb=None: picked.append(list(pose)) or True},
+    )()
+    node._finish_station_step = lambda _state, ok: ok
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.PICK)
+    assert picked == [[0.81, 0.02, 0.79]]
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_detect_state_preserves_bench_path_when_disabled_or_wrist_misses(enabled):
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = enabled
+    node._latest_task_detection = None
+    node._wrist_detect = lambda: None
+    node._detect = lambda: [0.82, 0.0, 0.79]
+    node.get_logger = lambda: _Logger()
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert node._latest_task_detection == [0.82, 0.0, 0.79]
 
 
 @pytest.mark.parametrize("enabled", [False, True])

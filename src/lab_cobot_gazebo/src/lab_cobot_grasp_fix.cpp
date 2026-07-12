@@ -22,6 +22,7 @@
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "lab_cobot_gazebo/attached_object_collision.hpp"
 #include "lab_cobot_gazebo/finger_collision_config.hpp"
 #include "lab_cobot_gazebo/finger_contact_gate.hpp"
 #include "lab_cobot_gazebo/grasp_envelope.hpp"
@@ -411,6 +412,12 @@ private:
       return;
     }
 
+    const int collision_count = ApplyObjectCollisionResponse(
+      object_link,
+      lab_cobot_gazebo::AttachedObjectCollisionPhase::kFixedJointHeld);
+    gzmsg << "lab_cobot_grasp_fix disabled collision response for "
+          << object_name << " (" << collision_count << " collision(s))"
+          << std::endl;
     fixed_joint_ = world_->Physics()->CreateJoint("fixed", model_);
     fixed_joint_->Load(attach_link, object_link, ignition::math::Pose3d());
     fixed_joint_->Init();
@@ -437,6 +444,12 @@ private:
     fixed_joint_->Detach();
     fixed_joint_.reset();
     if (object_link) {
+      const int collision_count = ApplyObjectCollisionResponse(
+        object_link,
+        lab_cobot_gazebo::AttachedObjectCollisionPhase::kReleased);
+      gzmsg << "lab_cobot_grasp_fix restored collision response for "
+            << object_name << " (" << collision_count << " collision(s))"
+            << std::endl;
       object_link->SetLinearVel(ignition::math::Vector3d::Zero);
       object_link->SetAngularVel(ignition::math::Vector3d::Zero);
     }
@@ -450,6 +463,29 @@ private:
           << (reason.empty() ? "" : " (" + reason + ")") << std::endl;
     attached_object_name_.clear();
     pending_object_name_.clear();
+  }
+
+  int ApplyObjectCollisionResponse(
+    const physics::LinkPtr & object_link,
+    lab_cobot_gazebo::AttachedObjectCollisionPhase phase) const
+  {
+    if (!object_link) {
+      return 0;
+    }
+    const auto settings = lab_cobot_gazebo::ObjectCollisionResponseForPhase(phase);
+    int configured = 0;
+    for (const auto & collision : object_link->GetCollisions()) {
+      if (!collision) {
+        continue;
+      }
+      auto surface = collision->GetSurface();
+      if (surface) {
+        surface->collideBitmask = settings.surface_collide_bitmask;
+      }
+      collision->SetCollideBits(settings.collide_bits);
+      configured += 1;
+    }
+    return configured;
   }
 
   bool ConsumeReleaseRequested()

@@ -31,7 +31,7 @@ CONTACT_BACKEND = "contact"
 SIM_ATTACH_BACKEND = "sim_attach"
 TACTILE_START_POSITION = 0.006
 TACTILE_STEP = 0.0005
-TACTILE_MAX_POSITION = 0.0125
+TACTILE_MAX_POSITION = 0.0185
 TACTILE_DWELL_SEC = 0.1
 TACTILE_CONTACT_FRESH_SEC = 0.2
 
@@ -440,6 +440,7 @@ def make_gripper_driver(
     attach_timeout_sec: float = DEFAULT_ATTACH_TIMEOUT_SEC,
     target_object: str = DEFAULT_TARGET_OBJECT,
     use_tactile_grasp: bool = False,
+    contact_timeout_sec: float = DEFAULT_CONTACT_TIMEOUT_SEC,
 ) -> GripperDriver:
     normalized = str(backend).strip().lower()
     if normalized == SIM_ATTACH_BACKEND:
@@ -454,7 +455,7 @@ def make_gripper_driver(
         return ContactGripperDriver(
             node,
             command_settle_sec=command_settle_sec,
-            contact_timeout_sec=attach_timeout_sec,
+            contact_timeout_sec=contact_timeout_sec,
             target_object=target_object,
             use_tactile_grasp=use_tactile_grasp,
         )

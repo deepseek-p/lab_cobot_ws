@@ -138,6 +138,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false
 
 | 参数 | 默认值 | 作用 |
 |---|---|---|
+| `use_wrist_detect` | `false` | DETECT 阶段先移动到固定拍照位，使用腕相机顶面 ID=1 marker 定位；移动或检测失败时自动降级到 bench 相机。 |
 | `use_refine_detect` | `false` | 同时启用腕部精修相机、`/perception/wrist` ArUco 检测实例和 PICK 悬停后的位姿精修；失败时自动沿用粗位姿。 |
 
 只启动全栈但不启动任务节点：

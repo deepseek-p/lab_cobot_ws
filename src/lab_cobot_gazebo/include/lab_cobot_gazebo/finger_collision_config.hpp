@@ -58,7 +58,7 @@ inline PrimaryFingerCollisionSettings PrimaryFingerCollisionConfig()
 
 inline TactileProbeSurfaceSettings TactileProbeSurfaceConfig()
 {
-  return {true, 0xffffu, 0u, 10u};
+  return {true, 0xffffu, 0xffffu, 10u};
 }
 
 }  // namespace lab_cobot_gazebo

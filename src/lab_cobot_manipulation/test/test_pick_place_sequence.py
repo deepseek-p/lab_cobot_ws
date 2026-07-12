@@ -247,9 +247,9 @@ def test_tactile_pick_keeps_visual_lateral_target_inside_safe_band():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.955],
-        [0.8, 0.0, 0.825],
-        [0.8, 0.0, 0.955],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.9225],
     ])
 
 
@@ -261,9 +261,9 @@ def test_tactile_pick_preserves_negative_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, -0.006, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.006, 0.955],
-        [0.8, -0.006, 0.825],
-        [0.8, -0.006, 0.955],
+        [0.8, -0.006, 0.9225],
+        [0.8, -0.006, 0.7925],
+        [0.8, -0.006, 0.9225],
     ])
 
 
@@ -275,9 +275,9 @@ def test_tactile_pick_preserves_positive_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, 0.012, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.012, 0.955],
-        [0.8, 0.012, 0.825],
-        [0.8, 0.012, 0.955],
+        [0.8, 0.012, 0.9225],
+        [0.8, 0.012, 0.7925],
+        [0.8, 0.012, 0.9225],
     ])
 
 
@@ -289,18 +289,17 @@ def test_tactile_pick_clamps_large_visual_lateral_residuals_on_first_attempt():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.955],
-        [0.8, 0.018, 0.825],
-        [0.8, 0.018, 0.955],
+        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.7925],
+        [0.8, 0.018, 0.9225],
     ])
 
 
-def test_tactile_pick_keeps_vertical_clearance_for_visual_z_underestimate():
-    """Tactile pick must tolerate conservative visual z estimates."""
-    # 完整任务实测 ArUco z 估计可比 Gazebo 真值低约 2.5cm;触觉路径
-    # 需要保留额外 TCP 余量,避免 attach 后 lift 与残余接触约束打架。
-    assert pick_place_node.TACTILE_PICK_TCP_Z_CLEARANCE >= 0.045
-    assert pick_place_node.TACTILE_PICK_TCP_Z_CLEARANCE <= 0.060
+def test_tactile_pick_targets_deep_grasp_clearance():
+    """Tactile pick should place the sample near the finger middle."""
+    # DG v1.1 静态预算:0.0125m 理论重叠 34.5mm,
+    # 同时在最坏 -20mm 散布下仍保留约 11.5mm 指尖台面间隙。
+    assert pick_place_node.TACTILE_PICK_TCP_Z_CLEARANCE == pytest.approx(0.0125)
 
 
 def test_tactile_pick_retries_laterally_after_left_only_contact_failure():
@@ -323,12 +322,12 @@ def test_tactile_pick_retries_laterally_after_left_only_contact_failure():
         "acquire",
     ]
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.955],
-        [0.8, 0.0, 0.825],
-        [0.8, 0.0, 0.955],
-        [0.8, -0.006, 0.955],
-        [0.8, -0.006, 0.825],
-        [0.8, -0.006, 0.955],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.9225],
+        [0.8, -0.006, 0.9225],
+        [0.8, -0.006, 0.7925],
+        [0.8, -0.006, 0.9225],
     ])
 
 
@@ -342,12 +341,12 @@ def test_tactile_pick_retries_laterally_after_right_only_contact_failure():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.955],
-        [0.8, 0.0, 0.825],
-        [0.8, 0.0, 0.955],
-        [0.8, 0.006, 0.955],
-        [0.8, 0.006, 0.825],
-        [0.8, 0.006, 0.955],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.006, 0.9225],
+        [0.8, 0.006, 0.7925],
+        [0.8, 0.006, 0.9225],
     ])
 
 
@@ -361,15 +360,15 @@ def test_tactile_pick_continues_retries_away_from_left_only_contact():
 
     assert pick_place.pick([0.8, -0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.018, 0.955],
-        [0.8, -0.018, 0.825],
-        [0.8, -0.018, 0.955],
-        [0.8, -0.024, 0.955],
-        [0.8, -0.024, 0.825],
-        [0.8, -0.024, 0.955],
-        [0.8, -0.030, 0.955],
-        [0.8, -0.030, 0.825],
-        [0.8, -0.030, 0.955],
+        [0.8, -0.018, 0.9225],
+        [0.8, -0.018, 0.7925],
+        [0.8, -0.018, 0.9225],
+        [0.8, -0.024, 0.9225],
+        [0.8, -0.024, 0.7925],
+        [0.8, -0.024, 0.9225],
+        [0.8, -0.030, 0.9225],
+        [0.8, -0.030, 0.7925],
+        [0.8, -0.030, 0.9225],
     ])
 
 
@@ -383,12 +382,12 @@ def test_tactile_pick_retries_away_from_right_only_contact():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.955],
-        [0.8, 0.018, 0.825],
-        [0.8, 0.018, 0.955],
-        [0.8, 0.024, 0.955],
-        [0.8, 0.024, 0.825],
-        [0.8, 0.024, 0.955],
+        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.7925],
+        [0.8, 0.018, 0.9225],
+        [0.8, 0.024, 0.9225],
+        [0.8, 0.024, 0.7925],
+        [0.8, 0.024, 0.9225],
     ])
 
 
@@ -473,7 +472,7 @@ def test_place_releases_in_midair_above_target_to_avoid_constraint_fight():
     assert 0.02 <= pick_place_node.PLACE_RELEASE_CLEARANCE <= 0.04
 
 
-def test_tactile_place_uses_higher_midair_release_clearance():
+def test_tactile_place_compensates_tcp_height_for_deep_grasp():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
@@ -481,9 +480,12 @@ def test_tactile_place_uses_higher_midair_release_clearance():
 
     assert pick_place.place([0.8, 0.0, 0.78])
     assert pick_place.move_positions[1][2] == pytest.approx(
-        0.78 + pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE
+        0.78
+        + pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE
+        - pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION
     )
     assert pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE == pytest.approx(0.025)
+    assert pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION == pytest.approx(0.05)
 
 
 def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
@@ -782,3 +784,49 @@ def test_go_home_retries_transient_invalid_moveit_execution():
     assert pick_place.go_home()
     assert len(configs) == 2
     assert all(config == pick_place_node.HOME_CONFIG for config in configs)
+
+
+def test_move_to_observe_uses_probed_fixed_joint_configuration():
+    configs = []
+
+    class FakeMoveIt:
+        def move_to_configuration(self, config):
+            configs.append(list(config))
+
+        def wait_until_executed(self, timeout_sec):
+            assert timeout_sec == pick_place_node.DEFAULT_MOVE_TIMEOUT_SEC
+            return True
+
+    pick_place = pick_place_node.PickPlace.__new__(pick_place_node.PickPlace)
+    pick_place.moveit2 = FakeMoveIt()
+
+    assert pick_place.move_to_observe()
+    assert configs == [pick_place_node.OBSERVE_CONFIG]
+    assert pick_place_node.OBSERVE_CONFIG == pytest.approx([
+        -0.116421,
+        -0.807952,
+        0.425992,
+        -1.337190,
+        4.581185,
+        -1.844921,
+    ])
+
+
+def test_move_to_observe_retries_transient_execution_failure(monkeypatch):
+    results = iter([False, True])
+    configs = []
+
+    class FakeMoveIt:
+        def move_to_configuration(self, config):
+            configs.append(list(config))
+
+        def wait_until_executed(self, timeout_sec):
+            assert timeout_sec == pick_place_node.DEFAULT_MOVE_TIMEOUT_SEC
+            return next(results)
+
+    monkeypatch.setattr(pick_place_node.time, "sleep", lambda _delay: None)
+    pick_place = pick_place_node.PickPlace.__new__(pick_place_node.PickPlace)
+    pick_place.moveit2 = FakeMoveIt()
+
+    assert pick_place.move_to_observe()
+    assert configs == [pick_place_node.OBSERVE_CONFIG] * 2
