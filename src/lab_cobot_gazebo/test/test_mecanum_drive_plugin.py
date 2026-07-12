@@ -45,3 +45,10 @@ def test_planar_plugin_updates_inside_gazebo_and_disables_model_gravity():
     assert "ConnectWorldUpdateBegin" in source
     assert "model_->SetGravityMode(false)" in source
     assert "wheelSpeedsToTwist" in source
+
+
+def test_planar_plugin_does_not_override_model_velocity():
+    """Whole-model velocity writes must not suppress joint visual rotation."""
+    source = (GAZEBO / "src" / "lab_cobot_planar_drive.cpp").read_text()
+    assert "model_->SetLinearVel" not in source
+    assert "model_->SetAngularVel" not in source

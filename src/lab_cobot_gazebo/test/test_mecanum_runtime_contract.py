@@ -119,9 +119,10 @@ def test_drive_pauses_without_sim_time_and_limits_service_backlog():
     assert "rotateBaseToWorld" in source
 
 
-def test_bridge_converts_world_twist_and_documents_safe_fallback():
+def test_bridge_differentiates_actual_pose_and_documents_safe_fallback():
     source = text(GAZEBO / "src/gazebo_odom_bridge.cpp")
-    assert "rotateWorldToBase" in source
+    assert "differentiator_.update" in source
+    assert "sample_time.seconds()" in source
     assert "base_footprint and base_link have an identity fixed transform" in source
 
 

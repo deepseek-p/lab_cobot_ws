@@ -136,10 +136,7 @@ private:
 
   void holdPlanarPose()
   {
-    const auto world_velocity = lab_cobot_gazebo::rotateBaseToWorld(vx_, vy_, yaw_);
     model_->SetWorldPose(ignition::math::Pose3d(x_, y_, z_, 0.0, 0.0, yaw_));
-    model_->SetLinearVel(ignition::math::Vector3d(world_velocity.x, world_velocity.y, 0.0));
-    model_->SetAngularVel(ignition::math::Vector3d(0.0, 0.0, wz_));
   }
 
   physics::ModelPtr model_;

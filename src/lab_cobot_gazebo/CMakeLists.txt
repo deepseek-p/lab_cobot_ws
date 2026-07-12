@@ -90,6 +90,8 @@ if(BUILD_TESTING)
   target_include_directories(test_runtime_motion PRIVATE include)
   # 本机 ~/.local 的 anyio pytest 插件与系统 pytest 不兼容(装 DL 依赖后
   # 版本漂移引爆),所有 pytest 注册必须带 -p no:anyio 防护(bringup 范本)
+  ament_add_gtest(test_pose_differentiator test/test_pose_differentiator.cpp)
+  target_include_directories(test_pose_differentiator PRIVATE include)
   ament_add_pytest_test(world_launch test/test_world_launch.py
     ENV "PYTEST_ADDOPTS=-p no:anyio")
   ament_add_pytest_test(aruco_sample_model test/test_aruco_sample_model.py

@@ -7,7 +7,7 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "gazebo_msgs/msg/link_states.hpp"
-#include "lab_cobot_gazebo/runtime_motion.hpp"
+#include "lab_cobot_gazebo/pose_differentiator.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
 
 class GazeboOdomBridge : public rclcpp::Node
@@ -25,6 +25,8 @@ public:
       "fallback_link_name", "lab_cobot::base_link");
     odom_frame_ = this->declare_parameter<std::string>("odom_frame", "odom");
     base_frame_ = this->declare_parameter<std::string>("base_frame", "base_footprint");
+    differentiator_ = lab_cobot_gazebo::PoseDifferentiator(
+      this->declare_parameter<double>("max_odom_dt", 0.5));
 
     sub_link_states_ = this->create_subscription<gazebo_msgs::msg::LinkStates>(
       link_states_topic_,
@@ -101,21 +103,20 @@ private:
 
     // Odometry message
     nav_msgs::msg::Odometry odom;
-    odom.header.stamp = this->now();
+    const auto sample_time = this->now();
+    odom.header.stamp = sample_time;
     odom.header.frame_id = odom_frame_;
     odom.child_frame_id = base_frame_;
 
     odom.pose.pose.position = msg->pose[index].position;
     odom.pose.pose.orientation = msg->pose[index].orientation;
 
-    const auto base_velocity = lab_cobot_gazebo::rotateWorldToBase(
-      msg->twist[index].linear.x,
-      msg->twist[index].linear.y,
-      yawFromQuaternion(msg->pose[index].orientation));
-    odom.twist.twist.linear.x = base_velocity.x;
-    odom.twist.twist.linear.y = base_velocity.y;
-    odom.twist.twist.linear.z = msg->twist[index].linear.z;
-    odom.twist.twist.angular = msg->twist[index].angular;
+    const auto velocity = differentiator_.update(
+      msg->pose[index].position.x, msg->pose[index].position.y,
+      yawFromQuaternion(msg->pose[index].orientation), sample_time.seconds());
+    odom.twist.twist.linear.x = velocity.vx;
+    odom.twist.twist.linear.y = velocity.vy;
+    odom.twist.twist.angular.z = velocity.wz;
 
     pub_odom_->publish(odom);
 
@@ -141,6 +142,7 @@ private:
   rclcpp::Subscription<gazebo_msgs::msg::LinkStates>::SharedPtr sub_link_states_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  lab_cobot_gazebo::PoseDifferentiator differentiator_;
 };
 
 int main(int argc, char ** argv)
