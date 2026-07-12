@@ -179,7 +179,21 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
 def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     executables = [node.node_executable for node in _nodes(launch_description)]
+    includes = [
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+    ]
+    worlds = [
+        include
+        for include in includes
+        if _text(getattr(
+            include.launch_description_source,
+            "_LaunchDescriptionSource__location",
+        )).endswith("world.launch.py")
+    ]
 
+    assert len(worlds) == 1
     assert "mecanum_wheel_visualizer" not in executables
     assert "wheel_joint_state_publisher" not in executables
     assert list(executables).count("rover_twist_relay") == 1
@@ -187,7 +201,19 @@ def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     assert "gazebo_odom_bridge" not in executables
 
     relay = _node("lab_cobot_bringup", "rover_twist_relay", launch_description)
-    assert _node_parameters(relay)["use_sim_time"] is True
+    assert _node_parameters(relay) == {
+        "use_sim_time": True,
+        "rover": "mecanum3",
+        "mecanum3.wheel_radius": 0.07,
+        "mecanum3.wheel_separation_width": 0.24,
+        "mecanum3.wheel_separation_length": 0.175,
+        "max_vx": 0.5,
+        "max_vy": 0.3,
+        "max_wz": 1.2,
+        "max_accel_xy": 0.5,
+        "max_accel_wz": 1.5,
+        "command_timeout": 0.25,
+    }
 
 
 def test_bringup_publishes_passive_mecanum_joint_states(monkeypatch):

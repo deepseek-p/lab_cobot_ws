@@ -125,7 +125,19 @@ def generate_launch_description():
         package="lab_cobot_bringup",
         executable="rover_twist_relay",
         output="screen",
-        parameters=[{"use_sim_time": True}],
+        parameters=[{
+            "use_sim_time": True,
+            "rover": "mecanum3",
+            "mecanum3.wheel_radius": 0.07,
+            "mecanum3.wheel_separation_width": 0.24,
+            "mecanum3.wheel_separation_length": 0.175,
+            "max_vx": 0.5,
+            "max_vy": 0.3,
+            "max_wz": 1.2,
+            "max_accel_xy": 0.5,
+            "max_accel_wz": 1.5,
+            "command_timeout": 0.25,
+        }],
     )
     passive_mecanum_joint_states = Node(
         package="lab_cobot_bringup",
