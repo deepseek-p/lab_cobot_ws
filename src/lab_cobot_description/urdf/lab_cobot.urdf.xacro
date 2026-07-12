@@ -177,6 +177,21 @@
     </plugin>
   </gazebo>
 
+  <!-- The chassis is a planar kinematic abstraction. Updating it synchronously
+       in Gazebo prevents gravity from fighting an asynchronous pose service. -->
+  <gazebo>
+    <plugin name="lab_cobot_planar_drive" filename="liblab_cobot_planar_drive.so">
+      <wheel_command_topic>/wheel_velocity_controller/commands</wheel_command_topic>
+      <wheel_radius>0.07</wheel_radius>
+      <wheel_separation_width>0.24</wheel_separation_width>
+      <wheel_separation_length>0.175</wheel_separation_length>
+      <max_vx>0.5</max_vx>
+      <max_vy>0.3</max_vy>
+      <max_wz>1.2</max_wz>
+      <command_timeout>0.3</command_timeout>
+    </plugin>
+  </gazebo>
+
 
   <gazebo>
     <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">

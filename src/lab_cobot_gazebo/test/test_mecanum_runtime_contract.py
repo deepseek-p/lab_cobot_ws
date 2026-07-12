@@ -77,18 +77,15 @@ def test_bridge_is_parameterized_and_publishes_odom_tf():
 def test_world_launch_starts_gazebo_runtime_after_wheels():
     launch = text(GAZEBO / "launch/world.launch.py")
     assert 'executable="rover_twist_relay"' not in launch
-    assert launch.count('executable="mecanum_gazebo_kinematic_drive"') == 1
+    assert 'executable="mecanum_gazebo_kinematic_drive"' not in launch
     assert launch.count('executable="gazebo_odom_bridge"') == 1
-    assert '"model_name": "lab_cobot"' in launch
-    assert '"model_states_topic": "/gazebo/model_states"' in launch
-    assert '"service_name": "/gazebo/set_entity_state"' in launch
     assert '"target_link_name": "lab_cobot::base_footprint"' in launch
     assert '"fallback_link_name": "lab_cobot::base_link"' in launch
     assert '"link_states_topic": "/gazebo/link_states"' in launch
     assert '"use_sim_time": True' in launch
     assert "target_action=wheel_velocity_controller" in launch
     wheel_event = launch.index("delay_wheel_velocity")
-    assert "mecanum_kinematic_drive" in launch[wheel_event:]
+    assert "gazebo_odom_bridge" in launch[wheel_event:]
     assert "/home/lenovo/mecanum_ws" not in launch
 
 

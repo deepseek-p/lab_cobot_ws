@@ -36,6 +36,18 @@ ament_target_dependencies(lab_cobot_grasp_fix
 add_library(lab_cobot_mecanum_drive SHARED
   src/lab_cobot_mecanum_drive.cpp
 )
+
+add_library(lab_cobot_planar_drive SHARED
+  src/lab_cobot_planar_drive.cpp
+)
+ament_target_dependencies(lab_cobot_planar_drive
+  gazebo_ros
+  rclcpp
+  std_msgs
+)
+target_link_libraries(lab_cobot_planar_drive
+  ${GAZEBO_LIBRARIES}
+)
 ament_target_dependencies(lab_cobot_mecanum_drive
   gazebo_ros
   nav_msgs
@@ -99,6 +111,7 @@ install(DIRECTORY worlds launch models
 install(TARGETS
   lab_cobot_grasp_fix
   lab_cobot_mecanum_drive
+  lab_cobot_planar_drive
   LIBRARY DESTINATION lib
 )
 
@@ -108,6 +121,10 @@ install(TARGETS
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-ament_export_libraries(lab_cobot_grasp_fix lab_cobot_mecanum_drive)
+ament_export_libraries(
+  lab_cobot_grasp_fix
+  lab_cobot_mecanum_drive
+  lab_cobot_planar_drive
+)
 
 ament_package()

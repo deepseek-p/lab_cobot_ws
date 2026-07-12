@@ -136,17 +136,6 @@ def generate_launch_description():
         executable="spawner",
         arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
     )
-    mecanum_kinematic_drive = Node(
-        package="lab_cobot_gazebo",
-        executable="mecanum_gazebo_kinematic_drive",
-        output="screen",
-        parameters=[{
-            "use_sim_time": True,
-            "model_name": "lab_cobot",
-            "model_states_topic": "/gazebo/model_states",
-            "service_name": "/gazebo/set_entity_state",
-        }],
-    )
     gazebo_odom_bridge = Node(
         package="lab_cobot_gazebo",
         executable="gazebo_odom_bridge",
@@ -195,7 +184,7 @@ def generate_launch_description():
             target_action=wheel_velocity_controller,
             on_exit=lambda event, _context: _continue_on_success(
                 event,
-                [mecanum_kinematic_drive, gazebo_odom_bridge],
+                [gazebo_odom_bridge],
                 "wheel_velocity_controller",
             ),
         )

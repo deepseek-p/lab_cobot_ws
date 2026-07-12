@@ -1,4 +1,4 @@
-"""Contracts preventing the retired traction plugin from returning."""
+"""Contracts for the synchronous planar mecanum Gazebo plugin."""
 
 import subprocess
 from pathlib import Path
@@ -7,7 +7,7 @@ from xml.etree import ElementTree
 
 GAZEBO = Path(__file__).resolve().parents[1]
 DESCRIPTION = GAZEBO.parent / "lab_cobot_description"
-RETIRED_PLUGIN = "liblab_cobot_mecanum_drive.so"
+PLANAR_PLUGIN = "liblab_cobot_planar_drive.so"
 
 
 def _robot_xml():
@@ -21,12 +21,15 @@ def _robot_xml():
     return ElementTree.fromstring(result.stdout)
 
 
-def test_generated_robot_omits_retired_traction_plugin():
-    """The pose runtime is a node; the old in-model drive must stay detached."""
-    plugin_filenames = {
-        plugin.get("filename") for plugin in _robot_xml().iter("plugin")
-    }
-    assert RETIRED_PLUGIN not in plugin_filenames
+def test_generated_robot_uses_synchronous_planar_drive_plugin():
+    plugin = next(
+        node for node in _robot_xml().iter("plugin")
+        if node.get("filename") == PLANAR_PLUGIN
+    )
+    assert plugin.findtext("wheel_command_topic") == "/wheel_velocity_controller/commands"
+    assert plugin.findtext("wheel_radius") == "0.07"
+    assert plugin.findtext("wheel_separation_width") == "0.24"
+    assert plugin.findtext("wheel_separation_length") == "0.175"
 
 
 def test_generated_robot_keeps_ros2_control_for_visual_wheel_motion():
@@ -37,12 +40,8 @@ def test_generated_robot_keeps_ros2_control_for_visual_wheel_motion():
     assert "libgazebo_ros2_control.so" in plugin_filenames
 
 
-def test_description_source_does_not_reference_retired_plugin():
-    """Guard every Xacro, not just the default expansion path."""
-    urdf_dir = DESCRIPTION / "urdf"
-    references = [
-        path
-        for path in urdf_dir.rglob("*.xacro")
-        if RETIRED_PLUGIN in path.read_text(encoding="utf-8")
-    ]
-    assert references == []
+def test_planar_plugin_updates_inside_gazebo_and_disables_model_gravity():
+    source = (GAZEBO / "src" / "lab_cobot_planar_drive.cpp").read_text()
+    assert "ConnectWorldUpdateBegin" in source
+    assert "model_->SetGravityMode(false)" in source
+    assert "wheelSpeedsToTwist" in source
