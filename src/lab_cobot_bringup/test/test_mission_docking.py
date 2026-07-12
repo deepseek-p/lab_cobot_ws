@@ -1,5 +1,6 @@
 """Mission visual docking policy tests."""
 
+import math
 import pytest
 from builtin_interfaces.msg import Time
 
@@ -28,6 +29,27 @@ def test_dock_velocity_strafes_toward_lateral_object_error():
 
     assert not done
     assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y > 0.0
+
+
+def test_pick_visual_dock_hands_off_at_chassis_safety_line():
+    from lab_cobot_bringup import mission_node
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    done, cmd = dock_velocity_for_object(
+        [DOCK_TARGET_X + 0.12, DOCK_TARGET_Y, 0.63],
+        base_pose=(2.0, safe_y, math.pi / 2.0), station="station_a")
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+
+
+def test_pick_visual_dock_at_safety_line_only_corrects_lateral_error():
+    from lab_cobot_bringup import mission_node
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    done, cmd = dock_velocity_for_object(
+        [DOCK_TARGET_X + 0.12, DOCK_TARGET_Y + 0.10, 0.63],
+        base_pose=(2.0, safe_y, math.pi / 2.0), station="station_a")
+    assert not done
+    assert cmd.linear.x <= 0.0
     assert cmd.linear.y > 0.0
 
 

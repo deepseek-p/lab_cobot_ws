@@ -111,6 +111,11 @@ PLACE_DOCK_PUBLISH_PERIOD_SEC = 0.05
 PLACE_DOCK_STOP_SEC = 0.3
 HOME_NAV_HANDOFF_MAX_DISTANCE = 0.25
 HOME_NAV_HANDOFF_MAX_ABS_YAW = 0.40
+WORKTABLE_STATIONS = frozenset(("station_a", "station_b"))
+WORKTABLE_FRONT_Y = 1.20
+CHASSIS_LENGTH = 0.42
+CHASSIS_WIDTH = 0.30
+WORKTABLE_CLEARANCE = 0.35
 
 
 def _clamp(value: float, limit: float) -> float:
@@ -134,7 +139,40 @@ def transform_stamp_is_fresh(
     return -0.25 <= age_sec <= max_age_sec
 
 
-def dock_velocity_for_object(object_pose):
+def _chassis_map_y_half_extent(yaw: float) -> float:
+    return (abs(math.sin(yaw)) * CHASSIS_LENGTH * 0.5
+            + abs(math.cos(yaw)) * CHASSIS_WIDTH * 0.5)
+
+
+def station_safe_base_y(yaw: float, station: str) -> float:
+    if station not in WORKTABLE_STATIONS:
+        raise ValueError(f"{station} is not a worktable station")
+    return WORKTABLE_FRONT_Y - WORKTABLE_CLEARANCE - _chassis_map_y_half_extent(yaw)
+
+
+def worktable_clearance(base_pose, station: str) -> float:
+    if station not in WORKTABLE_STATIONS:
+        return math.inf
+    _x, y, yaw = [float(v) for v in base_pose]
+    return WORKTABLE_FRONT_Y - (y + _chassis_map_y_half_extent(yaw))
+
+
+def _limit_worktable_approach(cmd: Twist, base_pose, station: str) -> Twist:
+    if station not in WORKTABLE_STATIONS or base_pose is None:
+        return cmd
+    yaw = float(base_pose[2])
+    clearance = worktable_clearance(base_pose, station)
+    vx_map = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
+    vy_map = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    if vy_map > 0.0:
+        remaining = max(0.0, clearance - WORKTABLE_CLEARANCE)
+        vy_map = min(vy_map, STATION_DOCK_GAIN_X * remaining)
+    cmd.linear.x = math.cos(yaw) * vx_map + math.sin(yaw) * vy_map
+    cmd.linear.y = -math.sin(yaw) * vx_map + math.cos(yaw) * vy_map
+    return cmd
+
+
+def dock_velocity_for_object(object_pose, base_pose=None, station="station_a"):
     error_x = float(object_pose[0]) - DOCK_TARGET_X
     error_y = float(object_pose[1]) - DOCK_TARGET_Y
     cmd = Twist()
@@ -143,11 +181,18 @@ def dock_velocity_for_object(object_pose):
         abs(error_x) <= DOCK_TOLERANCE_X
         and abs(error_y) <= DOCK_TOLERANCE_Y
     )
+    at_safety_line = (
+        base_pose is not None
+        and station in WORKTABLE_STATIONS
+        and worktable_clearance(base_pose, station) <= WORKTABLE_CLEARANCE + 1.0e-6
+    )
+    done = done or (at_safety_line and abs(error_y) <= DOCK_TOLERANCE_Y)
     if done:
         return True, cmd
 
     cmd.linear.x = _clamp(DOCK_GAIN_X * error_x, DOCK_MAX_LINEAR_X)
     cmd.linear.y = _clamp(DOCK_GAIN_Y * error_y, DOCK_MAX_LINEAR_Y)
+    _limit_worktable_approach(cmd, base_pose, station)
     return False, cmd
 
 
@@ -222,13 +267,22 @@ def station_dock_velocity_for_base(base_pose, station: str):
 
     base_x, base_y, yaw = [float(v) for v in base_pose]
     target_x, target_y, target_yaw = _station_base_pose(station)
+    if station in WORKTABLE_STATIONS:
+        target_y = station_safe_base_y(yaw, station)
     error_x_map = target_x - base_x
     error_y_map = target_y - base_y
     error_yaw = _angle_wrap(target_yaw - yaw)
 
+    clearance = worktable_clearance(base_pose, station)
+    longitudinal_done = abs(error_y_map) <= STATION_DOCK_TOLERANCE_Y
+    if station in WORKTABLE_STATIONS:
+        longitudinal_done = (
+            WORKTABLE_CLEARANCE - 1.0e-6 <= clearance
+            <= WORKTABLE_CLEARANCE + STATION_DOCK_TOLERANCE_Y
+        )
     done = (
         abs(error_x_map) <= STATION_DOCK_TOLERANCE_X
-        and abs(error_y_map) <= STATION_DOCK_TOLERANCE_Y
+        and longitudinal_done
         and abs(error_yaw) <= STATION_DOCK_TOLERANCE_YAW
     )
     if done:
@@ -256,6 +310,7 @@ def station_dock_velocity_for_base(base_pose, station: str):
         STATION_DOCK_GAIN_YAW * error_yaw,
         STATION_DOCK_MAX_ANGULAR,
     )
+    _limit_worktable_approach(cmd, base_pose, station)
     return False, cmd
 
 
@@ -271,14 +326,19 @@ def place_dock_velocity_for_base(base_pose, target_pose=None, place_pose=None):
     base_x, base_y, yaw = [float(v) for v in base_pose]
     target_x, target_y, target_yaw = [float(v) for v in target_pose]
     error_x_map = target_x - base_x
-    error_y_map = target_y - base_y
+    error_y_map = station_safe_base_y(yaw, "station_b") - base_y
     error_yaw = _angle_wrap(target_yaw - yaw)
     place_x, place_y = _base_target_to_map(base_pose, place_pose[:2])
     drop_target_on_table = _station_b_safe_drop_contains(place_x, place_y)
 
+    clearance = worktable_clearance(base_pose, "station_b")
+    longitudinal_done = (
+        WORKTABLE_CLEARANCE - 1.0e-6 <= clearance
+        <= WORKTABLE_CLEARANCE + PLACE_DOCK_TOLERANCE_Y
+    )
     done = (
         abs(error_x_map) <= PLACE_DOCK_TOLERANCE_X
-        and abs(error_y_map) <= PLACE_DOCK_TOLERANCE_Y
+        and longitudinal_done
         and abs(error_yaw) <= PLACE_DOCK_TOLERANCE_YAW
         and drop_target_on_table
     )
@@ -293,6 +353,7 @@ def place_dock_velocity_for_base(base_pose, target_pose=None, place_pose=None):
     cmd.linear.x = _clamp(PLACE_DOCK_GAIN_X * error_x_base, PLACE_DOCK_MAX_LINEAR_X)
     cmd.linear.y = _clamp(PLACE_DOCK_GAIN_Y * error_y_base, PLACE_DOCK_MAX_LINEAR_Y)
     cmd.angular.z = _clamp(PLACE_DOCK_GAIN_YAW * error_yaw, PLACE_DOCK_MAX_ANGULAR)
+    _limit_worktable_approach(cmd, base_pose, "station_b")
     return False, cmd
 
 
@@ -536,7 +597,11 @@ class MissionNode(Node):
             pose = self._detect()
             if pose is not None:
                 last_pose = pose
-                done, cmd = dock_velocity_for_object(pose)
+                done, cmd = dock_velocity_for_object(
+                    pose,
+                    base_pose=self._base_pose_in_odom(timeout_sec=0.05),
+                    station="station_a",
+                )
                 if done:
                     self._stop_base(DOCK_STOP_SEC)
                     self.get_logger().info(

@@ -285,6 +285,47 @@ def test_station_dock_velocity_stops_when_station_a_aligned():
     assert cmd.angular.z == pytest.approx(0.0)
 
 
+@pytest.mark.parametrize("station,x", [("station_a", 2.0), ("station_b", -2.0)])
+def test_station_dock_stops_on_worktable_safety_line(station, x):
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, station)
+    done, cmd = mission_node.station_dock_velocity_for_base((x, safe_y, math.pi / 2.0), station)
+    assert done
+    assert mission_node.worktable_clearance((x, safe_y, math.pi / 2.0), station) == pytest.approx(0.35)
+    assert cmd.linear.x == pytest.approx(0.0)
+
+
+def test_station_dock_slows_continuously_before_safety_line():
+    far_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a") - 0.30
+    near_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a") - 0.08
+    _, far_cmd = mission_node.station_dock_velocity_for_base((2.0, far_y, math.pi / 2.0), "station_a")
+    _, near_cmd = mission_node.station_dock_velocity_for_base((2.0, near_y, math.pi / 2.0), "station_a")
+    assert far_cmd.linear.x > near_cmd.linear.x > 0.0
+
+
+def test_station_dock_past_safety_line_only_commands_exit():
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_b")
+    done, cmd = mission_node.station_dock_velocity_for_base((-2.0, safe_y + 0.05, math.pi / 2.0), "station_b")
+    assert not done
+    assert cmd.linear.x < 0.0
+
+
+def test_station_dock_at_safety_line_still_allows_lateral_and_yaw_alignment():
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    yaw = math.radians(84.0)
+    done, cmd = mission_node.station_dock_velocity_for_base((2.10, safe_y, yaw), "station_a")
+    assert not done
+    map_forward = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    assert map_forward <= 0.0
+    assert abs(cmd.linear.y) > 0.0
+    assert cmd.angular.z > 0.0
+
+
+def test_home_station_docking_keeps_original_waypoint_behavior():
+    done, cmd = mission_node.station_dock_velocity_for_base((0.0, -0.20, 0.0), "home")
+    assert not done
+    assert cmd.linear.y > 0.0
+
+
 def test_place_navigation_can_handoff_when_tcp_target_is_on_station_b_table():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
     base_pose = (-1.95, 0.36, math.radians(80.0))
