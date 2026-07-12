@@ -1,0 +1,142 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master, 'claude/**']
+  pull_request:
+    branches: [main, master]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # -------------------------------------------------------
+  # Job 1: Static analysis (flake8 + mypy)
+  # -------------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install linters
+        run: pip install flake8 mypy pip-audit
+      - name: flake8
+        run: flake8 scripts/ tests/
+      - name: mypy
+        run: mypy scripts/ --ignore-missing-imports
+      - name: Install runtime deps for audit
+        run: pip install pyyaml hypothesis pytest pytest-cov
+      - name: pip-audit (current environment)
+        # Best-effort dependency vulnerability scan over the installed env.
+        # Non-blocking: advisories are surfaced for awareness, not enforcement.
+        continue-on-error: true
+        run: pip-audit --desc
+
+  # -------------------------------------------------------
+  # Job 2: Unit tests with coverage (fast, no Docker needed)
+  # -------------------------------------------------------
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install pytest pytest-cov hypothesis pyyaml
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -v --tb=short \
+            --cov=scripts --cov-report=term-missing --cov-report=xml \
+            --cov-fail-under=90
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # -------------------------------------------------------
+  # Job 3: ROS 2 distro integration tests (Docker-based)
+  #
+  # `rolling` is built against a date-pinned snapshot of packages.ros.org
+  # (see tests/Dockerfile.ros2-test) so transient upstream package-set
+  # inconsistencies don't leak into the CI signal.
+  # -------------------------------------------------------
+  ros2-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: [humble, jazzy, rolling]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify Docker image exists
+        run: docker pull osrf/ros:${{ matrix.ros_distro }}-desktop
+
+      - name: Build and test in ROS 2 ${{ matrix.ros_distro }}
+        run: |
+          docker build \
+            -f tests/Dockerfile.ros2-test \
+            --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
+            --progress=plain \
+            -t ros2-test:${{ matrix.ros_distro }} \
+            .
+
+  # -------------------------------------------------------
+  # Job 4: Markdown lint for reference files
+  # -------------------------------------------------------
+  markdown-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: |
+            references/*.md
+            SKILL.md
+            README.md
+
+  # -------------------------------------------------------
+  # Job 5: Validate scripts and generated code
+  # -------------------------------------------------------
+  lint-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check scripts syntax
+        run: |
+          python -m py_compile scripts/create_package.py
+          python -m py_compile scripts/qos_checker.py
+          python -m py_compile scripts/launch_validator.py
+      - name: Verify --version works
+        run: |
+          python scripts/create_package.py --version
+          python scripts/qos_checker.py --version
+          python scripts/launch_validator.py --version
+      - name: Run launch validator on generated packages
+        run: |
+          mkdir -p /tmp/test_pkgs
+          python scripts/create_package.py test_cpp --type cpp --dest /tmp/test_pkgs
+          python scripts/create_package.py test_py --type python --dest /tmp/test_pkgs
+          python scripts/launch_validator.py /tmp/test_pkgs/
+
+      - name: Install eval_runner dependencies
+        run: pip install pyyaml
+
+      - name: Run eval_runner structural smoke check (fails if any eval criterion drifts)
+        # This is the CI gate for evals/expected fixtures vs eval.yaml
+        # criteria. Default thresholds (coverage 0.30, pass-rate 80) match
+        # the documented contract in docs/EVAL_WORKFLOW.md.
+        run: python scripts/eval_runner.py
