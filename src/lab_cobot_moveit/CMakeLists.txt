@@ -33,4 +33,10 @@ install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  lab_cobot_moveit/table_scene_initializer.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME table_scene_initializer
+)
+
 ament_package()

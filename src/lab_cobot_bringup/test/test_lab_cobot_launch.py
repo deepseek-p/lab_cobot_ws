@@ -216,6 +216,24 @@ def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     }
 
 
+def test_bringup_registers_worktables_in_existing_stage2(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    stage2 = next(
+        entity
+        for entity in launch_description.entities
+        if isinstance(entity, TimerAction) and entity.period == 10.0
+    )
+    table_initializer = _node(
+        "lab_cobot_moveit", "table_scene_initializer", launch_description
+    )
+
+    assert table_initializer in stage2.actions
+    assert _node_parameters(table_initializer) == {
+        "use_sim_time": True,
+        "world_frame": "odom",
+    }
+
+
 def test_bringup_publishes_passive_mecanum_joint_states(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     nodes = [

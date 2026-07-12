@@ -57,6 +57,15 @@ def generate_launch_description():
         ),
         launch_arguments={"use_sim_time": "true"}.items(),
     )
+    table_scene_initializer = Node(
+        package="lab_cobot_moveit",
+        executable="table_scene_initializer",
+        output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "world_frame": "odom",
+        }],
+    )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(nav, "launch", "navigation.launch.py")
@@ -190,7 +199,14 @@ def generate_launch_description():
     # 等 Gazebo + spawn + 控制器起来后再起规划/导航/感知
     stage2 = TimerAction(
         period=10.0,
-        actions=[move_group, navigation, aruco, wrist_aruco, object_detector],
+        actions=[
+            move_group,
+            table_scene_initializer,
+            navigation,
+            aruco,
+            wrist_aruco,
+            object_detector,
+        ],
     )
     # 再等编排依赖就绪
     stage3 = TimerAction(period=15.0, actions=[mission, voice])
