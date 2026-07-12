@@ -11,10 +11,29 @@ from lab_cobot_bringup.rover_twist_relay import (
     limit_twist,
     ramp_twist,
     reset_twists_on_clock_jump,
+    sanitize_twist,
     twist_to_wheel_speeds,
     validate_configuration,
     zero_if_timed_out,
 )
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [float("nan"), float("inf"), float("-inf")],
+)
+@pytest.mark.parametrize("component", range(3))
+def test_sanitize_twist_rejects_nonfinite_components(invalid_value, component):
+    values = [0.1, 0.2, 0.3]
+    values[component] = invalid_value
+
+    assert sanitize_twist(SimpleTwist(*values)) == SimpleTwist()
+
+
+def test_sanitize_twist_preserves_finite_components():
+    twist = SimpleTwist(0.2, -0.1, 0.4)
+
+    assert sanitize_twist(twist) is twist
 
 
 @pytest.mark.parametrize(

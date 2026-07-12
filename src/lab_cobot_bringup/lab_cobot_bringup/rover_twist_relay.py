@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -13,6 +14,13 @@ class SimpleTwist:
     vx: float = 0.0
     vy: float = 0.0
     wz: float = 0.0
+
+
+def sanitize_twist(twist):
+    values = (twist.vx, twist.vy, twist.wz)
+    if not all(math.isfinite(value) for value in values):
+        return SimpleTwist()
+    return twist
 
 
 def _clamp(value, limit):
@@ -271,8 +279,9 @@ class RoverTwistRelay(Node):
 
     # ------------------------------------------------------------
     def on_twist_received(self, msg):
+        twist = sanitize_twist(twist_msg_to_simple(msg))
         limited = limit_twist(
-            twist_msg_to_simple(msg),
+            twist,
             self.max_vx,
             self.max_vy,
             self.max_wz,
