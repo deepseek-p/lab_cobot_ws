@@ -486,20 +486,6 @@ def test_tactile_place_uses_higher_midair_release_clearance():
     assert pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE == pytest.approx(0.025)
 
 
-def test_place_waits_for_arm_settle_before_descent(monkeypatch):
-    sleeps = []
-    monkeypatch.setattr(
-        pick_place_node.time,
-        "sleep",
-        lambda duration: sleeps.append(duration),
-    )
-    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
-
-    assert pick_place.place([0.8, 0.0, 0.78])
-    assert sleeps == [pytest.approx(pick_place_node.PLACE_ARM_SETTLE_SEC)]
-    assert pick_place_node.PLACE_ARM_SETTLE_SEC >= 0.5
-
-
 def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
     sleeps = []
     monkeypatch.setattr(
@@ -520,10 +506,7 @@ def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
         "open",
         "move_above",
     ]
-    assert sleeps == [
-        pytest.approx(pick_place_node.PLACE_ARM_SETTLE_SEC),
-        pytest.approx(pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC),
-    ]
+    assert sleeps == [pytest.approx(pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC)]
     assert pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC == pytest.approx(0.3)
 
 

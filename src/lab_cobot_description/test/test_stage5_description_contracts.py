@@ -503,3 +503,21 @@ def test_wrist_refine_camera_contract_when_enabled():
     gazebo = root.find("./gazebo[@reference='wrist_camera_link']")
     assert gazebo is not None
     assert gazebo.findtext("material") == "Gazebo/DarkGrey"
+
+
+def test_arm_trajectory_controller_reports_success_only_after_settling():
+    config_path = (
+        _src_dir()
+        / "lab_cobot_description"
+        / "config"
+        / "lab_cobot_controllers.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    params = config["joint_trajectory_controller"]["ros__parameters"]
+    constraints = params["constraints"]
+
+    assert 0.0 < constraints["stopped_velocity_tolerance"] <= 0.02
+    assert 2.0 <= constraints["goal_time"] <= 8.0
+    for joint in params["joints"]:
+        assert constraints[joint]["trajectory"] >= 0.05
+        assert 0.0 < constraints[joint]["goal"] <= 0.005

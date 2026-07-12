@@ -53,7 +53,6 @@ TACTILE_APPROACH_HEIGHT = 0.130
 PLACE_RELEASE_CLEARANCE = 0.02
 TACTILE_PLACE_RELEASE_CLEARANCE = 0.025
 TACTILE_PLACE_DROP_SETTLE_SEC = 0.3
-PLACE_ARM_SETTLE_SEC = 0.5
 GRIPPER_CLOSE_SETTLE_SEC = 0.8
 ARM_MAX_VELOCITY_SCALING = 0.75
 ARM_MAX_ACCELERATION_SCALING = 0.75
@@ -389,10 +388,6 @@ class PickPlace(Node):
         if not self._move_approach(above, cartesian=self.use_tactile_grasp):
             self.get_logger().warn("Place failed: approach move failed")
             return False
-        # Gazebo 控制器报告 SUCCEEDED 后，物理关节仍可能有短暂跟随误差。
-        # 等其收敛，避免下一条轨迹因 start-state tolerance 被 MoveIt 拒绝。
-        if PLACE_ARM_SETTLE_SEC > 0.0:
-            time.sleep(PLACE_ARM_SETTLE_SEC)
         # 持物下降段笛卡尔直线:横向弧会带着焊接物块扫掠台面(同 pick 根因)
         if not self._move(
             release,
