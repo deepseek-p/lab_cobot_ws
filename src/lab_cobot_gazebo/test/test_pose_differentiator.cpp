@@ -1,4 +1,5 @@
 #include <cmath>
+#include <limits>
 
 #include <gtest/gtest.h>
 
@@ -37,6 +38,35 @@ TEST(PoseDifferentiator, WrapsYawAcrossPi)
   const auto velocity = differentiator.update(0.0, 0.0, -M_PI + 0.1, 1.2);
   EXPECT_TRUE(velocity.valid);
   EXPECT_NEAR(velocity.wz, 1.0, kTolerance);
+}
+
+TEST(PoseDifferentiator, UsesIntervalMidpointYawForForwardArc)
+{
+  PoseDifferentiator differentiator(0.5);
+  differentiator.update(0.0, 0.0, 0.0, 1.0);
+  const auto velocity = differentiator.update(
+    std::sin(0.2), 1.0 - std::cos(0.2), 0.2, 1.2);
+  EXPECT_TRUE(velocity.valid);
+  EXPECT_NEAR(velocity.vx, 2.0 * std::sin(0.1) / 0.2, kTolerance);
+  EXPECT_NEAR(velocity.vy, 0.0, kTolerance);
+}
+
+TEST(PoseDifferentiator, MidpointYawStaysCorrectAcrossPiWrap)
+{
+  PoseDifferentiator differentiator(0.5);
+  differentiator.update(0.0, 0.0, M_PI - 0.1, 1.0);
+  const auto velocity = differentiator.update(-0.2, 0.0, -M_PI + 0.1, 1.2);
+  EXPECT_TRUE(velocity.valid);
+  EXPECT_NEAR(velocity.vx, 1.0, kTolerance);
+  EXPECT_NEAR(velocity.vy, 0.0, kTolerance);
+}
+
+TEST(PoseDifferentiator, RejectsInvalidMaximumDt)
+{
+  EXPECT_THROW(PoseDifferentiator(0.0), std::invalid_argument);
+  EXPECT_THROW(PoseDifferentiator(-0.1), std::invalid_argument);
+  EXPECT_THROW(PoseDifferentiator(std::numeric_limits<double>::quiet_NaN()), std::invalid_argument);
+  EXPECT_THROW(PoseDifferentiator(std::numeric_limits<double>::infinity()), std::invalid_argument);
 }
 
 TEST(PoseDifferentiator, InvalidatesPausedTimeAndResetsBaseline)
