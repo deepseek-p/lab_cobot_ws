@@ -106,6 +106,9 @@ if(BUILD_TESTING)
     ENV "PYTEST_ADDOPTS=-p no:anyio")
   ament_add_pytest_test(mecanum_runtime_contract test/test_mecanum_runtime_contract.py
     ENV "PYTEST_ADDOPTS=-p no:anyio")
+  ament_add_pytest_test(planar_safety_runtime test/test_planar_safety_runtime.py
+    TIMEOUT 150
+    ENV "PYTEST_ADDOPTS=-p no:anyio")
 endif()
 
 install(DIRECTORY worlds launch models

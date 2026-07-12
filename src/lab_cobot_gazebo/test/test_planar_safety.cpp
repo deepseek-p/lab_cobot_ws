@@ -93,6 +93,18 @@ TEST(PlanarSafety, SweptRotationCannotPassAnUnsafeIntermediateAngle)
       start, finish, {kStationA, kStationB}, kMargin));
 }
 
+TEST(PlanarSafety, ConservativeSegmentRejectsCornerContactBetweenSafeSamples)
+{
+  const auto start = chassis(2.0, 0.63, -kPi / 2.0);
+  const auto finish = chassis(2.0, 0.63, kPi / 2.0);
+  EXPECT_FALSE(safety::intersects(start, kStationA, kMargin));
+  EXPECT_FALSE(safety::intersects(finish, kStationA, kMargin));
+  // A one-segment discrete endpoint check misses the unsafe +/-45 degree arc.
+  EXPECT_FALSE(
+    safety::isSweptMotionAllowed(
+      start, finish, {kStationA, kStationB}, kMargin, 1.0));
+}
+
 TEST(PlanarSafety, SweptExitRequiresEveryUnsafeSubstepToImprove)
 {
   EXPECT_TRUE(

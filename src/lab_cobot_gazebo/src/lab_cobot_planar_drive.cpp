@@ -4,6 +4,7 @@
 #include <functional>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 #include <gazebo/common/Events.hh>
@@ -84,8 +85,8 @@ public:
       !lab_cobot_gazebo::planar_safety::isValidMargin(table_safety_margin_) ||
       !sdfBox(sdf, "table_a", table_a_) || !sdfBox(sdf, "table_b", table_b_))
     {
-      gzerr << "lab_cobot_planar_drive has invalid chassis/table safety configuration" << std::endl;
-      return;
+      throw std::runtime_error(
+              "lab_cobot_planar_drive has invalid chassis/table safety configuration");
     }
     const auto topic = sdfString(
       sdf, "wheel_command_topic", "/wheel_velocity_controller/commands");
@@ -99,6 +100,7 @@ public:
       std::bind(&LabCobotPlanarDrive::onCommand, this, std::placeholders::_1));
     update_connection_ = event::Events::ConnectWorldUpdateBegin(
       std::bind(&LabCobotPlanarDrive::onUpdate, this, std::placeholders::_1));
+    gzmsg << "lab_cobot_planar_drive loaded with conservative table safety" << std::endl;
   }
 
 private:

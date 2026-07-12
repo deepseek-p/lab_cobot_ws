@@ -56,24 +56,6 @@ inline AxisAlignedBox expanded(const AxisAlignedBox & box, double margin)
     box.min_y - margin, box.max_y + margin};
 }
 
-inline std::array<Point, 4> corners(const OrientedBox & box)
-{
-  const double c = std::cos(box.yaw);
-  const double s = std::sin(box.yaw);
-  const double half_length = box.length * 0.5;
-  const double half_width = box.width * 0.5;
-  const std::array<Point, 4> local{{
-    {half_length, half_width}, {half_length, -half_width},
-    {-half_length, -half_width}, {-half_length, half_width}}};
-  std::array<Point, 4> result{};
-  for (std::size_t i = 0; i < local.size(); ++i) {
-    result[i] = {
-      box.center.x + c * local[i].x - s * local[i].y,
-      box.center.y + s * local[i].x + c * local[i].y};
-  }
-  return result;
-}
-
 inline double projectionGap(
   const OrientedBox & obb, const AxisAlignedBox & aabb, const Point & axis)
 {
@@ -158,7 +140,7 @@ inline bool isMotionAllowed(
 inline bool isSweptMotionAllowed(
   const OrientedBox & current, const OrientedBox & next,
   std::initializer_list<AxisAlignedBox> obstacles, double margin,
-  double maximum_corner_step = 0.02)
+  double maximum_corner_step = 0.005)
 {
   if (!isValid(current) || !isValid(next) || !isValidMargin(margin) ||
     !std::isfinite(maximum_corner_step) || maximum_corner_step <= 0.0)
@@ -180,6 +162,22 @@ inline bool isSweptMotionAllowed(
     const OrientedBox sample{
       {current.center.x + dx * fraction, current.center.y + dy * fraction},
       current.yaw + yaw_delta * fraction, current.length, current.width};
+    const double segment_translation = std::hypot(
+      sample.center.x - previous.center.x, sample.center.y - previous.center.y);
+    const double segment_yaw = std::abs(
+      std::atan2(
+        std::sin(sample.yaw - previous.yaw), std::cos(sample.yaw - previous.yaw)));
+    const double segment_bound = segment_translation +
+      2.0 * corner_radius * std::sin(segment_yaw * 0.5);
+    const double previous_score = safetyScore(previous, obstacles, margin);
+    if (previous_score > kContactTolerance) {
+      const double conservative_margin = margin + segment_bound;
+      if (safetyScore(previous, obstacles, conservative_margin) <= kContactTolerance &&
+        safetyScore(sample, obstacles, conservative_margin) <= kContactTolerance)
+      {
+        return false;
+      }
+    }
     if (!isMotionAllowed(previous, sample, obstacles, margin)) {
       return false;
     }

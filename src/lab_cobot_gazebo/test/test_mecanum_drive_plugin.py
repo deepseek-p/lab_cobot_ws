@@ -53,6 +53,7 @@ def test_planar_plugin_updates_inside_gazebo_and_disables_model_gravity():
     assert '"lab_cobot_gazebo/planar_safety.hpp"' in source
     assert "isSweptMotionAllowed" in source
     assert "RCLCPP_WARN_THROTTLE" in source
+    assert "throw std::runtime_error" in source
 
 
 def test_planar_plugin_does_not_override_model_velocity():
