@@ -166,10 +166,12 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_mission:=false use_rviz
 另开终端发布一个前进指令：
 
 ```bash
+source /opt/ros/humble/setup.bash
+source ~/projects/lab_cobot_ws/install/setup.bash
 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
 ```
 
-单独运行 `ros2 launch lab_cobot_gazebo world.launch.py` 只会启动 Gazebo、控制器和底盘插件，不会自动启动 `/cmd_vel` 适配节点；需要完整运行链路时请使用上述 `lab_cobot_bringup` 总启动命令。
+单独运行 `ros2 launch lab_cobot_gazebo world.launch.py` 会启动 Gazebo、控制器、底盘插件和 `gazebo_odom_bridge`，但不会启动 `rover_twist_relay`；需要完整运行链路时请使用上述 `lab_cobot_bringup` 总启动命令。
 
 ## 验证
 
