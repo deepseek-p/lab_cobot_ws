@@ -116,6 +116,7 @@ WORKTABLE_FRONT_Y = 1.20
 CHASSIS_LENGTH = 0.42
 CHASSIS_WIDTH = 0.30
 WORKTABLE_CLEARANCE = 0.35
+WORKTABLE_MIN_EXIT_SPEED = 0.03
 
 
 def _clamp(value: float, limit: float) -> float:
@@ -164,7 +165,14 @@ def _limit_worktable_approach(cmd: Twist, base_pose, station: str) -> Twist:
     clearance = worktable_clearance(base_pose, station)
     vx_map = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
     vy_map = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
-    if vy_map > 0.0:
+    if clearance < WORKTABLE_CLEARANCE - 1.0e-6:
+        vx_map = 0.0
+        vy_map = -max(
+            WORKTABLE_MIN_EXIT_SPEED,
+            STATION_DOCK_GAIN_X * (WORKTABLE_CLEARANCE - clearance),
+        )
+        cmd.angular.z = 0.0
+    elif vy_map > 0.0:
         remaining = max(0.0, clearance - WORKTABLE_CLEARANCE)
         vy_map = min(vy_map, STATION_DOCK_GAIN_X * remaining)
     cmd.linear.x = math.cos(yaw) * vx_map + math.sin(yaw) * vy_map
@@ -184,6 +192,7 @@ def dock_velocity_for_object(object_pose, base_pose=None, station="station_a"):
     at_safety_line = (
         base_pose is not None
         and station in WORKTABLE_STATIONS
+        and worktable_clearance(base_pose, station) >= WORKTABLE_CLEARANCE - 1.0e-6
         and worktable_clearance(base_pose, station) <= WORKTABLE_CLEARANCE + 1.0e-6
     )
     done = done or (at_safety_line and abs(error_y) <= DOCK_TOLERANCE_Y)
@@ -599,7 +608,7 @@ class MissionNode(Node):
                 last_pose = pose
                 done, cmd = dock_velocity_for_object(
                     pose,
-                    base_pose=self._base_pose_in_odom(timeout_sec=0.05),
+                    base_pose=self._base_pose_in_map(timeout_sec=0.05),
                     station="station_a",
                 )
                 if done:
@@ -626,7 +635,7 @@ class MissionNode(Node):
         start = self.get_clock().now()
         last_pose = None
         while not self._duration_elapsed(start, STATION_DOCK_TIMEOUT_SEC):
-            pose = self._base_pose_in_odom(timeout_sec=0.05)
+            pose = self._base_pose_in_map(timeout_sec=0.05)
             if pose is not None:
                 last_pose = pose
                 done, cmd = station_dock_velocity_for_base(pose, station)
@@ -642,7 +651,7 @@ class MissionNode(Node):
 
         self._stop_base(STATION_DOCK_STOP_SEC)
         if last_pose is None:
-            self.get_logger().warn(f"地图精停失败: 未获取 {station} base_link odom 位姿")
+            self.get_logger().warn(f"地图精停失败: 未获取 {station} base_link map 位姿")
         else:
             self.get_logger().warn(
                 f"地图精停超时 {station}: "

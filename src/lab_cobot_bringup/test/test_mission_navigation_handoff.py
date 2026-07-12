@@ -46,11 +46,48 @@ def test_base_pose_from_odom_msg_extracts_planar_pose():
     assert mission_node.base_pose_from_odom_msg(msg) == pytest.approx([1.2, -0.4, yaw])
 
 
-def test_station_docking_reads_raw_odom_cache_not_ekf_tf():
+def test_raw_odom_cache_remains_available_for_non_safety_consumers():
     node = mission_node.MissionNode.__new__(mission_node.MissionNode)
     node._latest_odom_pose = [2.0, 0.62, math.pi / 2.0]
 
     assert mission_node.MissionNode._base_pose_in_odom(node) == node._latest_odom_pose
+
+
+def test_station_safety_uses_map_pose_when_map_and_odom_are_offset():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    calls = []
+    node.get_logger = lambda: type(
+        "Logger", (), {"info": lambda *args: None, "warn": lambda *args: None}
+    )()
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: object()})()
+    node._duration_elapsed = lambda *_args: False
+    node._base_pose_in_map = lambda timeout_sec=2.0: [2.0, safe_y, math.pi / 2.0]
+    node._base_pose_in_odom = lambda timeout_sec=2.0: (_ for _ in ()).throw(
+        AssertionError("map safety must not consume offset odom coordinates")
+    )
+    node._stop_base = lambda duration: calls.append(duration)
+
+    assert mission_node.MissionNode._dock_to_station_pose(node, "station_a")
+    assert calls == [mission_node.STATION_DOCK_STOP_SEC]
+
+
+def test_pick_visual_safety_uses_map_pose_when_map_and_odom_are_offset():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    node.get_logger = lambda: type(
+        "Logger", (), {"info": lambda *args: None, "warn": lambda *args: None}
+    )()
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: object()})()
+    node._duration_elapsed = lambda *_args: False
+    node._detect = lambda: [mission_node.DOCK_TARGET_X + 0.2, 0.0, 0.63]
+    node._base_pose_in_map = lambda timeout_sec=2.0: [2.0, safe_y, math.pi / 2.0]
+    node._base_pose_in_odom = lambda timeout_sec=2.0: (_ for _ in ()).throw(
+        AssertionError("map safety must not consume offset odom coordinates")
+    )
+    node._stop_base = lambda _duration: None
+
+    assert mission_node.MissionNode._dock_to_pick_target(node)
 
 
 def test_detect_uses_fresh_perception_pose_topic_before_tf_lookup():
@@ -307,11 +344,28 @@ def test_station_dock_past_safety_line_only_commands_exit():
     done, cmd = mission_node.station_dock_velocity_for_base((-2.0, safe_y + 0.05, math.pi / 2.0), "station_b")
     assert not done
     assert cmd.linear.x < 0.0
+    assert cmd.linear.y == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("station,x", [("station_a", 2.10), ("station_b", -1.90)])
+def test_station_dock_past_safety_line_suppresses_lateral_and_yaw(station, x):
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, station)
+    done, cmd = mission_node.station_dock_velocity_for_base(
+        (x, safe_y + 0.001, math.radians(84.0)), station
+    )
+    assert not done
+    yaw = math.radians(84.0)
+    away_map = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    lateral_map = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
+    assert away_map <= -0.02
+    assert lateral_map == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
 
 
 def test_station_dock_at_safety_line_still_allows_lateral_and_yaw_alignment():
-    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
     yaw = math.radians(84.0)
+    safe_y = mission_node.station_safe_base_y(yaw, "station_a")
     done, cmd = mission_node.station_dock_velocity_for_base((2.10, safe_y, yaw), "station_a")
     assert not done
     map_forward = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
