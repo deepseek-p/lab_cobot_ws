@@ -65,6 +65,8 @@ REFINE_WAIT_SEC = 2.5
 REFINE_POLL_SEC = 0.05
 NAV_TIMEOUT_SEC = 60.0
 NAV_SERVER_WAIT_SEC = 20.0
+NAV_STARTUP_WAIT_SEC = 120.0
+NAV_STARTUP_POLL_SEC = 1.0
 NAV_ACTIVE_WAIT_SEC = 30.0
 NAV_ACTIVE_POLL_SEC = 0.5
 NAV_ACTIVE_CALL_TIMEOUT_SEC = 2.0
@@ -502,6 +504,11 @@ class MissionNode(Node):
             self.get_logger().info(
                 f"任务拆解[{result.source}]: {[s.name for s in result.steps]}"
             )
+            # 冷启动时 Nav2 生命周期节点可能仍在 configure/activate。
+            # 基础设施就绪不是业务步骤失败，不能消耗 NAV_TO_PICK 重试。
+            if not self._wait_for_navigation_ready():
+                self.get_logger().error("Nav2 启动超时,任务尚未开始")
+                return
             task = SequentialTask(result.steps, max_retries=1)
             task.start()
             self._publish(task.state)
@@ -743,14 +750,35 @@ class MissionNode(Node):
             time.sleep(0.2)
         return self.nav.getResult() == TaskResult.SUCCEEDED
 
-    def _wait_for_nav_active(self) -> bool:
+    def _wait_for_navigation_ready(
+        self,
+        timeout_sec: float = NAV_STARTUP_WAIT_SEC,
+    ) -> bool:
+        """Wait for cold-start Nav2 without consuming mission retries."""
+        deadline = time.monotonic() + timeout_sec
+        logged = False
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            probe = min(NAV_STARTUP_POLL_SEC, max(0.0, remaining))
+            if self.nav.nav_to_pose_client.wait_for_server(timeout_sec=probe):
+                if self._wait_for_nav_active(timeout_sec=max(0.0, remaining)):
+                    return True
+            if not logged:
+                self.get_logger().info("等待 Nav2 action 与生命周期 active")
+                logged = True
+        return False
+
+    def _wait_for_nav_active(
+        self,
+        timeout_sec: float = NAV_ACTIVE_WAIT_SEC,
+    ) -> bool:
         """Wait until bt_navigator lifecycle state reaches active."""
-        start = self.get_clock().now()
-        while not self._duration_elapsed(start, NAV_ACTIVE_WAIT_SEC):
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
             if self._bt_state_client.service_is_ready():
                 future = self._bt_state_client.call_async(GetState.Request())
-                deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
-                while not future.done() and time.time() < deadline:
+                call_deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
+                while not future.done() and time.time() < call_deadline:
                     time.sleep(0.05)
                 result = future.result() if future.done() else None
                 if (

@@ -151,6 +151,50 @@ def test_navigate_fails_fast_when_action_server_unavailable():
     assert node.nav.nav_to_pose_client.wait_calls  # 确实做了有界探测
 
 
+def test_mission_waits_for_navigation_readiness_before_starting_task():
+    """Cold-start infrastructure must not consume a business-state retry."""
+    events = []
+    node = MissionNode.__new__(MissionNode)
+    node._instruction = "把样件从A送到B"
+    node._planner_config = None
+    node._busy = True
+    node._wait_for_navigation_ready = lambda: events.append("ready") or False
+    node._execute = lambda state: events.append(("execute", state)) or False
+    node._publish = lambda state: events.append(("publish", state))
+    node._failsafe_cleanup = lambda: events.append("cleanup")
+    node.get_logger = lambda: FakeLogger()
+
+    MissionNode._run_mission(node)
+
+    assert events == ["ready"]
+    assert node._busy is False
+
+
+def test_navigation_readiness_waits_through_initial_action_unavailability(
+    monkeypatch,
+):
+    clock = FakeClock()
+
+    class DelayedActionClient:
+        def __init__(self):
+            self.calls = 0
+
+        def wait_for_server(self, timeout_sec=None):
+            self.calls += 1
+            clock.advance(float(timeout_sec))
+            return self.calls >= 3
+
+    node = MissionNode.__new__(MissionNode)
+    node.nav = type("FakeNav", (), {})()
+    node.nav.nav_to_pose_client = DelayedActionClient()
+    node._wait_for_nav_active = lambda timeout_sec=None: True
+    node.get_logger = lambda: FakeLogger()
+    monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+
+    assert MissionNode._wait_for_navigation_ready(node, timeout_sec=10.0)
+    assert node.nav.nav_to_pose_client.calls == 3
+
+
 def test_navigate_waits_for_map_tf_before_sending_goal(monkeypatch):
     # Nav2 can accept an action goal before AMCL has populated map TF history.
     # That stamps the goal too early and can poison the BT with past extrapolation.
@@ -293,6 +337,7 @@ def test_failed_mission_releases_object_stops_base_and_goes_home(monkeypatch):
     node = MissionNode.__new__(MissionNode)
     node._busy = True
     node.pp = FakePickPlace()
+    node._wait_for_navigation_ready = lambda: True
     node._execute = lambda _state: False
     node._publish = lambda state: events.append(("publish", state))
     node._stop_base = lambda duration: events.append(("stop", duration))

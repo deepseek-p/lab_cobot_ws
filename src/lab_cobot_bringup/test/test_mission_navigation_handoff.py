@@ -314,7 +314,9 @@ def test_return_home_does_not_move_base_when_arm_home_fails():
 def test_station_dock_velocity_stops_when_station_a_aligned():
     station_dock_velocity_for_base = _policy("station_dock_velocity_for_base")
 
-    done, cmd = station_dock_velocity_for_base((2.0, 0.62, math.radians(90.0)), "station_a")
+    done, cmd = station_dock_velocity_for_base(
+        (2.0, 0.62, math.radians(90.0)), "station_a"
+    )
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)
@@ -325,23 +327,34 @@ def test_station_dock_velocity_stops_when_station_a_aligned():
 @pytest.mark.parametrize("station,x", [("station_a", 2.0), ("station_b", -2.0)])
 def test_station_dock_stops_on_worktable_safety_line(station, x):
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, station)
-    done, cmd = mission_node.station_dock_velocity_for_base((x, safe_y, math.pi / 2.0), station)
+    done, cmd = mission_node.station_dock_velocity_for_base(
+        (x, safe_y, math.pi / 2.0), station
+    )
     assert done
-    assert mission_node.worktable_clearance((x, safe_y, math.pi / 2.0), station) == pytest.approx(0.35)
+    clearance = mission_node.worktable_clearance(
+        (x, safe_y, math.pi / 2.0), station
+    )
+    assert clearance == pytest.approx(0.35)
     assert cmd.linear.x == pytest.approx(0.0)
 
 
 def test_station_dock_slows_continuously_before_safety_line():
     far_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a") - 0.30
     near_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a") - 0.08
-    _, far_cmd = mission_node.station_dock_velocity_for_base((2.0, far_y, math.pi / 2.0), "station_a")
-    _, near_cmd = mission_node.station_dock_velocity_for_base((2.0, near_y, math.pi / 2.0), "station_a")
+    _, far_cmd = mission_node.station_dock_velocity_for_base(
+        (2.0, far_y, math.pi / 2.0), "station_a"
+    )
+    _, near_cmd = mission_node.station_dock_velocity_for_base(
+        (2.0, near_y, math.pi / 2.0), "station_a"
+    )
     assert far_cmd.linear.x > near_cmd.linear.x > 0.0
 
 
 def test_station_dock_past_safety_line_only_commands_exit():
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_b")
-    done, cmd = mission_node.station_dock_velocity_for_base((-2.0, safe_y + 0.05, math.pi / 2.0), "station_b")
+    done, cmd = mission_node.station_dock_velocity_for_base(
+        (-2.0, safe_y + 0.05, math.pi / 2.0), "station_b"
+    )
     assert not done
     assert cmd.linear.x < 0.0
     assert cmd.linear.y == pytest.approx(0.0)
