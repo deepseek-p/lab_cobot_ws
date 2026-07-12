@@ -33,7 +33,7 @@ public:
     max_accel_xy_ = this->declare_parameter<double>("max_accel_xy", 0.5);
     max_accel_wz_ = this->declare_parameter<double>("max_accel_wz", 1.5);
     command_timeout_ = this->declare_parameter<double>("command_timeout", 0.3);
-    z_height_ = this->declare_parameter<double>("z_height", 0.0);
+    z_height_ = this->declare_parameter<double>("z_height", 0.12);
     update_rate_ = this->declare_parameter<double>("update_rate", 50.0);
     wheel_radius_ = this->declare_parameter<double>("wheel_radius", 0.07);
     wheel_separation_width_ = this->declare_parameter<double>(
@@ -239,7 +239,7 @@ private:
   double max_accel_xy_{0.5};
   double max_accel_wz_{1.5};
   double command_timeout_{0.3};
-  double z_height_{0.0};
+  double z_height_{0.12};
   double update_rate_{50.0};
   double wheel_radius_{0.07};
   double wheel_separation_width_{0.24};

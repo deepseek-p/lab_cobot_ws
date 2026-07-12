@@ -47,6 +47,12 @@ def test_drive_parameterizes_model_states_without_changing_source_defaults():
     assert subscription in source
 
 
+def test_drive_uses_source_spawn_height_instead_of_forcing_model_into_ground():
+    source = text(GAZEBO / "src/mecanum_gazebo_kinematic_drive.cpp")
+    assert 'declare_parameter<double>("z_height", 0.12)' in source
+    assert "request->state.pose.position.z = z_height_;" in source
+
+
 def test_bridge_is_parameterized_and_publishes_odom_tf():
     source = text(GAZEBO / "src/gazebo_odom_bridge.cpp")
     for token in (
