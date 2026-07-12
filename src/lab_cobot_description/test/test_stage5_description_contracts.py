@@ -521,3 +521,24 @@ def test_arm_trajectory_controller_reports_success_only_after_settling():
     for joint in params["joints"]:
         assert constraints[joint]["trajectory"] >= 0.05
         assert 0.0 < constraints[joint]["goal"] <= 0.005
+
+
+def test_gazebo_arm_position_pid_holds_all_ur_joints():
+    config_path = (
+        _src_dir()
+        / "lab_cobot_description"
+        / "config"
+        / "lab_cobot_controllers.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    params = config["joint_trajectory_controller"]["ros__parameters"]
+    gains = config["gazebo_ros2_control"]["ros__parameters"]["pid_gains"][
+        "position"
+    ]
+
+    assert set(gains) == set(params["joints"])
+    for joint, gain in gains.items():
+        assert 0.0 < gain["kp"] <= 500.0, joint
+        assert 0.0 < gain["kd"] <= 50.0, joint
+        assert 0.0 < gain["ki"] <= 5.0, joint
+        assert gain["max_integral_error"] > 0.0, joint

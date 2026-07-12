@@ -11,7 +11,21 @@ controller_manager:
     wheel_velocity_controller:
       type: velocity_controllers/JointGroupVelocityController
 
+gazebo_ros2_control:
+  ros__parameters:
+    # Humble gazebo_ros2_control position-interface PID. Moderate gains hold
+    # the arm under gravity without exciting Gazebo contacts.
+    pid_gains:
+      position:
+        ur_shoulder_pan_joint: {kp: 200.0, kd: 20.0, ki: 1.0, max_integral_error: 10.0}
+        ur_shoulder_lift_joint: {kp: 400.0, kd: 40.0, ki: 4.0, max_integral_error: 10.0}
+        ur_elbow_joint: {kp: 300.0, kd: 30.0, ki: 3.0, max_integral_error: 10.0}
+        ur_wrist_1_joint: {kp: 100.0, kd: 10.0, ki: 1.0, max_integral_error: 5.0}
+        ur_wrist_2_joint: {kp: 100.0, kd: 10.0, ki: 1.0, max_integral_error: 5.0}
+        ur_wrist_3_joint: {kp: 100.0, kd: 10.0, ki: 1.0, max_integral_error: 5.0}
+
 joint_trajectory_controller:
+
   ros__parameters:
     joints:
       - ur_shoulder_pan_joint
