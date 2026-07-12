@@ -3,6 +3,7 @@
 import inspect
 
 import pytest
+from geometry_msgs.msg import Twist
 
 from lab_cobot_bringup import rover_twist_relay
 from lab_cobot_bringup.rover_twist_relay import (
@@ -34,6 +35,44 @@ def test_sanitize_twist_preserves_finite_components():
     twist = SimpleTwist(0.2, -0.1, 0.4)
 
     assert sanitize_twist(twist) is twist
+
+
+def make_twist_relay_for_callback_test():
+    class FakeClock:
+        def now(self):
+            return object()
+
+    relay = object.__new__(rover_twist_relay.RoverTwistRelay)
+    relay.max_vx = 0.5
+    relay.max_vy = 0.3
+    relay.max_wz = 1.2
+    relay.linear_deadband = 0.01
+    relay.angular_deadband = 0.02
+    relay.get_clock = FakeClock
+    return relay
+
+
+def test_callback_zeros_target_twist_for_nonfinite_command():
+    relay = make_twist_relay_for_callback_test()
+    relay.target_twist = SimpleTwist(0.2, -0.1, 0.4)
+    msg = Twist()
+    msg.linear.x = float("nan")
+
+    relay.on_twist_received(msg)
+
+    assert relay.target_twist == SimpleTwist()
+
+
+def test_callback_limits_and_applies_deadband_to_finite_command():
+    relay = make_twist_relay_for_callback_test()
+    msg = Twist()
+    msg.linear.x = 0.8
+    msg.linear.y = 0.005
+    msg.angular.z = -2.0
+
+    relay.on_twist_received(msg)
+
+    assert relay.target_twist == SimpleTwist(0.5, 0.0, -1.2)
 
 
 @pytest.mark.parametrize(
