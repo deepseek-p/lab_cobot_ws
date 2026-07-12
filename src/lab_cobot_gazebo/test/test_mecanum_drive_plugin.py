@@ -30,6 +30,11 @@ def test_generated_robot_uses_synchronous_planar_drive_plugin():
     assert plugin.findtext("wheel_radius") == "0.07"
     assert plugin.findtext("wheel_separation_width") == "0.24"
     assert plugin.findtext("wheel_separation_length") == "0.175"
+    assert plugin.findtext("chassis_length") == "0.42"
+    assert plugin.findtext("chassis_width") == "0.30"
+    assert plugin.findtext("table_safety_margin") == "0.35"
+    assert plugin.findtext("table_a") == "2.0 1.5 0.8 0.6"
+    assert plugin.findtext("table_b") == "-2.0 1.5 0.8 0.6"
 
 
 def test_generated_robot_keeps_ros2_control_for_visual_wheel_motion():
@@ -45,6 +50,9 @@ def test_planar_plugin_updates_inside_gazebo_and_disables_model_gravity():
     assert "ConnectWorldUpdateBegin" in source
     assert "model_->SetGravityMode(false)" in source
     assert "wheelSpeedsToTwist" in source
+    assert '"lab_cobot_gazebo/planar_safety.hpp"' in source
+    assert "isMotionAllowed" in source
+    assert "RCLCPP_WARN_THROTTLE" in source
 
 
 def test_planar_plugin_does_not_override_model_velocity():

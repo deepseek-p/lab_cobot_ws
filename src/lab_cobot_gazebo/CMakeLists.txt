@@ -92,6 +92,8 @@ if(BUILD_TESTING)
   # 版本漂移引爆),所有 pytest 注册必须带 -p no:anyio 防护(bringup 范本)
   ament_add_gtest(test_pose_differentiator test/test_pose_differentiator.cpp)
   target_include_directories(test_pose_differentiator PRIVATE include)
+  ament_add_gtest(test_planar_safety test/test_planar_safety.cpp)
+  target_include_directories(test_planar_safety PRIVATE include)
   ament_add_pytest_test(world_launch test/test_world_launch.py
     ENV "PYTEST_ADDOPTS=-p no:anyio")
   ament_add_pytest_test(aruco_sample_model test/test_aruco_sample_model.py

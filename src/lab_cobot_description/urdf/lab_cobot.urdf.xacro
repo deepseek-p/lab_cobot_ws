@@ -189,6 +189,11 @@
       <max_vy>0.3</max_vy>
       <max_wz>1.2</max_wz>
       <command_timeout>0.3</command_timeout>
+      <chassis_length>0.42</chassis_length>
+      <chassis_width>0.30</chassis_width>
+      <table_safety_margin>0.35</table_safety_margin>
+      <table_a>2.0 1.5 0.8 0.6</table_a>
+      <table_b>-2.0 1.5 0.8 0.6</table_b>
     </plugin>
   </gazebo>
 
