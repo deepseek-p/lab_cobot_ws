@@ -83,6 +83,14 @@
   <disable_collisions link1="base_link" link2="front_right_wheel_1" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="back_left_wheel_1" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="back_right_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_left_arm" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_right_arm" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="back_left_arm" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="back_right_arm" reason="Adjacent"/>
+  <disable_collisions link1="front_left_arm" link2="front_left_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="front_right_arm" link2="front_right_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="back_left_arm" link2="back_left_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="back_right_arm" link2="back_right_wheel_1" reason="Adjacent"/>
   <disable_collisions link1="pillar_link" link2="ur_base_link_inertia" reason="Adjacent"/>
   <disable_collisions link1="pillar_link" link2="ur_shoulder_link" reason="Never"/>
   <disable_collisions link1="pillar_link" link2="camera_link" reason="Never"/>

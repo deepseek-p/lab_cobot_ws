@@ -84,6 +84,12 @@ def test_docking_policy_allows_one_precise_lateral_alignment_attempt():
     assert DOCK_MAX_LINEAR_Y >= 0.08
 
 
+def test_docking_standoff_keeps_pick_target_inside_ur5e_workspace():
+    # The mecanum3 chassis stops through its wheel-derived cylindrical runtime.
+    # Keep enough margin below the UR5e's nominal 0.85 m reach for a vertical TCP.
+    assert DOCK_TARGET_X <= 0.70
+
+
 def test_detection_stamp_rejects_stale_aruco_tf():
     now = Time(sec=12, nanosec=0)
     stale = Time(sec=9, nanosec=800_000_000)

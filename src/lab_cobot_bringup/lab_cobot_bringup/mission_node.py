@@ -47,7 +47,9 @@ RETREAT_STOP_SEC = 0.5
 # 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
 DEFAULT_PLACE_POSE = [0.82, 0.20, 0.725]
 PLACE_BASE_TARGET_POSE = (-2.0, 0.62, math.pi / 2.0)
-DOCK_TARGET_X = 0.78
+# Leave reach margin for the vertical gripper pose.  At 0.78 m the detected
+# target plus TCP approach offset sits on the UR5e workspace boundary.
+DOCK_TARGET_X = 0.62
 DOCK_TARGET_Y = 0.0
 DOCK_TOLERANCE_X = 0.05
 DOCK_TOLERANCE_Y = 0.065

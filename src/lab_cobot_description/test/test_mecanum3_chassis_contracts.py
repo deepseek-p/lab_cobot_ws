@@ -80,6 +80,16 @@ def test_srdf_collision_links_exist_in_generated_urdf():
     referenced = {collision.attrib[field] for collision in srdf.findall("disable_collisions") for field in ("link1", "link2")}
     assert referenced <= urdf_links
 
+def test_srdf_disables_collisions_for_adjacent_suspension_links():
+    srdf = ET.fromstring((PACKAGE / "srdf" / "lab_cobot.srdf").read_text())
+    disabled = {
+        frozenset((node.attrib["link1"], node.attrib["link2"]))
+        for node in srdf.findall("disable_collisions")
+    }
+    for wheel in ("front_left", "front_right", "back_left", "back_right"):
+        assert frozenset(("base_link", f"{wheel}_arm")) in disabled
+        assert frozenset((f"{wheel}_arm", f"{wheel}_wheel_1")) in disabled
+
 def test_cmake_installs_mesh_directory_once():
     cmake = (PACKAGE / "CMakeLists.txt").read_text()
     directories = cmake.split("install(DIRECTORY", 1)[1].split("DESTINATION", 1)[0].split()
