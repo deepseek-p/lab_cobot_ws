@@ -93,17 +93,17 @@ def test_dock_velocity_stops_inside_pick_window():
     assert cmd.linear.y == pytest.approx(0.0)
 
 
-def test_dock_velocity_accepts_reachable_lateral_offset_for_tcp_pick():
+def test_dock_velocity_corrects_lateral_offset_outside_grasp_deadband():
     done, cmd = dock_velocity_for_object([
         DOCK_TARGET_X,
         DOCK_TARGET_Y + 0.047,
         0.63,
     ])
 
-    assert done
+    assert not done
     assert cmd.linear.x == pytest.approx(0.0)
-    assert cmd.linear.y == pytest.approx(0.0)
-    assert DOCK_TOLERANCE_Y <= 0.07
+    assert cmd.linear.y > 0.0
+    assert DOCK_TOLERANCE_Y <= 0.015
 
 
 def test_dock_velocity_accepts_force_model_longitudinal_deadband():
@@ -117,16 +117,16 @@ def test_dock_velocity_accepts_force_model_longitudinal_deadband():
     assert cmd.linear.x == pytest.approx(0.0)
 
 
-def test_dock_velocity_accepts_gui_verified_near_lateral_offset():
+def test_dock_velocity_corrects_gui_observed_large_lateral_offset():
     done, cmd = dock_velocity_for_object([
         DOCK_TARGET_X,
         DOCK_TARGET_Y + 0.064,
         0.63,
     ])
 
-    assert done
+    assert not done
     assert cmd.linear.x == pytest.approx(0.0)
-    assert cmd.linear.y == pytest.approx(0.0)
+    assert cmd.linear.y > 0.0
 
 
 def test_docking_policy_allows_one_precise_lateral_alignment_attempt():

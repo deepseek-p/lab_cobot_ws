@@ -390,6 +390,37 @@ def test_station_dock_at_safety_line_still_allows_lateral_and_yaw_alignment():
     assert abs(cmd.linear.y) > 0.0
     assert cmd.angular.z > 0.0
 
+def test_pick_visual_handoff_rejects_large_lateral_error_at_safety_line():
+    yaw = math.pi / 2.0
+    safe_y = mission_node.station_safe_base_y(yaw, "station_a")
+
+    done, cmd = mission_node.dock_velocity_for_object(
+        (0.769, 0.035, 0.670),
+        base_pose=(2.0, safe_y, yaw),
+        station="station_a",
+    )
+
+    assert not done
+    toward_table = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    lateral = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
+    assert toward_table == pytest.approx(0.0)
+    assert lateral != pytest.approx(0.0)
+
+
+def test_pick_visual_handoff_accepts_graspable_lateral_error_at_safety_line():
+    yaw = math.pi / 2.0
+    safe_y = mission_node.station_safe_base_y(yaw, "station_a")
+
+    done, cmd = mission_node.dock_velocity_for_object(
+        (0.769, 0.010, 0.670),
+        base_pose=(2.0, safe_y, yaw),
+        station="station_a",
+    )
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)
+
 
 def test_home_station_docking_keeps_original_waypoint_behavior():
     done, cmd = mission_node.station_dock_velocity_for_base((0.0, -0.20, 0.0), "home")
