@@ -191,13 +191,22 @@ def dock_velocity_for_object(object_pose, base_pose=None, station="station_a"):
         abs(error_x) <= DOCK_TOLERANCE_X
         and abs(error_y) <= DOCK_TOLERANCE_Y
     )
-    at_safety_line = (
-        base_pose is not None
-        and station in WORKTABLE_STATIONS
-        and worktable_clearance(base_pose, station) >= WORKTABLE_CLEARANCE - 1.0e-6
-        and worktable_clearance(base_pose, station) <= WORKTABLE_CLEARANCE + 1.0e-6
+    clearance = (
+        worktable_clearance(base_pose, station)
+        if base_pose is not None and station in WORKTABLE_STATIONS
+        else math.inf
     )
-    done = done or (at_safety_line and abs(error_y) <= DOCK_TOLERANCE_Y)
+    in_safe_station_deadband = (
+        WORKTABLE_CLEARANCE - 1.0e-6
+        <= clearance
+        <= WORKTABLE_CLEARANCE + STATION_DOCK_TOLERANCE_Y
+    )
+    blocked_forward_alignment = (
+        in_safe_station_deadband
+        and error_x > DOCK_TOLERANCE_X
+        and abs(error_y) <= DOCK_TOLERANCE_Y
+    )
+    done = done or blocked_forward_alignment
     if done:
         return True, cmd
 

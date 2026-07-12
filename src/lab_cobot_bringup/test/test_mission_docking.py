@@ -42,6 +42,20 @@ def test_pick_visual_dock_hands_off_at_chassis_safety_line():
     assert cmd.linear.x == pytest.approx(0.0)
 
 
+def test_pick_visual_dock_accepts_real_safe_station_deadband():
+    # Dynamic regression: station docking already stopped safely here, while
+    # visual x still requested forward motion that the safety limiter forbids.
+    done, cmd = dock_velocity_for_object(
+        [0.909, 0.010, 0.668],
+        base_pose=(1.941, 0.628, math.radians(88.1)),
+        station="station_a",
+    )
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)
+
+
 def test_pick_visual_dock_at_safety_line_only_corrects_lateral_error():
     from lab_cobot_bringup import mission_node
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
