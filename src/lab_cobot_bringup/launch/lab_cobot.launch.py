@@ -246,9 +246,10 @@ def generate_launch_description():
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_tactile_grasp", default_value="true"),
         # 两段式精修总开关:xacro 相机、检测节点、mission 三处同源。
-        DeclareLaunchArgument("use_refine_detect", default_value="false"),
+        # 2026-07-14 用户裁决:腕相机链为主路径默认常开,bench 为降级路径。
+        DeclareLaunchArgument("use_refine_detect", default_value="true"),
         # 标准 eye-in-hand DETECT 开关；相机/检测节点与精修开关做 OR。
-        DeclareLaunchArgument("use_wrist_detect", default_value="false"),
+        DeclareLaunchArgument("use_wrist_detect", default_value="true"),
         # 机械臂规划场景障碍注入:台面盒+持物样件附着盒(mission 透传)。
         DeclareLaunchArgument(
             "use_planning_scene_obstacles", default_value="true"

@@ -280,7 +280,9 @@ def test_bringup_declares_tactile_grasp_enabled_by_default(monkeypatch):
     assert _text(use_tactile.variable_name) == "use_tactile_grasp"
 
 
-def test_bringup_disables_wrist_refine_pipeline_by_default(monkeypatch):
+def test_bringup_enables_wrist_refine_pipeline_by_default(monkeypatch):
+    # 2026-07-14 用户裁决:腕相机链(拍照位检测+approach 精修)为主路径,
+    # 默认常开;bench 全景检测保留为 miss 降级路径。
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)
     mission = _node("lab_cobot_bringup", "mission_node", launch_description)
@@ -293,9 +295,9 @@ def test_bringup_disables_wrist_refine_pipeline_by_default(monkeypatch):
     )
     world_args = _include_arguments(world)
 
-    assert defaults["use_refine_detect"] == "false"
-    assert defaults["use_wrist_detect"] == "false"
-    assert "wrist_aruco_detector" not in {
+    assert defaults["use_refine_detect"] == "true"
+    assert defaults["use_wrist_detect"] == "true"
+    assert "wrist_aruco_detector" in {
         _node_name(node) for node in _active_nodes(launch_description)
     }
     mission_refine = _parameter_value_launch_configuration(
