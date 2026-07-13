@@ -19,7 +19,7 @@
 ### 仿真保真度边界（诚实声明）
 
 - **底盘**：默认由 `rover_twist_relay` 完成麦轮逆解、`lab_cobot_planar_drive` 同步完成正解和**有界平面位姿积分（`SetWorldPose`）**，再由 `gazebo_odom_bridge` 从 Gazebo 状态发布 `/odom`。运动学链真实，但底盘不受碰撞阻挡，里程计无轮地接触造成的漂移；不是麦轮滚子接触动力学。
-- **抓取**：attach 触发是**几何封套判定**（靠近即焊接为 fixed-joint），不是接触力检测；物块全程保留质量/重力/碰撞。放置采用悬空释放（名义落差约 5cm）避免约束冲突。不是真实摩擦力闭合。
+- **抓取**：attach 触发是几何封套与双指触觉门控后的 fixed-joint，不是真实摩擦力闭合。搬运期间仅临时屏蔽被抓样件自身的 Gazebo 碰撞，释放时先解除 fixed-joint、恢复原碰撞掩码并清零速度；样件随后依靠重力落到 B 台面。质量、重力、桌面和底盘安全碰撞配置保持不变。
 - **视觉**：默认走 RGB-D + solvePnP 真实检测管线；`/gazebo/model_states` 仅保留为 `use_truth_pose:=true` 显式调试路径。
 
 ## 系统流程
@@ -91,7 +91,7 @@ sudo apt install -y \
 ## 构建
 
 ```bash
-cd ~/projects/lab_cobot_ws
+cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -109,7 +109,7 @@ colcon build --symlink-install
 启动完整仿真：
 
 ```bash
-cd ~/projects/lab_cobot_ws
+cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch lab_cobot_bringup lab_cobot.launch.py
@@ -119,7 +119,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/projects/lab_cobot_ws/install/setup.bash
+source ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port/install/setup.bash
 ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
 ```
 
@@ -167,7 +167,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_mission:=false use_rviz
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/projects/lab_cobot_ws/install/setup.bash
+source ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port/install/setup.bash
 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
 ```
 
@@ -180,7 +180,7 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angul
 完整构建和测试：
 
 ```bash
-cd ~/projects/lab_cobot_ws
+cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
 source /opt/ros/humble/setup.bash
 PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
 PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure
@@ -201,6 +201,9 @@ PASS: map covers four walls, has low obstacle noise, and key points are free
 ```
 
 ## 运行注意
+
+- 当前底盘移植功能位于 `~/lab_cobot_ws/.worktrees/mecanum3-chassis-port` 的 `feature/mecanum3-chassis-port` 分支。合并前必须在此 worktree 构建和运行；`~/lab_cobot_ws` 主目录是 `main`，不会自动包含本分支的源码和 `install`。
+- 可直接复制的中文运行、验证和故障排查步骤见 `docs/运行与验证.md`。
 
 - `lab_cobot.launch.py` 默认延迟启动 MoveIt/Nav2/感知/mission，以等待 Gazebo、spawn 和控制器就绪。
 - 平行夹爪通过 `gripper_position_controller` 驱动手指开合；样件固定由 `lab_cobot_grasp_fix` 插件在几何封套满足时创建 fixed joint 实现（非接触力检测，也非 SetEntityState 瞬移）；旧的 `gripper_attach_bridge` 仅在 `use_sim_attach:=true` 时作为调试后端启动。
