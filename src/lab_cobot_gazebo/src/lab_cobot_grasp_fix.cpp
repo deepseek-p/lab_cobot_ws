@@ -5,6 +5,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,7 @@
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "lab_cobot_gazebo/canonical_attach.hpp"
 #include "lab_cobot_gazebo/finger_collision_config.hpp"
 #include "lab_cobot_gazebo/finger_contact_gate.hpp"
 #include "lab_cobot_gazebo/grasp_envelope.hpp"
@@ -119,9 +121,23 @@ public:
     object_model_names_ = SdfStringList(sdf, "object_model", "aruco_sample");
     object_link_name_ = SdfString(sdf, "object_link", "link");
     tcp_link_name_ = SdfString(sdf, "tcp_link", "gripper_tcp");
+    tcp_parent_link_name_ = SdfString(sdf, "tcp_parent_link", "ur_wrist_3_link");
+    tcp_offset_local_z_ = SdfDouble(sdf, "tcp_offset_local_z", 0.105);
     left_joint_name_ = SdfString(sdf, "left_joint", "gripper_left_finger_joint");
     right_joint_name_ = SdfString(sdf, "right_joint", "gripper_right_finger_joint");
     stable_attach_link_name_ = SdfString(sdf, "stable_attach_link", "ur_wrist_3_link");
+    object_offset_local_z_ = SdfDouble(sdf, "object_offset_local_z", 0.045);
+    attach_clearance_ = SdfDouble(sdf, "attach_clearance", 0.003);
+    max_attach_correction_ = SdfDouble(sdf, "max_attach_correction", 0.020);
+    if (!std::isfinite(tcp_offset_local_z_) || tcp_offset_local_z_ < 0.0 ||
+      !std::isfinite(object_offset_local_z_) || object_offset_local_z_ <= 0.0 ||
+      !std::isfinite(attach_clearance_) || attach_clearance_ < 0.0 ||
+      attach_clearance_ >= object_offset_local_z_ ||
+      !std::isfinite(max_attach_correction_) || max_attach_correction_ <= 0.0)
+    {
+      throw std::runtime_error(
+              "invalid canonical attach offsets or correction limit");
+    }
     close_threshold_ = SdfDouble(sdf, "close_threshold", 0.006);
     release_threshold_ = SdfDouble(sdf, "release_threshold", 0.003);
     max_center_distance_ = SdfDouble(sdf, "max_center_distance", 0.080);
@@ -411,17 +427,89 @@ private:
       return;
     }
 
-    fixed_joint_ = world_->Physics()->CreateJoint("fixed", model_);
-    fixed_joint_->Load(attach_link, object_link, ignition::math::Pose3d());
-    fixed_joint_->Init();
+    auto tcp_link = model_->GetLink(tcp_link_name_);
+    ignition::math::Pose3d tcp_pose;
+    if (tcp_link) {
+      tcp_pose = tcp_link->WorldPose();
+    } else {
+      auto tcp_parent_link = model_->GetLink(tcp_parent_link_name_);
+      if (tcp_parent_link) {
+        tcp_pose = lab_cobot_gazebo::PoseAtParentLocalZ(
+          tcp_parent_link->WorldPose(), tcp_offset_local_z_);
+      } else {
+        grip_count_ = 0;
+        finger_contact_count_ = 0;
+        suppress_attach_until_open_ = true;
+        PublishRefusedStatus(object_name, "missing_tcp_parent_link");
+        return;
+      }
+    }
+    const auto current_pose = object_link->WorldPose();
+    const auto canonical_pose = lab_cobot_gazebo::CanonicalAttachedObjectPose(
+      tcp_pose, object_offset_local_z_ - attach_clearance_, current_pose.Rot());
+    const double correction = current_pose.Pos().Distance(canonical_pose.Pos());
+    if (!lab_cobot_gazebo::AttachCorrectionAllowed(
+        current_pose.Pos(), canonical_pose.Pos(), max_attach_correction_))
+    {
+      grip_count_ = 0;
+      finger_contact_count_ = 0;
+      suppress_attach_until_open_ = true;
+      std::ostringstream reason;
+      reason << std::fixed << std::setprecision(4)
+             << "canonical_correction=" << correction;
+      PublishRefusedStatus(object_name, reason.str());
+      return;
+    }
+    const auto original_linear_velocity = object_link->WorldLinearVel();
+    const auto original_angular_velocity = object_link->WorldAngularVel();
+    const auto rollback = [&]() {
+      RestoreObjectCollisions();
+      object_link->SetWorldPose(current_pose);
+      object_link->SetLinearVel(original_linear_velocity);
+      object_link->SetAngularVel(original_angular_velocity);
+      grip_count_ = 0;
+      finger_contact_count_ = 0;
+      suppress_attach_until_open_ = true;
+    };
+    object_link->SetWorldPose(canonical_pose);
+    object_link->SetLinearVel(ignition::math::Vector3d::Zero);
+    object_link->SetAngularVel(ignition::math::Vector3d::Zero);
+    auto new_joint = world_->Physics()->CreateJoint("fixed", model_);
+    if (!new_joint) {
+      rollback();
+      PublishRefusedStatus(object_name, "fixed_joint_create_failed");
+      return;
+    }
+    SuppressObjectCollisions(object_link);
+    try {
+      new_joint->Load(attach_link, object_link, ignition::math::Pose3d());
+      new_joint->Init();
     // 开启约束反力回读,供 breakaway 保险丝使用(ODE 默认不回填 feedback)
-    fixed_joint_->SetProvideFeedback(true);
+      new_joint->SetProvideFeedback(true);
+    } catch (const std::exception & error) {
+      try {
+        new_joint->Detach();
+      } catch (...) {
+        // Rollback below must run even if the physics backend rejects Detach.
+      }
+      rollback();
+      PublishRefusedStatus(
+        object_name, std::string("fixed_joint_init_failed=") + error.what());
+      return;
+    } catch (...) {
+      new_joint->Detach();
+      rollback();
+      PublishRefusedStatus(object_name, "fixed_joint_init_failed=unknown");
+      return;
+    }
+    fixed_joint_ = new_joint;
     object_link->SetLinearVel(ignition::math::Vector3d::Zero);
     object_link->SetAngularVel(ignition::math::Vector3d::Zero);
     attached_object_name_ = object_name;
     pending_object_name_.clear();
     PublishStatus("attached " + object_name);
     gzmsg << "lab_cobot_grasp_fix attached " << object_name
+          << " canonical_correction=" << correction
           << " to " << attach_link->GetName() << std::endl;
   }
 
@@ -436,6 +524,7 @@ private:
 
     fixed_joint_->Detach();
     fixed_joint_.reset();
+    RestoreObjectCollisions();
     if (object_link) {
       object_link->SetLinearVel(ignition::math::Vector3d::Zero);
       object_link->SetAngularVel(ignition::math::Vector3d::Zero);
@@ -450,6 +539,53 @@ private:
           << (reason.empty() ? "" : " (" + reason + ")") << std::endl;
     attached_object_name_.clear();
     pending_object_name_.clear();
+  }
+
+  struct CollisionMaskSnapshot
+  {
+    physics::CollisionPtr collision;
+    unsigned int surface_collide_bitmask;
+    bool has_surface;
+  };
+
+  void SuppressObjectCollisions(const physics::LinkPtr & object_link)
+  {
+    RestoreObjectCollisions();
+    if (!object_link) {
+      return;
+    }
+    for (const auto & collision : object_link->GetCollisions()) {
+      if (!collision) {
+        continue;
+      }
+      auto surface = collision->GetSurface();
+      object_collision_masks_.push_back({
+        collision,
+        surface ? surface->collideBitmask : 0xffffu,
+        static_cast<bool>(surface)});
+      collision->SetCollideBits(0u);
+      if (surface) {
+        surface->collideBitmask = 0u;
+      }
+    }
+    gzmsg << "lab_cobot_grasp_fix suppressed "
+          << object_collision_masks_.size()
+          << " attached-object collision(s)" << std::endl;
+  }
+
+  void RestoreObjectCollisions()
+  {
+    for (const auto & snapshot : object_collision_masks_) {
+      if (!snapshot.collision) {
+        continue;
+      }
+      snapshot.collision->SetCollideBits(snapshot.surface_collide_bitmask);
+      auto surface = snapshot.collision->GetSurface();
+      if (snapshot.has_surface && surface) {
+        surface->collideBitmask = snapshot.surface_collide_bitmask;
+      }
+    }
+    object_collision_masks_.clear();
   }
 
   bool ConsumeReleaseRequested()
@@ -617,11 +753,16 @@ private:
   std::string pending_object_name_;
   std::string object_link_name_;
   std::string tcp_link_name_;
+  std::string tcp_parent_link_name_;
+  double tcp_offset_local_z_{0.105};
   std::string left_joint_name_;
   std::string right_joint_name_;
   std::string stable_attach_link_name_;
   std::string contact_status_topic_;
   std::string contact_release_topic_;
+  double object_offset_local_z_{0.045};
+  double attach_clearance_{0.003};
+  double max_attach_correction_{0.020};
   double close_threshold_{0.006};
   double release_threshold_{0.003};
   double max_center_distance_{0.080};
@@ -643,6 +784,7 @@ private:
   std::mutex state_mutex_;
   bool release_requested_{false};
   bool suppress_attach_until_open_{false};
+  std::vector<CollisionMaskSnapshot> object_collision_masks_;
 };
 
 GZ_REGISTER_MODEL_PLUGIN(LabCobotGraspFix)
