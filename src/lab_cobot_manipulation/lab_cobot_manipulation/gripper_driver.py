@@ -21,6 +21,7 @@ ATTACH_REFUSED_PREFIX = "refused aruco_sample"
 DEFAULT_ATTACH_TIMEOUT_SEC = 1.5
 CONTACT_STATUS_TOPIC = "/gripper/contact/status"
 CONTACT_RELEASE_TOPIC = "/gripper/contact/release"
+FINGERS_STATUS_TOPIC = "/gripper/contact/fingers"
 LEFT_FINGER_CONTACTS_TOPIC = "/gripper/left_finger_contacts"
 RIGHT_FINGER_CONTACTS_TOPIC = "/gripper/right_finger_contacts"
 CONTACT_ATTACHED_PREFIX = "attached "
@@ -218,6 +219,12 @@ class ContactGripperDriver:
             self._on_contact_status,
             10,
         )
+        self._fingers_status_sub = node.create_subscription(
+            String,
+            FINGERS_STATUS_TOPIC,
+            self._on_fingers_status,
+            10,
+        )
         self._left_contact_sub = node.create_subscription(
             ContactsState,
             LEFT_FINGER_CONTACTS_TOPIC,
@@ -305,6 +312,16 @@ class ContactGripperDriver:
     def _on_contact_status(self, msg: String) -> None:
         self._last_contact_status = str(msg.data)
         self._contact_status_event.set()
+
+    def _on_fingers_status(self, msg: String) -> None:
+        """Refresh per-finger contact times from the plugin snapshot topic."""
+        # 插件 1kHz 权威判定的 50Hz 快照;bumper 上报率过低(实测 1/50)导致
+        # 分侧停步长期失灵、probe 深穿透(实测 3mm)诱发接触求解爆发。
+        now = time.monotonic()
+        if "left=1" in msg.data:
+            self._last_left_contact_time = now
+        if "right=1" in msg.data:
+            self._last_right_contact_time = now
 
     def _on_left_contacts(self, msg: ContactsState) -> None:
         if contacts_msg_touches_object(msg, prefix=f"{self._target_object}::"):

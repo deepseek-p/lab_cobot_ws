@@ -20,6 +20,7 @@ from lab_cobot_manipulation.gripper_driver import (
 
 CONTACT_STATUS_TOPIC = "/gripper/contact/status"
 CONTACT_RELEASE_TOPIC = "/gripper/contact/release"
+FINGERS_STATUS_TOPIC = "/gripper/contact/fingers"
 LEFT_FINGER_CONTACTS_TOPIC = "/gripper/left_finger_contacts"
 RIGHT_FINGER_CONTACTS_TOPIC = "/gripper/right_finger_contacts"
 
@@ -79,6 +80,9 @@ class FakeNode:
         elif topic == CONTACT_STATUS_TOPIC:
             assert msg_type.__name__ == "String"
             self._contact_status_callback = callback
+        elif topic == FINGERS_STATUS_TOPIC:
+            assert msg_type.__name__ == "String"
+            self._fingers_status_callback = callback
         elif topic == LEFT_FINGER_CONTACTS_TOPIC:
             assert msg_type.__name__ == "ContactsState"
             self._left_contact_callback = callback

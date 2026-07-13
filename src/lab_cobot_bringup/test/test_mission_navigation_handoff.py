@@ -258,12 +258,17 @@ def test_pick_state_passes_refine_callback_only_when_enabled(enabled):
             calls.append((list(pose), refine_cb))
             return True
 
+        def go_home(self):
+            # PICK 成功后新增的持物收臂步骤会调用 go_home。
+            return True
+
     node = mission_node.MissionNode.__new__(mission_node.MissionNode)
     node.pp = FakePickPlace()
     node._use_refine_detect = enabled
     node._detect = lambda: [0.8, 0.0, 0.78]
     node._make_refine_cb = lambda: callback
     node._finish_station_step = lambda _state, ok: ok
+    node.get_logger = lambda: _Logger()
 
     assert mission_node.MissionNode._execute(node, mission_node.TaskState.PICK)
     assert calls == [([0.8, 0.0, 0.78], callback if enabled else None)]

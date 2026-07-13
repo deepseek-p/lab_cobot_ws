@@ -391,3 +391,19 @@ def test_bringup_disables_gazebo_remote_model_database_for_gui_runs(monkeypatch)
     }
 
     assert env["GAZEBO_MODEL_DATABASE_URI"] == ""
+
+
+def test_bringup_enables_planning_scene_obstacles_by_default(monkeypatch):
+    # 台面碰撞盒+持物样件附着盒默认开启;mission 参数为 launch 配置透传,
+    # 关闭时回退旧行为(机械臂规划对环境盲)。
+    launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+    mission = _node("lab_cobot_bringup", "mission_node", launch_description)
+    mission_params = _node_parameters_raw(mission)
+
+    assert defaults["use_planning_scene_obstacles"] == "true"
+    scene_param = _parameter_value_launch_configuration(
+        mission_params["use_planning_scene_obstacles"]
+    )
+    assert isinstance(scene_param, LaunchConfiguration)
+    assert _text(scene_param.variable_name) == "use_planning_scene_obstacles"

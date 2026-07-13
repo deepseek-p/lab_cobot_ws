@@ -23,6 +23,15 @@ from lab_cobot_manipulation.gripper_driver import (
     make_gripper_driver,
 )
 from lab_cobot_manipulation.refine_select import select_refined_position
+from lab_cobot_manipulation.scene_obstacles import (
+    CARRIED_SAMPLE_BOX_ID,
+    PlanningSceneClient,
+    STATION_SURFACE_BOX_ID,
+    make_attach_scene,
+    make_detach_scene,
+    make_world_box_scene,
+    station_surface_box,
+)
 from pymoveit2 import MoveIt2
 
 UR_JOINTS = [
@@ -96,17 +105,24 @@ class PickPlace(Node):
         self,
         target_object: str = DEFAULT_TARGET_OBJECT,
         use_tactile_grasp: bool = False,
+        use_planning_scene_obstacles: bool = True,
     ):
         super().__init__("pick_place_node")
         self.declare_parameter("approach_height", DEFAULT_APPROACH_HEIGHT)
         self.declare_parameter("gripper_backend", CONTACT_BACKEND)
         self.declare_parameter("target_object", str(target_object))
         self.declare_parameter("use_tactile_grasp", bool(use_tactile_grasp))
+        self.declare_parameter(
+            "use_planning_scene_obstacles", bool(use_planning_scene_obstacles)
+        )
         self.approach_height = float(self.get_parameter("approach_height").value)
         self.gripper_backend = str(self.get_parameter("gripper_backend").value)
         self.target_object = str(self.get_parameter("target_object").value)
         self.use_tactile_grasp = bool(
             self.get_parameter("use_tactile_grasp").value
+        )
+        self.use_planning_scene_obstacles = bool(
+            self.get_parameter("use_planning_scene_obstacles").value
         )
 
         cb = ReentrantCallbackGroup()
@@ -129,7 +145,46 @@ class PickPlace(Node):
             target_object=self.target_object,
             use_tactile_grasp=self.use_tactile_grasp,
         )
+        # 规划场景障碍注入客户端;禁用时为 None,全部调用点走降级路径。
+        self.scene_client = (
+            PlanningSceneClient(self)
+            if self.use_planning_scene_obstacles
+            else None
+        )
         self.get_logger().info("PickPlace 初始化完成")
+
+    # ---- 规划场景障碍(台面盒/持物样件附着盒) ----
+    def _apply_scene_diff(self, scene, label) -> bool:
+        if self.scene_client is None:
+            return False
+        if self.scene_client.apply(scene):
+            return True
+        # 注入失败只降级回旧行为(规划对环境盲),不阻断抓取任务。
+        self.get_logger().warn(f"planning scene {label} apply failed")
+        return False
+
+    def _inject_station_surface(self, pos) -> None:
+        if self.scene_client is None:
+            return
+        scene = make_world_box_scene(
+            STATION_SURFACE_BOX_ID, station_surface_box(pos), "base_link"
+        )
+        if self._apply_scene_diff(scene, "surface add"):
+            self.get_logger().info("planning scene surface box injected")
+
+    def _attach_carried_sample(self) -> None:
+        if self.scene_client is None:
+            return
+        scene = make_attach_scene(CARRIED_SAMPLE_BOX_ID)
+        if self._apply_scene_diff(scene, "sample attach"):
+            self.get_logger().info("planning scene carried sample attached")
+
+    def _detach_carried_sample(self) -> None:
+        if self.scene_client is None:
+            return
+        scene = make_detach_scene(CARRIED_SAMPLE_BOX_ID)
+        if self._apply_scene_diff(scene, "sample detach"):
+            self.get_logger().info("planning scene carried sample detached")
 
     # ---- 基础动作 ----
     def _move(
@@ -282,6 +337,8 @@ class PickPlace(Node):
     # ---- 复合动作(供 mission 调用)----
     def pick(self, pos, refine_cb=None) -> bool:
         """Open → approach → descend → validate/attach → close → lift."""
+        # 台面盒先于第一次臂规划注入,否则 approach 弧仍对台面盲。
+        self._inject_station_surface(pos)
         target = self._pick_tcp_target(pos)
         retry_offsets = [0.0]
         retry_offsets_extended = False
@@ -366,12 +423,16 @@ class PickPlace(Node):
                 self._move_approach(above, cartesian=True)
             self.get_logger().warn("Pick failed: object acquire rejected")
             return "acquire_failed"
+        # 持物段规划护航:样件附着盒随 acquire 成功立即挂上。
+        self._attach_carried_sample()
         if not self.use_tactile_grasp and not self.gripper.close():
             self.gripper.release_object()
+            self._detach_carried_sample()
             self.get_logger().warn("Pick failed: gripper close rejected")
             return "failed"
         if not self._move_approach(lift, cartesian=True):
             self.gripper.release_object()
+            self._detach_carried_sample()
             self.get_logger().warn("Pick failed: lift move failed")
             return "failed"
         self.get_logger().info("Pick complete")
@@ -382,6 +443,8 @@ class PickPlace(Node):
         # 下降只到 pos.z + PLACE_RELEASE_CLEARANCE 即释放(悬空释放),
         # 物块自由落到台面,避免带焊下压引发固定关节 vs 接触约束冲突。
         target = list(pos)
+        # B 台盒同样先于 approach 注入(place_pose 只取 xy,z 为常量台顶)。
+        self._inject_station_surface(pos)
         release_clearance = PLACE_RELEASE_CLEARANCE
         tcp_z_compensation = 0.0
         if self.use_tactile_grasp:
@@ -418,6 +481,7 @@ class PickPlace(Node):
         if not self.gripper.release_object():
             self.get_logger().warn("Place failed: release rejected")
             return False
+        self._detach_carried_sample()
         if self.use_tactile_grasp and TACTILE_PLACE_DROP_SETTLE_SEC > 0.0:
             time.sleep(TACTILE_PLACE_DROP_SETTLE_SEC)
         if not self.gripper.open():

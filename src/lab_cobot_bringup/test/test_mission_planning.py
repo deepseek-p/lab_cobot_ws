@@ -111,3 +111,50 @@ def test_mission_planner_config_reads_key_from_environment(monkeypatch):
     assert isinstance(config, PlannerConfig)
     assert config.api_key == "sk-env-test"
     assert config.llm_enabled is True
+
+
+def _make_pick_step_node(events, pick_ok=True, tuck_ok=True):
+    class FakePickPlace:
+        def pick(self, pose, refine_cb=None):
+            events.append("pick")
+            return pick_ok
+
+        def go_home(self):
+            events.append("tuck")
+            return tuck_ok
+
+    node = MissionNode.__new__(MissionNode)
+    node.get_logger = lambda: FakeLogger()
+    node._latest_task_detection = [0.8, 0.0, 0.63]
+    node._finish_station_step = (
+        lambda state, ok: events.append("retreat") or ok
+    )
+    node.pp = FakePickPlace()
+    return node
+
+
+def test_pick_step_tucks_arm_after_retreat_before_navigation():
+    # PICK 成功链:抓取 → 退避 → 持物收臂。收臂必须在退避之后
+    # (车已离台,收臂弧远离台面),导航之前(调头旋转不再横扫工位)。
+    events = []
+    node = _make_pick_step_node(events)
+
+    assert MissionNode._execute(node, TaskState.PICK)
+    assert events == ["pick", "retreat", "tuck"]
+
+
+def test_pick_step_skips_tuck_when_pick_fails():
+    events = []
+    node = _make_pick_step_node(events, pick_ok=False)
+
+    assert not MissionNode._execute(node, TaskState.PICK)
+    assert "tuck" not in events
+
+
+def test_pick_step_tuck_failure_degrades_without_failing_task():
+    # 收臂失败只降级为旧行为(伸展位形导航),不把新增步骤变成任务级失败点。
+    events = []
+    node = _make_pick_step_node(events, tuck_ok=False)
+
+    assert MissionNode._execute(node, TaskState.PICK)
+    assert events == ["pick", "retreat", "tuck"]

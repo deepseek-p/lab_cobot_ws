@@ -353,6 +353,9 @@ class MissionNode(Node):
         self.declare_parameter("use_tactile_grasp", False)
         self.declare_parameter("use_refine_detect", False)
         self.declare_parameter("use_wrist_detect", False)
+        # 规划场景障碍注入(台面盒+持物样件附着盒),默认开启;
+        # 关闭时回退旧行为(机械臂规划对环境盲)。
+        self.declare_parameter("use_planning_scene_obstacles", True)
         self.declare_parameter("wrist_marker_id", DEFAULT_WRIST_MARKER_ID)
         self.declare_parameter("place_pose", DEFAULT_PLACE_POSE)  # base_link 系放置点
         self.object_id = int(self.get_parameter("object_id").value)
@@ -365,6 +368,9 @@ class MissionNode(Node):
         )
         self._use_wrist_detect = bool(
             self.get_parameter("use_wrist_detect").value
+        )
+        self.use_planning_scene_obstacles = bool(
+            self.get_parameter("use_planning_scene_obstacles").value
         )
         self.wrist_marker_id = int(self.get_parameter("wrist_marker_id").value)
         self.place_pose = list(self.get_parameter("place_pose").value)
@@ -390,6 +396,7 @@ class MissionNode(Node):
         self.pp = PickPlace(
             target_object=self.target_object,
             use_tactile_grasp=self.use_tactile_grasp,
+            use_planning_scene_obstacles=self.use_planning_scene_obstacles,
         )
         self.retreat_pub = self.create_publisher(Twist, RETREAT_TOPIC, 10)
         self._latest_odom_pose = None
@@ -493,7 +500,13 @@ class MissionNode(Node):
                     pose,
                     refine_cb=refine_cb,
                 )
-                return self._finish_station_step(state, ok)
+                ok = self._finish_station_step(state, ok)
+                if ok:
+                    # 退避完成后、启动导航前持物收臂:PLACE→RETURN_HOME 已有
+                    # go_home 先收臂再返航的对称设计,唯独 PICK→NAV_TO_PLACE
+                    # 缺此步,前伸臂+样件随调头旋转横扫工位(用户 GUI 实测穿模)。
+                    self._tuck_arm_for_transit()
+                return ok
             if state == TaskState.NAV_TO_PLACE:
                 return (
                     self._navigate("station_b")
@@ -517,6 +530,16 @@ class MissionNode(Node):
             return self._retreat_from_station()
         return ok
 
+    def _tuck_arm_for_transit(self) -> None:
+        """Tuck the arm to the home configuration before base transit."""
+        # 收臂失败仅告警降级为旧行为(伸展位形导航),
+        # 不把新增步骤变成任务级失败点。
+        try:
+            if not self.pp.go_home():
+                self.get_logger().warn("持物收臂失败,按伸展位形继续导航")
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"持物收臂异常: {e}")
+
     def _duration_elapsed(self, start, duration_sec: float) -> bool:
         elapsed = self.get_clock().now() - start
         timeout = rclpy.duration.Duration(seconds=duration_sec)
@@ -534,6 +557,12 @@ class MissionNode(Node):
             self.pp.gripper.release_object()
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f"兜底 detach 失败: {e}")
+        try:
+            # 兜底同步移除 MoveIt 侧样件附着盒;残留只造成保守绕行,
+            # 但清掉后续任务规划更干净(pp 内部接口,与 pp.gripper 同级深链)。
+            self.pp._detach_carried_sample()
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"兜底场景 detach 失败: {e}")
         try:
             self._stop_base(DOCK_STOP_SEC)
         except Exception as e:  # noqa: BLE001

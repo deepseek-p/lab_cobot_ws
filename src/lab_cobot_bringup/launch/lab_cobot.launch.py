@@ -41,6 +41,9 @@ def generate_launch_description():
     use_tactile_grasp = LaunchConfiguration("use_tactile_grasp")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
     use_wrist_detect = LaunchConfiguration("use_wrist_detect")
+    use_planning_scene_obstacles = LaunchConfiguration(
+        "use_planning_scene_obstacles"
+    )
     use_wrist_camera = PythonExpression([
         "'true' if ('",
         use_refine_detect,
@@ -171,6 +174,10 @@ def generate_launch_description():
             "use_wrist_detect": ParameterValue(
                 use_wrist_detect, value_type=bool
             ),
+            # 规划场景障碍注入(台面盒+持物样件附着盒),默认开启。
+            "use_planning_scene_obstacles": ParameterValue(
+                use_planning_scene_obstacles, value_type=bool
+            ),
         }],
         condition=IfCondition(LaunchConfiguration("launch_mission")),
     )
@@ -242,6 +249,10 @@ def generate_launch_description():
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
         # 标准 eye-in-hand DETECT 开关；相机/检测节点与精修开关做 OR。
         DeclareLaunchArgument("use_wrist_detect", default_value="false"),
+        # 机械臂规划场景障碍注入:台面盒+持物样件附着盒(mission 透传)。
+        DeclareLaunchArgument(
+            "use_planning_scene_obstacles", default_value="true"
+        ),
         DeclareLaunchArgument("launch_voice", default_value="false"),
         DeclareLaunchArgument("voice_audio_file", default_value=""),
         # WSLg 稳定渲染(源自 robot_lab_demo 验证经验)

@@ -65,6 +65,26 @@ class FakeLogger:
         self._events.append(f"log_warn:{message}")
 
 
+class FakeSceneClient:
+    """Record planning scene diffs as sequence events."""
+
+    def __init__(self, events, ok=True):
+        self._events = events
+        self._ok = ok
+
+    def apply(self, scene, **kwargs):
+        attached = scene.robot_state.attached_collision_objects
+        if attached:
+            operation = attached[0].object.operation
+            if operation == attached[0].object.ADD:
+                self._events.append("scene_attach")
+            else:
+                self._events.append("scene_detach")
+        elif scene.world.collision_objects:
+            self._events.append("scene_surface")
+        return self._ok
+
+
 def make_pick_place_without_ros(
     fake_moves,
     open_ok=True,
@@ -82,6 +102,7 @@ def make_pick_place_without_ros(
     pick_place.move_kwargs = []
     pick_place.gripper_backend = "test"
     pick_place.use_tactile_grasp = use_tactile_grasp
+    pick_place.scene_client = None
     pick_place.get_logger = lambda: FakeLogger(pick_place.events)
     pick_place.gripper = FakeGripper(
         pick_place.events,
@@ -830,3 +851,79 @@ def test_move_to_observe_retries_transient_execution_failure(monkeypatch):
 
     assert pick_place.move_to_observe()
     assert configs == [pick_place_node.OBSERVE_CONFIG] * 2
+
+
+def test_pick_injects_surface_before_arm_motion_and_attaches_after_acquire():
+    # 台面盒必须先于第一次臂规划注入(否则 approach 弧仍对台面盲);
+    # 样件附着盒必须在 acquire 成功后立即挂上(持物段全程护航)。
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "scene_surface",
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+        "scene_attach",
+        "close",
+        "move_above",
+    ]
+
+
+def test_pick_detaches_scene_box_when_close_fails_after_attach():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True],
+        close_ok=False,
+    )
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "scene_surface",
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+        "scene_attach",
+        "close",
+        "release",
+        "scene_detach",
+    ]
+
+
+def test_pick_detaches_scene_box_when_lift_fails_after_attach():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True, False, False]
+    )
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    events = action_events(pick_place.events)
+    assert events[-2:] == ["release", "scene_detach"]
+
+
+def test_place_injects_surface_and_detaches_after_release():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert pick_place.place([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "scene_surface",
+        "move_above",
+        "move_grasp",
+        "release",
+        "scene_detach",
+        "open",
+        "move_above",
+    ]
+
+
+def test_scene_apply_failure_degrades_to_legacy_behavior():
+    # 注入失败只降级回旧行为(规划对环境盲),不得阻断抓取任务。
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events, ok=False)
+
+    assert pick_place.pick([0.8, 0.0, 0.78])
+    assert "log_warn:planning scene surface add apply failed" in pick_place.events
