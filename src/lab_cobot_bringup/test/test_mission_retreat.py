@@ -83,6 +83,22 @@ def test_departure_retreat_uses_mecanum_driver_command_topic_and_backs_up():
     assert RETREAT_DURATION_SEC >= 5.0
 
 
+def test_finish_station_step_retracts_arm_after_pick_departure():
+    events = []
+
+    class FakePickPlace:
+        def go_home(self):
+            events.append("arm_home")
+            return True
+
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakePickPlace()
+    node._retreat_from_station = lambda: events.append("retreat") or True
+
+    assert MissionNode._finish_station_step(node, TaskState.PICK, True)
+    assert events == ["retreat", "arm_home"]
+
+
 def test_departure_retreat_runs_after_manipulation_steps_only():
     assert requires_departure_retreat(TaskState.PICK)
     assert not requires_departure_retreat(TaskState.PLACE)

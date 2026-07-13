@@ -273,6 +273,61 @@ def test_nav_to_place_uses_nav2_before_local_place_docking():
     ]
 
 
+def test_axis_aligned_navigation_goals_rotate_align_and_traverse_for_station_b():
+    goals = mission_node.axis_aligned_navigation_goals(
+        "station_b",
+        [1.80, -0.20, 0.0],
+    )
+
+    assert goals == [
+        ("station_b_rotate", {"x": 1.80, "y": -0.20, "yaw": math.pi / 2.0}, "rotate"),
+        ("station_b_corridor_align", {"x": 1.80, "y": 0.62, "yaw": math.pi / 2.0}, "forward"),
+        ("station_b_corridor_traverse", {"x": -2.0, "y": 0.62, "yaw": math.pi / 2.0}, "strafe"),
+    ]
+
+
+def test_axis_aligned_velocity_uses_single_axis_commands_per_stage():
+    rotate_done, rotate_cmd = mission_node.axis_aligned_velocity_for_goal(
+        [0.0, 0.0, 0.0],
+        {"x": 0.0, "y": 0.0, "yaw": math.pi / 2.0},
+        "rotate",
+    )
+    forward_done, forward_cmd = mission_node.axis_aligned_velocity_for_goal(
+        [1.80, -0.20, math.pi / 2.0],
+        {"x": 1.80, "y": 0.62, "yaw": math.pi / 2.0},
+        "forward",
+    )
+    strafe_done, strafe_cmd = mission_node.axis_aligned_velocity_for_goal(
+        [1.80, 0.62, math.pi / 2.0],
+        {"x": -2.0, "y": 0.62, "yaw": math.pi / 2.0},
+        "strafe",
+    )
+
+    assert not rotate_done
+    assert rotate_cmd.linear.x == pytest.approx(0.0)
+    assert rotate_cmd.linear.y == pytest.approx(0.0)
+    assert rotate_cmd.angular.z > 0.0
+
+    assert not forward_done
+    assert forward_cmd.linear.x > 0.0
+    assert forward_cmd.linear.y == pytest.approx(0.0)
+
+    assert not strafe_done
+    assert strafe_cmd.linear.x == pytest.approx(0.0)
+    assert strafe_cmd.linear.y > 0.0
+
+
+def test_navigate_prefers_axis_aligned_transfer_when_enabled_and_pose_available():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._axis_aligned_station_transfer = True
+    node._base_pose_in_map = lambda timeout_sec=0.05: [0.20, 0.00, 0.0]
+    calls = []
+    node._navigate_axis_aligned = lambda station, pose: calls.append((station, pose)) or True
+
+    assert mission_node.MissionNode._navigate(node, "station_a")
+    assert calls == [("station_a", [0.20, 0.00, 0.0])]
+
+
 def test_return_home_retracts_arm_before_base_navigation():
     events = []
 
@@ -437,7 +492,7 @@ def test_place_navigation_can_handoff_when_tcp_target_is_on_station_b_table():
 
 def test_place_navigation_can_handoff_when_projected_drop_point_is_on_table():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
-    base_pose = (-1.80, 0.75, math.radians(90.0))
+    base_pose = (-1.65, 0.45, math.radians(90.0))
     station_b = mission_node._station_base_pose("station_b")
     distance_to_station = math.hypot(
         base_pose[0] - station_b[0],
