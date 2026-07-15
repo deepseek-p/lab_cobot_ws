@@ -134,6 +134,7 @@ class ArucoDetector(Node):
         self.declare_parameter("marker_to_object_center_m", 0.035)
         self.declare_parameter("topic_namespace", "/perception")
         self.declare_parameter("publish_tf", True)
+        self.declare_parameter("process_period_sec", 0.2)
 
         self.object_id = int(self.get_parameter("object_id").value)
         self.use_gazebo_model_pose = bool(
@@ -191,8 +192,12 @@ class ArucoDetector(Node):
         self.create_subscription(CameraInfo, info, self._info_cb, 10)
         self.create_subscription(Image, rgb, self._rgb_cb, 10)
         self.create_subscription(Image, depth, self._depth_cb, 10)
-        self.create_timer(0.2, self._process)  # 5 Hz
+        self._create_process_timer()
         self.get_logger().info("aruco_detector 启动")
+
+    def _create_process_timer(self):
+        period = float(self.get_parameter("process_period_sec").value)
+        self.create_timer(period, self._process)
 
     def _info_cb(self, msg: CameraInfo):
         k = msg.k

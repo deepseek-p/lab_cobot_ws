@@ -280,7 +280,9 @@ def test_bringup_declares_tactile_grasp_enabled_by_default(monkeypatch):
     assert _text(use_tactile.variable_name) == "use_tactile_grasp"
 
 
-def test_bringup_disables_wrist_refine_pipeline_by_default(monkeypatch):
+def test_bringup_enables_wrist_refine_pipeline_by_default(monkeypatch):
+    # 2026-07-14 用户裁决:腕相机链(拍照位检测+approach 精修)为主路径,
+    # 默认常开;bench 全景检测保留为 miss 降级路径。
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)
     mission = _node("lab_cobot_bringup", "mission_node", launch_description)
@@ -293,8 +295,9 @@ def test_bringup_disables_wrist_refine_pipeline_by_default(monkeypatch):
     )
     world_args = _include_arguments(world)
 
-    assert defaults["use_refine_detect"] == "false"
-    assert "wrist_aruco_detector" not in {
+    assert defaults["use_refine_detect"] == "true"
+    assert defaults["use_wrist_detect"] == "true"
+    assert "wrist_aruco_detector" in {
         _node_name(node) for node in _active_nodes(launch_description)
     }
     mission_refine = _parameter_value_launch_configuration(
@@ -306,6 +309,35 @@ def test_bringup_disables_wrist_refine_pipeline_by_default(monkeypatch):
     assert _text(world_args["use_refine_detect"].variable_name) == (
         "use_refine_detect"
     )
+    mission_wrist = _parameter_value_launch_configuration(
+        mission_params["use_wrist_detect"]
+    )
+    assert isinstance(mission_wrist, LaunchConfiguration)
+    assert _text(mission_wrist.variable_name) == "use_wrist_detect"
+    assert isinstance(world_args["use_wrist_detect"], LaunchConfiguration)
+    assert _text(world_args["use_wrist_detect"].variable_name) == (
+        "use_wrist_detect"
+    )
+
+
+def test_wrist_pipeline_or_condition_covers_all_three_switch_states(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+
+    def active_names(overrides):
+        return {_node_name(node) for node in _active_nodes(launch_description, overrides)}
+
+    assert "wrist_aruco_detector" not in active_names({
+        "use_refine_detect": "false",
+        "use_wrist_detect": "false",
+    })
+    assert "wrist_aruco_detector" in active_names({
+        "use_refine_detect": "true",
+        "use_wrist_detect": "false",
+    })
+    assert "wrist_aruco_detector" in active_names({
+        "use_refine_detect": "false",
+        "use_wrist_detect": "true",
+    })
 
 
 def test_bringup_enables_configured_wrist_aruco_instance(monkeypatch):
@@ -330,6 +362,7 @@ def test_bringup_enables_configured_wrist_aruco_instance(monkeypatch):
     assert params["optical_frame"] == "wrist_camera_optical_frame"
     assert params["target_frame"] == "base_link"
     assert params["marker_size_m"] == 0.07 * (240.0 / 312.0)
+    assert params["process_period_sec"] == 0.05
     assert "use_gazebo_model_pose" not in params
 
 
@@ -360,3 +393,19 @@ def test_bringup_disables_gazebo_remote_model_database_for_gui_runs(monkeypatch)
     }
 
     assert env["GAZEBO_MODEL_DATABASE_URI"] == ""
+
+
+def test_bringup_enables_planning_scene_obstacles_by_default(monkeypatch):
+    # 台面碰撞盒+持物样件附着盒默认开启;mission 参数为 launch 配置透传,
+    # 关闭时回退旧行为(机械臂规划对环境盲)。
+    launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+    mission = _node("lab_cobot_bringup", "mission_node", launch_description)
+    mission_params = _node_parameters_raw(mission)
+
+    assert defaults["use_planning_scene_obstacles"] == "true"
+    scene_param = _parameter_value_launch_configuration(
+        mission_params["use_planning_scene_obstacles"]
+    )
+    assert isinstance(scene_param, LaunchConfiguration)
+    assert _text(scene_param.variable_name) == "use_planning_scene_obstacles"

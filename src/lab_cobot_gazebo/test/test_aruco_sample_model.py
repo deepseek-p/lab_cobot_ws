@@ -17,33 +17,34 @@ def _visuals():
     return _model_root().findall(".//link[@name='link']/visual")
 
 
-def test_aruco_texture_is_on_single_robot_facing_patch_not_entire_cube():
-    visuals = _visuals()
-    marker_visuals = [
-        visual
-        for visual in visuals
-        if visual.findtext("./material/script/name") == "ArucoSample/Marker"
-    ]
+def test_front_aruco_patch_contract_is_unchanged():
+    marker = _model_root().find(
+        ".//link[@name='link']/visual[@name='aruco_marker_front']"
+    )
 
-    assert len(marker_visuals) == 1
-    marker = marker_visuals[0]
-    assert marker.find("./geometry/box") is not None
+    assert marker is not None
+    assert marker.findtext("pose") == "0 -0.0355 0 0 0 0"
     assert marker.findtext("./geometry/box/size") == "0.07 0.001 0.07"
-    assert marker.findtext("pose").split()[1] == "-0.0355"
+    assert marker.findtext("./material/script/name") == "ArucoSample/Marker"
+
+
+def test_top_aruco_patch_uses_marker_id_one_material():
+    marker = _model_root().find(
+        ".//link[@name='link']/visual[@name='aruco_marker_top']"
+    )
+
+    assert marker is not None
+    assert marker.findtext("pose") == "0 0 0.0355 0 0 0"
+    assert marker.findtext("./geometry/box/size") == "0.07 0.07 0.001"
+    assert marker.findtext("./material/script/name") == "ArucoSample/MarkerTop"
 
 
 def test_cube_body_visual_does_not_repeat_the_aruco_texture_on_all_faces():
-    box_visuals = [
-        visual
-        for visual in _visuals()
-        if visual.find("./geometry/box") is not None
-        and visual.findtext("./material/script/name") != "ArucoSample/Marker"
-    ]
+    cube = _model_root().find(".//link[@name='link']/visual[@name='body_visual']")
 
-    assert len(box_visuals) == 1
-    cube = box_visuals[0]
+    assert cube is not None
     assert cube.findtext("./geometry/box/size") == "0.07 0.07 0.07"
-    assert cube.findtext("./material/script/name") != "ArucoSample/Marker"
+    assert cube.find("./material/script") is None
 
 
 def test_collision_contact_surface_uses_tactile_safe_deadband():

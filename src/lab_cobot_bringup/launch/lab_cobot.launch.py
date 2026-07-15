@@ -18,7 +18,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -40,6 +40,17 @@ def generate_launch_description():
     require_finger_contact = LaunchConfiguration("require_finger_contact")
     use_tactile_grasp = LaunchConfiguration("use_tactile_grasp")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
+    use_wrist_detect = LaunchConfiguration("use_wrist_detect")
+    use_planning_scene_obstacles = LaunchConfiguration(
+        "use_planning_scene_obstacles"
+    )
+    use_wrist_camera = PythonExpression([
+        "'true' if ('",
+        use_refine_detect,
+        "' == 'true' or '",
+        use_wrist_detect,
+        "' == 'true') else 'false'",
+    ])
     launch_voice = LaunchConfiguration("launch_voice")
     voice_audio_file = LaunchConfiguration("voice_audio_file")
 
@@ -49,6 +60,7 @@ def generate_launch_description():
             "gui": gui,
             "require_finger_contact": require_finger_contact,
             "use_refine_detect": use_refine_detect,
+            "use_wrist_detect": use_wrist_detect,
         }.items(),
     )
     move_group = IncludeLaunchDescription(
@@ -101,8 +113,9 @@ def generate_launch_description():
             "optical_frame": "wrist_camera_optical_frame",
             "target_frame": "base_link",
             "marker_size_m": 0.07 * (240.0 / 312.0),
+            "process_period_sec": 0.05,
         }],
-        condition=IfCondition(use_refine_detect),
+        condition=IfCondition(use_wrist_camera),
     )
     object_detector = Node(
         package="lab_cobot_perception",
@@ -157,6 +170,13 @@ def generate_launch_description():
             ),
             "use_refine_detect": ParameterValue(
                 use_refine_detect, value_type=bool
+            ),
+            "use_wrist_detect": ParameterValue(
+                use_wrist_detect, value_type=bool
+            ),
+            # 规划场景障碍注入(台面盒+持物样件附着盒),默认开启。
+            "use_planning_scene_obstacles": ParameterValue(
+                use_planning_scene_obstacles, value_type=bool
             ),
         }],
         condition=IfCondition(LaunchConfiguration("launch_mission")),
@@ -226,7 +246,14 @@ def generate_launch_description():
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_tactile_grasp", default_value="true"),
         # 两段式精修总开关:xacro 相机、检测节点、mission 三处同源。
-        DeclareLaunchArgument("use_refine_detect", default_value="false"),
+        # 2026-07-14 用户裁决:腕相机链为主路径默认常开,bench 为降级路径。
+        DeclareLaunchArgument("use_refine_detect", default_value="true"),
+        # 标准 eye-in-hand DETECT 开关；相机/检测节点与精修开关做 OR。
+        DeclareLaunchArgument("use_wrist_detect", default_value="true"),
+        # 机械臂规划场景障碍注入:台面盒+持物样件附着盒(mission 透传)。
+        DeclareLaunchArgument(
+            "use_planning_scene_obstacles", default_value="true"
+        ),
         DeclareLaunchArgument("launch_voice", default_value="false"),
         DeclareLaunchArgument("voice_audio_file", default_value=""),
         # WSLg 稳定渲染(源自 robot_lab_demo 验证经验)

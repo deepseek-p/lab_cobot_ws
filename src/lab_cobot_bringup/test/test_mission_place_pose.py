@@ -11,7 +11,10 @@ from lab_cobot_bringup.mission_node import (
     STATION_B_SAFE_DROP_FRONT_Y,
     _base_target_to_map,
 )
-from lab_cobot_manipulation.pick_place_node import PLACE_RELEASE_CLEARANCE
+from lab_cobot_manipulation.pick_place_node import (
+    TACTILE_PLACE_RELEASE_CLEARANCE,
+    TACTILE_PLACE_TCP_Z_COMPENSATION,
+)
 
 
 def _base_to_map(base_xy, station):
@@ -30,9 +33,9 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
         "yaw": PLACE_BASE_TARGET_POSE[2],
     }
     base_link_world_z = 0.155
-    # 焊接偏移按 E2E 实测标定:pick 时 TCP=检测z+PICK_TCP_Z_CLEARANCE(0.06),
-    # 视觉 z 系统偏差约 +5mm,故物块中心距 TCP 约 -0.065(非早期误估的 -0.027)
-    held_sample_center_from_tcp_z = -0.065
+    # 历史标定为 -0.065m(非早期误估的 -0.027m);2026-07-12 DG-2 深抓探针
+    # 两轮实测为 -0.013055m/-0.017907m,这里取实测中点 -0.015481m。
+    held_sample_center_from_tcp_z = -0.015481
     vision_z_error_band = 0.015
     table_top_world_z = 0.75
     sample_half_height = 0.035
@@ -54,7 +57,8 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
     # 同时落差不超过 8cm,避免 0.05kg 样件弹跳出安全落区。
     release_bottom_world_z = (
         DEFAULT_PLACE_POSE[2]
-        + PLACE_RELEASE_CLEARANCE
+        + TACTILE_PLACE_RELEASE_CLEARANCE
+        - TACTILE_PLACE_TCP_Z_COMPENSATION
         + base_link_world_z
         + held_sample_center_from_tcp_z
         - sample_half_height

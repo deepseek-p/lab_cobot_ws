@@ -20,7 +20,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -33,6 +33,14 @@ def generate_launch_description():
     urdf_xacro = os.path.join(desc_pkg, "urdf", "lab_cobot.urdf.xacro")
     require_finger_contact = LaunchConfiguration("require_finger_contact")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
+    use_wrist_detect = LaunchConfiguration("use_wrist_detect")
+    use_wrist_camera = PythonExpression([
+        "'true' if ('",
+        use_refine_detect,
+        "' == 'true' or '",
+        use_wrist_detect,
+        "' == 'true') else 'false'",
+    ])
     robot_description = {
         "robot_description": Command([
             "xacro ",
@@ -41,7 +49,7 @@ def generate_launch_description():
             require_finger_contact,
             " gazebo_tactile_probe:=true",
             " wrist_refine_camera:=",
-            use_refine_detect,
+            use_wrist_camera,
         ])
     }
     plugin_path = os.path.join(os.path.dirname(os.path.dirname(gz_pkg)), "lib")
@@ -142,6 +150,7 @@ def generate_launch_description():
         # 2026-07-10 T-5 翻默认:与 bringup 一致,单独起 world 调试时同样门控 attach。
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
+        DeclareLaunchArgument("use_wrist_detect", default_value="false"),
         model_path,
         gazebo_plugin_path,
         gzserver,

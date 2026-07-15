@@ -22,9 +22,11 @@
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "lab_cobot_gazebo/attached_object_collision.hpp"
 #include "lab_cobot_gazebo/finger_collision_config.hpp"
 #include "lab_cobot_gazebo/finger_contact_gate.hpp"
 #include "lab_cobot_gazebo/grasp_envelope.hpp"
+#include "lab_cobot_gazebo/post_attach_velocity_clamp.hpp"
 
 namespace gazebo
 {
@@ -159,6 +161,11 @@ public:
     contact_status_pub_ = ros_node_->create_publisher<std_msgs::msg::String>(
       contact_status_topic_,
       rclcpp::QoS(10));
+    // per-finger 接触快照(50Hz):bumper 对 probe 接触上报率过低(实测 1/50),
+    // driver 分侧停步以本 topic 为主信号,插件 1kHz ContactManager 为权威源。
+    fingers_status_pub_ = ros_node_->create_publisher<std_msgs::msg::String>(
+      "/gripper/contact/fingers",
+      rclcpp::QoS(10));
     contact_release_sub_ = ros_node_->create_subscription<std_msgs::msg::Empty>(
       contact_release_topic_,
       rclcpp::QoS(10),
@@ -200,6 +207,13 @@ private:
         suppress_attach_until_open_ = true;
         return;
       }
+      const auto clamp_step = lab_cobot_gazebo::AdvancePostAttachVelocityClamp(
+        post_attach_velocity_clamp_remaining_steps_);
+      post_attach_velocity_clamp_remaining_steps_ = clamp_step.remaining_steps;
+      if (clamp_step.should_clamp && attached_object_link_) {
+        attached_object_link_->SetLinearVel(ignition::math::Vector3d::Zero);
+        attached_object_link_->SetAngularVel(ignition::math::Vector3d::Zero);
+      }
       // 约束力保险丝(默认禁用,见 Load 中说明):仅当显式配置
       // breakaway_force > 0 时启用;连续计数滤除单帧数值脉冲。
       if (breakaway_force_ > 0.0) {
@@ -222,6 +236,29 @@ private:
         }
       }
       return;
+    }
+    if (require_finger_contact_ && fingers_status_pub_) {
+      // 50Hz 节流;含封套外场景(手指已触但候选被封套拒时 driver 同样需要停步)。
+      if (++fingers_publish_countdown_ >= 20) {
+        fingers_publish_countdown_ = 0;
+        const auto finger_pairs = CurrentContactPairs();
+        const auto left_name = left_joint->GetChild()->GetName();
+        const auto right_name = right_joint->GetChild()->GetName();
+        bool left_touch = false;
+        bool right_touch = false;
+        for (const auto & target : object_model_names_) {
+          for (const auto & pair : finger_pairs) {
+            left_touch = left_touch || lab_cobot_gazebo::FingerTouchesTarget(
+              pair, model_->GetName(), left_name, target);
+            right_touch = right_touch || lab_cobot_gazebo::FingerTouchesTarget(
+              pair, model_->GetName(), right_name, target);
+          }
+        }
+        std_msgs::msg::String fingers_msg;
+        fingers_msg.data = std::string("fingers left=") +
+          (left_touch ? "1" : "0") + " right=" + (right_touch ? "1" : "0");
+        fingers_status_pub_->publish(fingers_msg);
+      }
     }
     if (release_requested) {
       suppress_attach_until_open_ = true;
@@ -279,6 +316,11 @@ private:
       finger_contact_count_ = 0;
     }
     if (require_finger_contact_) {
+      // 判定期每 tick 清零(2026-07-13 复核保留):双 probe 接触瞬间存在引擎级
+      // 间歇速度爆发(1kHz 插桩实证,与清零/穿透深浅/分侧停均无关,五种干预
+      // 实测均无法根治)。清零的实际作用是位移抑制——把爆发按在原地使抓取
+      // 继续(E2E 4/5 最稳版本);配合 fingers 快照直连的分侧停(压穿透、削
+      // 能量积累),大幅爆发(曾 GUI 下打飞 7m)频率显著降低。
       candidate.link->SetLinearVel(ignition::math::Vector3d::Zero);
       candidate.link->SetAngularVel(ignition::math::Vector3d::Zero);
       const auto pairs = CurrentContactPairs();
@@ -411,6 +453,12 @@ private:
       return;
     }
 
+    const int collision_count = ApplyObjectCollisionResponse(
+      object_link,
+      lab_cobot_gazebo::AttachedObjectCollisionPhase::kFixedJointHeld);
+    gzmsg << "lab_cobot_grasp_fix disabled collision response for "
+          << object_name << " (" << collision_count << " collision(s))"
+          << std::endl;
     fixed_joint_ = world_->Physics()->CreateJoint("fixed", model_);
     fixed_joint_->Load(attach_link, object_link, ignition::math::Pose3d());
     fixed_joint_->Init();
@@ -418,11 +466,15 @@ private:
     fixed_joint_->SetProvideFeedback(true);
     object_link->SetLinearVel(ignition::math::Vector3d::Zero);
     object_link->SetAngularVel(ignition::math::Vector3d::Zero);
+    attached_object_link_ = object_link;
+    post_attach_velocity_clamp_remaining_steps_ = kPostAttachVelocityClampSteps;
     attached_object_name_ = object_name;
     pending_object_name_.clear();
     PublishStatus("attached " + object_name);
     gzmsg << "lab_cobot_grasp_fix attached " << object_name
-          << " to " << attach_link->GetName() << std::endl;
+          << " to " << attach_link->GetName()
+          << " with " << kPostAttachVelocityClampSteps
+          << " post-attach velocity clamp step(s)" << std::endl;
   }
 
   void DetachObject(const std::string & reason = "")
@@ -436,7 +488,14 @@ private:
 
     fixed_joint_->Detach();
     fixed_joint_.reset();
+    post_attach_velocity_clamp_remaining_steps_ = 0;
     if (object_link) {
+      const int collision_count = ApplyObjectCollisionResponse(
+        object_link,
+        lab_cobot_gazebo::AttachedObjectCollisionPhase::kReleased);
+      gzmsg << "lab_cobot_grasp_fix restored collision response for "
+            << object_name << " (" << collision_count << " collision(s))"
+            << std::endl;
       object_link->SetLinearVel(ignition::math::Vector3d::Zero);
       object_link->SetAngularVel(ignition::math::Vector3d::Zero);
     }
@@ -449,7 +508,31 @@ private:
     gzmsg << "lab_cobot_grasp_fix released " << object_name
           << (reason.empty() ? "" : " (" + reason + ")") << std::endl;
     attached_object_name_.clear();
+    attached_object_link_.reset();
     pending_object_name_.clear();
+  }
+
+  int ApplyObjectCollisionResponse(
+    const physics::LinkPtr & object_link,
+    lab_cobot_gazebo::AttachedObjectCollisionPhase phase) const
+  {
+    if (!object_link) {
+      return 0;
+    }
+    const auto settings = lab_cobot_gazebo::ObjectCollisionResponseForPhase(phase);
+    int configured = 0;
+    for (const auto & collision : object_link->GetCollisions()) {
+      if (!collision) {
+        continue;
+      }
+      auto surface = collision->GetSurface();
+      if (surface) {
+        surface->collideBitmask = settings.surface_collide_bitmask;
+      }
+      collision->SetCollideBits(settings.collide_bits);
+      configured += 1;
+    }
+    return configured;
   }
 
   bool ConsumeReleaseRequested()
@@ -609,12 +692,15 @@ private:
   physics::WorldPtr world_;
   event::ConnectionPtr update_connection_;
   physics::JointPtr fixed_joint_;
+  physics::LinkPtr attached_object_link_;
   gazebo_ros::Node::SharedPtr ros_node_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr contact_status_pub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr contact_release_sub_;
   std::vector<std::string> object_model_names_;
   std::string attached_object_name_;
   std::string pending_object_name_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fingers_status_pub_;
+  int fingers_publish_countdown_{0};
   std::string object_link_name_;
   std::string tcp_link_name_;
   std::string left_joint_name_;
@@ -634,6 +720,8 @@ private:
   bool require_finger_contact_{false};
   int contact_count_threshold_{3};
   int finger_contact_count_{0};
+  static constexpr int kPostAttachVelocityClampSteps = 10;
+  int post_attach_velocity_clamp_remaining_steps_{0};
   double breakaway_force_{0.0};
   int breakaway_count_threshold_{3};
   int breakaway_count_{0};

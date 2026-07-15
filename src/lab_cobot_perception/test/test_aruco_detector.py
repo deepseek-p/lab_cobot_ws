@@ -62,6 +62,11 @@ class FakePosePublisher:
         self.messages.append(msg)
 
 
+class FakeParameter:
+    def __init__(self, value):
+        self.value = value
+
+
 def test_detector_matches_project_sample_texture():
     texture = (
         Path(__file__).resolve().parents[2]
@@ -79,6 +84,36 @@ def test_detector_matches_project_sample_texture():
 
     assert ids is not None
     assert ids.flatten().tolist() == [0]
+
+
+def test_process_timer_defaults_to_existing_point_two_second_period():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    created = {}
+    detector.get_parameter = lambda name: FakeParameter(
+        0.2 if name == "process_period_sec" else None
+    )
+    detector.create_timer = lambda period, callback: created.update(
+        {"period": period, "callback": callback}
+    )
+
+    detector._create_process_timer()
+
+    assert created == {"period": 0.2, "callback": detector._process}
+
+
+def test_process_timer_uses_configured_period():
+    detector = object.__new__(aruco_detector.ArucoDetector)
+    created = {}
+    detector.get_parameter = lambda name: FakeParameter(
+        0.05 if name == "process_period_sec" else None
+    )
+    detector.create_timer = lambda period, callback: created.update(
+        {"period": period, "callback": callback}
+    )
+
+    detector._create_process_timer()
+
+    assert created == {"period": 0.05, "callback": detector._process}
 
 
 def test_area_threshold_accepts_station_a_runtime_marker_size():

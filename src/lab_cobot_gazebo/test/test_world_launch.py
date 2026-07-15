@@ -172,3 +172,9 @@ def test_world_robot_description_enables_wrist_camera_from_shared_switch():
     command = _robot_description_command_text({"use_refine_detect": "true"})
 
     assert "wrist_refine_camera:=true" in command
+
+
+def test_world_robot_description_enables_wrist_camera_for_wrist_detect():
+    command = _robot_description_command_text({"use_wrist_detect": "true"})
+
+    assert "wrist_refine_camera:=true" in command

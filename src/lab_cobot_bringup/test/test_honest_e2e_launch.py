@@ -154,8 +154,9 @@ class TestHonestE2E(unittest.TestCase):
         try:
             self._assert_truth_pose_disabled(node)
             self._assert_attach_bridge_not_running(node)
-            self._assert_wrist_detector_not_running(node)
-            self._assert_refine_detect_disabled(node)
+            self._assert_wrist_detector_running(node)
+            self._assert_refine_detect_enabled(node)
+            self._assert_wrist_detect_enabled(node)
             started = time.monotonic()
             last_publish = 0.0
             while time.monotonic() - started < TASK_TIMEOUT_SEC:
@@ -222,11 +223,13 @@ class TestHonestE2E(unittest.TestCase):
         names = {name for name, _namespace in node.get_node_names_and_namespaces()}
         self.assertNotIn("gripper_attach_bridge", names)
 
-    def _assert_wrist_detector_not_running(self, node):
+    def _assert_wrist_detector_running(self, node):
+        # 2026-07-14 用户裁决:腕相机链为主路径默认常开;断言随默认值
+        # 语义翻转(原为 assertNotIn),锁"默认启用"这一新状态。
         names = {name for name, _namespace in node.get_node_names_and_namespaces()}
-        self.assertNotIn("wrist_aruco_detector", names)
+        self.assertIn("wrist_aruco_detector", names)
 
-    def _assert_refine_detect_disabled(self, node):
+    def _assert_refine_detect_enabled(self, node):
         client = node.create_client(GetParameters, "/mission_node/get_parameters")
         self.assertTrue(
             client.wait_for_service(timeout_sec=80.0),
@@ -247,7 +250,30 @@ class TestHonestE2E(unittest.TestCase):
         values = future.result().values
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0].type, ParameterType.PARAMETER_BOOL)
-        self.assertFalse(values[0].bool_value)
+        self.assertTrue(values[0].bool_value)
+
+    def _assert_wrist_detect_enabled(self, node):
+        client = node.create_client(GetParameters, "/mission_node/get_parameters")
+        self.assertTrue(
+            client.wait_for_service(timeout_sec=80.0),
+            "mission_node parameter service did not appear",
+        )
+        request = GetParameters.Request()
+        request.names = ["use_wrist_detect"]
+        future = None
+        for _attempt in range(3):
+            future = client.call_async(request)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=20.0)
+            if future.done():
+                break
+        self.assertTrue(
+            future is not None and future.done(),
+            "timed out reading mission_node parameters",
+        )
+        values = future.result().values
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0].type, ParameterType.PARAMETER_BOOL)
+        self.assertTrue(values[0].bool_value)
 
     def _assert_dl_perception_mode(self, node, object_detections):
         names = {name for name, _namespace in node.get_node_names_and_namespaces()}

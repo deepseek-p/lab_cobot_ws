@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
+import pytest
 import yaml
 
 
@@ -554,16 +555,22 @@ def test_wrist_refine_camera_contract_when_enabled():
         float(value)
         for value in camera_joint.find("origin").attrib["rpy"].split()
     ]
-    # The marker is on the sample face toward the robot. Mount the camera on
-    # that side and aim forward/down instead of back into the UR wrist or at
-    # the untextured top face.
-    assert camera_xyz[0] < -0.07
-    assert -math.pi / 2.0 < camera_rpy[1] < 0.0
+    # EIH uses the top marker with a known small lateral camera offset and a
+    # parallel downward optical axis. The nearest-distance probe keeps the
+    # complete marker visible without wrist self-occlusion.
+    assert camera_xyz[0] > 0.02
+    assert camera_rpy[1] == pytest.approx(-math.pi / 2.0, abs=1.0e-6)
     optical_joint = root.find("./joint[@name='wrist_camera_optical_joint']")
     assert optical_joint is not None
     sensor = root.find(".//sensor[@name='wrist_camera']")
     assert sensor is not None
     assert sensor.attrib["type"] == "depth"
+    assert float(sensor.findtext("./camera/horizontal_fov")) == pytest.approx(
+        math.radians(65.0), abs=1.0e-6
+    )
+    assert sensor.findtext("update_rate") == "30"
+    assert float(sensor.findtext("./camera/clip/near")) == pytest.approx(0.01)
+    assert float(sensor.findtext("./plugin/min_depth")) == pytest.approx(0.01)
     gazebo = root.find("./gazebo[@reference='wrist_camera_link']")
     assert gazebo is not None
     assert gazebo.findtext("material") == "Gazebo/DarkGrey"

@@ -43,6 +43,19 @@
           </script>
         </material>
       </visual>
+      <visual name="aruco_marker_top">
+        <pose>0 0 0.0355 0 0 0</pose>
+        <geometry>
+          <box><size>0.07 0.07 0.001</size></box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://aruco_sample/materials/scripts</uri>
+            <uri>model://aruco_sample/materials/textures</uri>
+            <name>ArucoSample/MarkerTop</name>
+          </script>
+        </material>
+      </visual>
     </link>
   </model>
 </sdf>

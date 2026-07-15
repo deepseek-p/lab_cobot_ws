@@ -38,6 +38,7 @@ RETREAT_TOPIC = "/cmd_vel"
 RAW_ODOM_TOPIC = "/odom"
 DETECTION_TOPIC_TEMPLATE = "/perception/aruco_{object_id}/pose"
 WRIST_DETECTION_TOPIC_TEMPLATE = "/perception/wrist/aruco_{object_id}/pose"
+DEFAULT_WRIST_MARKER_ID = 1
 RETREAT_LINEAR_X = -0.18
 RETREAT_DURATION_SEC = 6.0
 RETREAT_PUBLISH_PERIOD_SEC = 0.05
@@ -61,6 +62,7 @@ DOCK_STOP_SEC = 0.3
 DETECTION_MAX_AGE_SEC = 1.0
 REFINE_WAIT_SEC = 2.5
 REFINE_POLL_SEC = 0.05
+WRIST_DETECT_WAIT_SEC = 3.0
 NAV_TIMEOUT_SEC = 60.0
 NAV_SERVER_WAIT_SEC = 20.0
 NAV_ACTIVE_WAIT_SEC = 30.0
@@ -109,6 +111,11 @@ PLACE_DOCK_PUBLISH_PERIOD_SEC = 0.05
 PLACE_DOCK_STOP_SEC = 0.3
 HOME_NAV_HANDOFF_MAX_DISTANCE = 0.25
 HOME_NAV_HANDOFF_MAX_ABS_YAW = 0.40
+
+
+def wrist_detection_topic(marker_id: int) -> str:
+    """Return the wrist detection topic for one marker ID."""
+    return WRIST_DETECTION_TOPIC_TEMPLATE.format(object_id=int(marker_id))
 
 
 def _clamp(value: float, limit: float) -> float:
@@ -345,6 +352,11 @@ class MissionNode(Node):
         self.declare_parameter("target_object", DEFAULT_TARGET_OBJECT)
         self.declare_parameter("use_tactile_grasp", False)
         self.declare_parameter("use_refine_detect", False)
+        self.declare_parameter("use_wrist_detect", False)
+        # 规划场景障碍注入(台面盒+持物样件附着盒),默认开启;
+        # 关闭时回退旧行为(机械臂规划对环境盲)。
+        self.declare_parameter("use_planning_scene_obstacles", True)
+        self.declare_parameter("wrist_marker_id", DEFAULT_WRIST_MARKER_ID)
         self.declare_parameter("place_pose", DEFAULT_PLACE_POSE)  # base_link 系放置点
         self.object_id = int(self.get_parameter("object_id").value)
         self.target_object = str(self.get_parameter("target_object").value)
@@ -354,6 +366,13 @@ class MissionNode(Node):
         self._use_refine_detect = bool(
             self.get_parameter("use_refine_detect").value
         )
+        self._use_wrist_detect = bool(
+            self.get_parameter("use_wrist_detect").value
+        )
+        self.use_planning_scene_obstacles = bool(
+            self.get_parameter("use_planning_scene_obstacles").value
+        )
+        self.wrist_marker_id = int(self.get_parameter("wrist_marker_id").value)
         self.place_pose = list(self.get_parameter("place_pose").value)
         # LLM 任务拆解:默认关闭,E2E/CI 离线;演示时 llm_enabled:=true 打开
         self.declare_parameter("llm_enabled", False)
@@ -377,11 +396,13 @@ class MissionNode(Node):
         self.pp = PickPlace(
             target_object=self.target_object,
             use_tactile_grasp=self.use_tactile_grasp,
+            use_planning_scene_obstacles=self.use_planning_scene_obstacles,
         )
         self.retreat_pub = self.create_publisher(Twist, RETREAT_TOPIC, 10)
         self._latest_odom_pose = None
         self._latest_detection_pose = None
         self._latest_wrist_detection_pose = None
+        self._latest_task_detection = None
         self.create_subscription(Odometry, RAW_ODOM_TOPIC, self._on_odom, 10)
         self.create_subscription(
             PoseStamped,
@@ -389,10 +410,10 @@ class MissionNode(Node):
             self._on_detection_pose,
             10,
         )
-        if self._use_refine_detect:
+        if self._use_refine_detect or self._use_wrist_detect:
             self.create_subscription(
                 PoseStamped,
-                WRIST_DETECTION_TOPIC_TEMPLATE.format(object_id=self.object_id),
+                wrist_detection_topic(self.wrist_marker_id),
                 self._on_wrist_detection_pose,
                 10,
             )
@@ -424,6 +445,7 @@ class MissionNode(Node):
 
     def _run_mission(self):
         try:
+            self._latest_task_detection = None
             instruction = getattr(self, "_instruction", "")
             config = getattr(self, "_planner_config", None)
             result = plan_actions(instruction, config)
@@ -454,9 +476,21 @@ class MissionNode(Node):
                     and self._dock_to_pick_target()
                 )
             if state == TaskState.DETECT:
-                return self._detect() is not None
+                pose = None
+                if getattr(self, "_use_wrist_detect", False):
+                    pose = self._wrist_detect()
+                    if pose is None:
+                        self.get_logger().info(
+                            "wrist_detect=miss(fallback_to_bench)"
+                        )
+                if pose is None:
+                    pose = self._detect()
+                self._latest_task_detection = pose
+                return pose is not None
             if state == TaskState.PICK:
-                pose = self._detect()
+                pose = getattr(self, "_latest_task_detection", None)
+                if pose is None:
+                    pose = self._detect()
                 refine_cb = (
                     self._make_refine_cb()
                     if getattr(self, "_use_refine_detect", False)
@@ -466,7 +500,13 @@ class MissionNode(Node):
                     pose,
                     refine_cb=refine_cb,
                 )
-                return self._finish_station_step(state, ok)
+                ok = self._finish_station_step(state, ok)
+                if ok:
+                    # 退避完成后、启动导航前持物收臂:PLACE→RETURN_HOME 已有
+                    # go_home 先收臂再返航的对称设计,唯独 PICK→NAV_TO_PLACE
+                    # 缺此步,前伸臂+样件随调头旋转横扫工位(用户 GUI 实测穿模)。
+                    self._tuck_arm_for_transit()
+                return ok
             if state == TaskState.NAV_TO_PLACE:
                 return (
                     self._navigate("station_b")
@@ -490,6 +530,16 @@ class MissionNode(Node):
             return self._retreat_from_station()
         return ok
 
+    def _tuck_arm_for_transit(self) -> None:
+        """Tuck the arm to the home configuration before base transit."""
+        # 收臂失败仅告警降级为旧行为(伸展位形导航),
+        # 不把新增步骤变成任务级失败点。
+        try:
+            if not self.pp.go_home():
+                self.get_logger().warn("持物收臂失败,按伸展位形继续导航")
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"持物收臂异常: {e}")
+
     def _duration_elapsed(self, start, duration_sec: float) -> bool:
         elapsed = self.get_clock().now() - start
         timeout = rclpy.duration.Duration(seconds=duration_sec)
@@ -507,6 +557,12 @@ class MissionNode(Node):
             self.pp.gripper.release_object()
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f"兜底 detach 失败: {e}")
+        try:
+            # 兜底同步移除 MoveIt 侧样件附着盒;残留只造成保守绕行,
+            # 但清掉后续任务规划更干净(pp 内部接口,与 pp.gripper 同级深链)。
+            self.pp._detach_carried_sample()
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"兜底场景 detach 失败: {e}")
         try:
             self._stop_base(DOCK_STOP_SEC)
         except Exception as e:  # noqa: BLE001
@@ -777,6 +833,32 @@ class MissionNode(Node):
         except Exception as e:  # noqa: BLE001
             self.get_logger().warn(f"未检测到 {frame}: {e}")
             return None
+
+    def _wrist_detect(self):
+        if not self.pp.move_to_observe():
+            self.get_logger().info("wrist_detect=miss(observe_move_failed)")
+            return None
+
+        start = self.get_clock().now()
+        start_seconds = _stamp_seconds(start.to_msg())
+        while not self._duration_elapsed(start, WRIST_DETECT_WAIT_SEC):
+            pose = self._latest_wrist_detection_pose
+            if pose is not None and pose.header.frame_id == "base_link":
+                pose_seconds = _stamp_seconds(pose.header.stamp)
+                if pose_seconds > start_seconds:
+                    now_seconds = _stamp_seconds(self.get_clock().now().to_msg())
+                    age_seconds = now_seconds - pose_seconds
+                    if -0.25 <= age_seconds < DETECTION_MAX_AGE_SEC:
+                        result = [
+                            pose.pose.position.x,
+                            pose.pose.position.y,
+                            pose.pose.position.z,
+                        ]
+                        self.get_logger().info("wrist_detect=hit")
+                        return result
+            time.sleep(REFINE_POLL_SEC)
+        self.get_logger().info("wrist_detect=miss(timeout)")
+        return None
 
     def _make_refine_cb(self):
         def wait_for_refined_position():

@@ -62,6 +62,14 @@ if(BUILD_TESTING)
     ${GAZEBO_INCLUDE_DIRS})
   ament_add_gtest(test_finger_contact_gate test/test_finger_contact_gate.cpp)
   target_include_directories(test_finger_contact_gate PRIVATE include)
+  ament_add_gtest(
+    test_attached_object_collision
+    test/test_attached_object_collision.cpp)
+  target_include_directories(test_attached_object_collision PRIVATE include)
+  ament_add_gtest(
+    test_post_attach_velocity_clamp
+    test/test_post_attach_velocity_clamp.cpp)
+  target_include_directories(test_post_attach_velocity_clamp PRIVATE include)
   # 本机 ~/.local 的 anyio pytest 插件与系统 pytest 不兼容(装 DL 依赖后
   # 版本漂移引爆),所有 pytest 注册必须带 -p no:anyio 防护(bringup 范本)
   ament_add_pytest_test(world_launch test/test_world_launch.py

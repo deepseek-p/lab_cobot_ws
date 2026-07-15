@@ -21,6 +21,7 @@ ATTACH_REFUSED_PREFIX = "refused aruco_sample"
 DEFAULT_ATTACH_TIMEOUT_SEC = 1.5
 CONTACT_STATUS_TOPIC = "/gripper/contact/status"
 CONTACT_RELEASE_TOPIC = "/gripper/contact/release"
+FINGERS_STATUS_TOPIC = "/gripper/contact/fingers"
 LEFT_FINGER_CONTACTS_TOPIC = "/gripper/left_finger_contacts"
 RIGHT_FINGER_CONTACTS_TOPIC = "/gripper/right_finger_contacts"
 CONTACT_ATTACHED_PREFIX = "attached "
@@ -31,7 +32,7 @@ CONTACT_BACKEND = "contact"
 SIM_ATTACH_BACKEND = "sim_attach"
 TACTILE_START_POSITION = 0.006
 TACTILE_STEP = 0.0005
-TACTILE_MAX_POSITION = 0.0125
+TACTILE_MAX_POSITION = 0.0185
 TACTILE_DWELL_SEC = 0.1
 TACTILE_CONTACT_FRESH_SEC = 0.2
 
@@ -218,6 +219,12 @@ class ContactGripperDriver:
             self._on_contact_status,
             10,
         )
+        self._fingers_status_sub = node.create_subscription(
+            String,
+            FINGERS_STATUS_TOPIC,
+            self._on_fingers_status,
+            10,
+        )
         self._left_contact_sub = node.create_subscription(
             ContactsState,
             LEFT_FINGER_CONTACTS_TOPIC,
@@ -305,6 +312,16 @@ class ContactGripperDriver:
     def _on_contact_status(self, msg: String) -> None:
         self._last_contact_status = str(msg.data)
         self._contact_status_event.set()
+
+    def _on_fingers_status(self, msg: String) -> None:
+        """Refresh per-finger contact times from the plugin snapshot topic."""
+        # 插件 1kHz 权威判定的 50Hz 快照;bumper 上报率过低(实测 1/50)导致
+        # 分侧停步长期失灵、probe 深穿透(实测 3mm)诱发接触求解爆发。
+        now = time.monotonic()
+        if "left=1" in msg.data:
+            self._last_left_contact_time = now
+        if "right=1" in msg.data:
+            self._last_right_contact_time = now
 
     def _on_left_contacts(self, msg: ContactsState) -> None:
         if contacts_msg_touches_object(msg, prefix=f"{self._target_object}::"):
@@ -440,6 +457,7 @@ def make_gripper_driver(
     attach_timeout_sec: float = DEFAULT_ATTACH_TIMEOUT_SEC,
     target_object: str = DEFAULT_TARGET_OBJECT,
     use_tactile_grasp: bool = False,
+    contact_timeout_sec: float = DEFAULT_CONTACT_TIMEOUT_SEC,
 ) -> GripperDriver:
     normalized = str(backend).strip().lower()
     if normalized == SIM_ATTACH_BACKEND:
@@ -454,7 +472,7 @@ def make_gripper_driver(
         return ContactGripperDriver(
             node,
             command_settle_sec=command_settle_sec,
-            contact_timeout_sec=attach_timeout_sec,
+            contact_timeout_sec=contact_timeout_sec,
             target_object=target_object,
             use_tactile_grasp=use_tactile_grasp,
         )

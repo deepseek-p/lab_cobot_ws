@@ -65,6 +65,26 @@ class FakeLogger:
         self._events.append(f"log_warn:{message}")
 
 
+class FakeSceneClient:
+    """Record planning scene diffs as sequence events."""
+
+    def __init__(self, events, ok=True):
+        self._events = events
+        self._ok = ok
+
+    def apply(self, scene, **kwargs):
+        attached = scene.robot_state.attached_collision_objects
+        if attached:
+            operation = attached[0].object.operation
+            if operation == attached[0].object.ADD:
+                self._events.append("scene_attach")
+            else:
+                self._events.append("scene_detach")
+        elif scene.world.collision_objects:
+            self._events.append("scene_surface")
+        return self._ok
+
+
 def make_pick_place_without_ros(
     fake_moves,
     open_ok=True,
@@ -82,6 +102,7 @@ def make_pick_place_without_ros(
     pick_place.move_kwargs = []
     pick_place.gripper_backend = "test"
     pick_place.use_tactile_grasp = use_tactile_grasp
+    pick_place.scene_client = None
     pick_place.get_logger = lambda: FakeLogger(pick_place.events)
     pick_place.gripper = FakeGripper(
         pick_place.events,
@@ -247,9 +268,9 @@ def test_tactile_pick_keeps_visual_lateral_target_inside_safe_band():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.955],
-        [0.8, 0.0, 0.825],
-        [0.8, 0.0, 0.955],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.9225],
     ])
 
 
@@ -261,9 +282,9 @@ def test_tactile_pick_preserves_negative_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, -0.006, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.006, 0.955],
-        [0.8, -0.006, 0.825],
-        [0.8, -0.006, 0.955],
+        [0.8, -0.006, 0.9225],
+        [0.8, -0.006, 0.7925],
+        [0.8, -0.006, 0.9225],
     ])
 
 
@@ -275,9 +296,9 @@ def test_tactile_pick_preserves_positive_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, 0.012, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.012, 0.955],
-        [0.8, 0.012, 0.825],
-        [0.8, 0.012, 0.955],
+        [0.8, 0.012, 0.9225],
+        [0.8, 0.012, 0.7925],
+        [0.8, 0.012, 0.9225],
     ])
 
 
@@ -289,18 +310,17 @@ def test_tactile_pick_clamps_large_visual_lateral_residuals_on_first_attempt():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.955],
-        [0.8, 0.018, 0.825],
-        [0.8, 0.018, 0.955],
+        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.7925],
+        [0.8, 0.018, 0.9225],
     ])
 
 
-def test_tactile_pick_keeps_vertical_clearance_for_visual_z_underestimate():
-    """Tactile pick must tolerate conservative visual z estimates."""
-    # 完整任务实测 ArUco z 估计可比 Gazebo 真值低约 2.5cm;触觉路径
-    # 需要保留额外 TCP 余量,避免 attach 后 lift 与残余接触约束打架。
-    assert pick_place_node.TACTILE_PICK_TCP_Z_CLEARANCE >= 0.045
-    assert pick_place_node.TACTILE_PICK_TCP_Z_CLEARANCE <= 0.060
+def test_tactile_pick_targets_deep_grasp_clearance():
+    """Tactile pick should place the sample near the finger middle."""
+    # DG v1.1 静态预算:0.0125m 理论重叠 34.5mm,
+    # 同时在最坏 -20mm 散布下仍保留约 11.5mm 指尖台面间隙。
+    assert pick_place_node.TACTILE_PICK_TCP_Z_CLEARANCE == pytest.approx(0.0125)
 
 
 def test_tactile_pick_retries_laterally_after_left_only_contact_failure():
@@ -323,12 +343,12 @@ def test_tactile_pick_retries_laterally_after_left_only_contact_failure():
         "acquire",
     ]
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.955],
-        [0.8, 0.0, 0.825],
-        [0.8, 0.0, 0.955],
-        [0.8, -0.006, 0.955],
-        [0.8, -0.006, 0.825],
-        [0.8, -0.006, 0.955],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.9225],
+        [0.8, -0.006, 0.9225],
+        [0.8, -0.006, 0.7925],
+        [0.8, -0.006, 0.9225],
     ])
 
 
@@ -342,12 +362,12 @@ def test_tactile_pick_retries_laterally_after_right_only_contact_failure():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.955],
-        [0.8, 0.0, 0.825],
-        [0.8, 0.0, 0.955],
-        [0.8, 0.006, 0.955],
-        [0.8, 0.006, 0.825],
-        [0.8, 0.006, 0.955],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.9225],
+        [0.8, 0.006, 0.9225],
+        [0.8, 0.006, 0.7925],
+        [0.8, 0.006, 0.9225],
     ])
 
 
@@ -361,15 +381,15 @@ def test_tactile_pick_continues_retries_away_from_left_only_contact():
 
     assert pick_place.pick([0.8, -0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.018, 0.955],
-        [0.8, -0.018, 0.825],
-        [0.8, -0.018, 0.955],
-        [0.8, -0.024, 0.955],
-        [0.8, -0.024, 0.825],
-        [0.8, -0.024, 0.955],
-        [0.8, -0.030, 0.955],
-        [0.8, -0.030, 0.825],
-        [0.8, -0.030, 0.955],
+        [0.8, -0.018, 0.9225],
+        [0.8, -0.018, 0.7925],
+        [0.8, -0.018, 0.9225],
+        [0.8, -0.024, 0.9225],
+        [0.8, -0.024, 0.7925],
+        [0.8, -0.024, 0.9225],
+        [0.8, -0.030, 0.9225],
+        [0.8, -0.030, 0.7925],
+        [0.8, -0.030, 0.9225],
     ])
 
 
@@ -383,12 +403,12 @@ def test_tactile_pick_retries_away_from_right_only_contact():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.955],
-        [0.8, 0.018, 0.825],
-        [0.8, 0.018, 0.955],
-        [0.8, 0.024, 0.955],
-        [0.8, 0.024, 0.825],
-        [0.8, 0.024, 0.955],
+        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.7925],
+        [0.8, 0.018, 0.9225],
+        [0.8, 0.024, 0.9225],
+        [0.8, 0.024, 0.7925],
+        [0.8, 0.024, 0.9225],
     ])
 
 
@@ -473,7 +493,7 @@ def test_place_releases_in_midair_above_target_to_avoid_constraint_fight():
     assert 0.02 <= pick_place_node.PLACE_RELEASE_CLEARANCE <= 0.04
 
 
-def test_tactile_place_uses_higher_midair_release_clearance():
+def test_tactile_place_compensates_tcp_height_for_deep_grasp():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
@@ -481,9 +501,12 @@ def test_tactile_place_uses_higher_midair_release_clearance():
 
     assert pick_place.place([0.8, 0.0, 0.78])
     assert pick_place.move_positions[1][2] == pytest.approx(
-        0.78 + pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE
+        0.78
+        + pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE
+        - pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION
     )
     assert pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE == pytest.approx(0.025)
+    assert pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION == pytest.approx(0.05)
 
 
 def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
@@ -782,3 +805,125 @@ def test_go_home_retries_transient_invalid_moveit_execution():
     assert pick_place.go_home()
     assert len(configs) == 2
     assert all(config == pick_place_node.HOME_CONFIG for config in configs)
+
+
+def test_move_to_observe_uses_probed_fixed_joint_configuration():
+    configs = []
+
+    class FakeMoveIt:
+        def move_to_configuration(self, config):
+            configs.append(list(config))
+
+        def wait_until_executed(self, timeout_sec):
+            assert timeout_sec == pick_place_node.DEFAULT_MOVE_TIMEOUT_SEC
+            return True
+
+    pick_place = pick_place_node.PickPlace.__new__(pick_place_node.PickPlace)
+    pick_place.moveit2 = FakeMoveIt()
+
+    assert pick_place.move_to_observe()
+    assert configs == [pick_place_node.OBSERVE_CONFIG]
+    assert pick_place_node.OBSERVE_CONFIG == pytest.approx([
+        -0.116421,
+        -0.807952,
+        0.425992,
+        -1.337190,
+        4.581185,
+        -1.844921,
+    ])
+
+
+def test_move_to_observe_retries_transient_execution_failure(monkeypatch):
+    results = iter([False, True])
+    configs = []
+
+    class FakeMoveIt:
+        def move_to_configuration(self, config):
+            configs.append(list(config))
+
+        def wait_until_executed(self, timeout_sec):
+            assert timeout_sec == pick_place_node.DEFAULT_MOVE_TIMEOUT_SEC
+            return next(results)
+
+    monkeypatch.setattr(pick_place_node.time, "sleep", lambda _delay: None)
+    pick_place = pick_place_node.PickPlace.__new__(pick_place_node.PickPlace)
+    pick_place.moveit2 = FakeMoveIt()
+
+    assert pick_place.move_to_observe()
+    assert configs == [pick_place_node.OBSERVE_CONFIG] * 2
+
+
+def test_pick_injects_surface_before_arm_motion_and_attaches_after_acquire():
+    # 台面盒必须先于第一次臂规划注入(否则 approach 弧仍对台面盲);
+    # 样件附着盒必须在 acquire 成功后立即挂上(持物段全程护航)。
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "scene_surface",
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+        "scene_attach",
+        "close",
+        "move_above",
+    ]
+
+
+def test_pick_detaches_scene_box_when_close_fails_after_attach():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True],
+        close_ok=False,
+    )
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "scene_surface",
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+        "scene_attach",
+        "close",
+        "release",
+        "scene_detach",
+    ]
+
+
+def test_pick_detaches_scene_box_when_lift_fails_after_attach():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True, False, False]
+    )
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    events = action_events(pick_place.events)
+    assert events[-2:] == ["release", "scene_detach"]
+
+
+def test_place_injects_surface_and_detaches_after_release():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert pick_place.place([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "scene_surface",
+        "move_above",
+        "move_grasp",
+        "release",
+        "scene_detach",
+        "open",
+        "move_above",
+    ]
+
+
+def test_scene_apply_failure_degrades_to_legacy_behavior():
+    # 注入失败只降级回旧行为(规划对环境盲),不得阻断抓取任务。
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events, ok=False)
+
+    assert pick_place.pick([0.8, 0.0, 0.78])
+    assert "log_warn:planning scene surface add apply failed" in pick_place.events

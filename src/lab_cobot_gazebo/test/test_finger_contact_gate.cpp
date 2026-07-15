@@ -134,7 +134,7 @@ TEST(FingerCollisionConfig, TactileProbeSurfaceDisablesContactForces)
 
   EXPECT_TRUE(config.collide_without_contact);
   EXPECT_EQ(config.collide_without_contact_bitmask, 0xffffu);
-  EXPECT_EQ(config.collide_bits, 0u);
+  EXPECT_EQ(config.collide_bits, 0xffffu);
   EXPECT_EQ(config.max_contacts, 10u);
 }
 
