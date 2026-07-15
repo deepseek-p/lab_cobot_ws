@@ -14,3 +14,5 @@ src/lab_cobot_navigation/maps/*_backup.pgm
 benchmarks/results/
 .worktrees/
 .agents/
+CLAUDE.md
+.gitattributes
