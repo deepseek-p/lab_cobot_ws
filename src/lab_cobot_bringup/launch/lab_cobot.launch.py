@@ -69,6 +69,15 @@ def generate_launch_description():
         ),
         launch_arguments={"use_sim_time": "true"}.items(),
     )
+    table_scene_initializer = Node(
+        package="lab_cobot_moveit",
+        executable="table_scene_initializer",
+        output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "world_frame": "odom",
+        }],
+    )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(nav, "launch", "navigation.launch.py")
@@ -134,14 +143,29 @@ def generate_launch_description():
         }],
         condition=IfCondition(use_dl_perception),
     )
-    mecanum_wheel_visualizer = Node(
+    rover_twist_relay = Node(
         package="lab_cobot_bringup",
-        executable="mecanum_wheel_visualizer",
+        executable="rover_twist_relay",
         output="screen",
         parameters=[{
             "use_sim_time": True,
-            "publish_odom": False,
+            "rover": "mecanum3",
+            "mecanum3.wheel_radius": 0.07,
+            "mecanum3.wheel_separation_width": 0.24,
+            "mecanum3.wheel_separation_length": 0.175,
+            "max_vx": 0.5,
+            "max_vy": 0.3,
+            "max_wz": 1.2,
+            "max_accel_xy": 0.5,
+            "max_accel_wz": 1.5,
+            "command_timeout": 0.25,
         }],
+    )
+    passive_mecanum_joint_states = Node(
+        package="lab_cobot_bringup",
+        executable="passive_mecanum_joint_states",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
     )
     gripper_attach_bridge = Node(
         package="lab_cobot_bringup",
@@ -195,7 +219,14 @@ def generate_launch_description():
     # 等 Gazebo + spawn + 控制器起来后再起规划/导航/感知
     stage2 = TimerAction(
         period=10.0,
-        actions=[move_group, navigation, aruco, wrist_aruco, object_detector],
+        actions=[
+            move_group,
+            table_scene_initializer,
+            navigation,
+            aruco,
+            wrist_aruco,
+            object_detector,
+        ],
     )
     # 再等编排依赖就绪
     stage3 = TimerAction(period=15.0, actions=[mission, voice])
@@ -262,7 +293,8 @@ def generate_launch_description():
         SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
         SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         world,
-        mecanum_wheel_visualizer,
+        rover_twist_relay,
+        passive_mecanum_joint_states,
         gripper_attach_bridge,
         stage2,
         stage3,

@@ -46,12 +46,15 @@ RETREAT_STOP_SEC = 0.5
 # base_link 系 TCP 放置点。z=0.725 + 悬空释放余量 0.02(pick_place 侧)
 # 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
 # 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
-DEFAULT_PLACE_POSE = [0.82, 0.20, 0.725]
-PLACE_BASE_TARGET_POSE = (-2.0, 0.62, math.pi / 2.0)
-DOCK_TARGET_X = 0.78
+DEFAULT_PLACE_POSE = [0.78, 0.20, 0.725]
+PLACE_BASE_TARGET_POSE = (-2.0, 0.64, math.pi / 2.0)
+# Leave reach margin for the vertical gripper pose.  At 0.78 m the detected
+# target plus TCP approach offset sits on the UR5e workspace boundary.
+DOCK_TARGET_X = 0.62
 DOCK_TARGET_Y = 0.0
 DOCK_TOLERANCE_X = 0.05
-DOCK_TOLERANCE_Y = 0.065
+DOCK_TOLERANCE_Y = 0.015
+DOCK_SAFE_HANDOFF_MAX_X = 0.80
 DOCK_GAIN_X = 0.8
 DOCK_GAIN_Y = 0.8
 DOCK_MAX_LINEAR_X = 0.08
@@ -65,6 +68,8 @@ REFINE_POLL_SEC = 0.05
 WRIST_DETECT_WAIT_SEC = 3.0
 NAV_TIMEOUT_SEC = 60.0
 NAV_SERVER_WAIT_SEC = 20.0
+NAV_STARTUP_WAIT_SEC = 120.0
+NAV_STARTUP_POLL_SEC = 1.0
 NAV_ACTIVE_WAIT_SEC = 30.0
 NAV_ACTIVE_POLL_SEC = 0.5
 NAV_ACTIVE_CALL_TIMEOUT_SEC = 2.0
@@ -79,8 +84,10 @@ STATION_B_TABLE_MIN_X = -2.4
 STATION_B_TABLE_MAX_X = -1.6
 STATION_B_TABLE_FRONT_Y = 1.2
 STATION_B_TABLE_BACK_Y = 1.8
-STATION_B_SAFE_DROP_FRONT_Y = 1.35
-STATION_B_SAFE_DROP_BACK_Y = 1.65
+STATION_B_SAFE_DROP_MIN_X = -2.335
+STATION_B_SAFE_DROP_MAX_X = -1.665
+STATION_B_SAFE_DROP_FRONT_Y = 1.265
+STATION_B_SAFE_DROP_BACK_Y = 1.735
 NAV_HANDOFF_STOP_SEC = 0.3
 STATION_DOCK_TOLERANCE_X = 0.06
 STATION_DOCK_TOLERANCE_Y = 0.06
@@ -111,6 +118,22 @@ PLACE_DOCK_PUBLISH_PERIOD_SEC = 0.05
 PLACE_DOCK_STOP_SEC = 0.3
 HOME_NAV_HANDOFF_MAX_DISTANCE = 0.25
 HOME_NAV_HANDOFF_MAX_ABS_YAW = 0.40
+WORKTABLE_STATIONS = frozenset(("station_a", "station_b"))
+WORKTABLE_FRONT_Y = 1.20
+CHASSIS_LENGTH = 0.42
+CHASSIS_WIDTH = 0.30
+WORKTABLE_CLEARANCE = 0.35
+WORKTABLE_MIN_EXIT_SPEED = 0.03
+AXIS_NAV_POSITION_TOLERANCE = 0.05
+AXIS_NAV_YAW_TOLERANCE = 0.08
+AXIS_NAV_YAW_ONLY_THRESHOLD = 0.18
+AXIS_NAV_GAIN_LINEAR = 0.8
+AXIS_NAV_GAIN_YAW = 1.6
+AXIS_NAV_MAX_LINEAR = 0.18
+AXIS_NAV_MAX_ANGULAR = 0.55
+AXIS_NAV_TIMEOUT_SEC = 45.0
+AXIS_NAV_PUBLISH_PERIOD_SEC = 0.05
+AXIS_NAV_STOP_SEC = 0.2
 
 
 def wrist_detection_topic(marker_id: int) -> str:
@@ -139,7 +162,47 @@ def transform_stamp_is_fresh(
     return -0.25 <= age_sec <= max_age_sec
 
 
-def dock_velocity_for_object(object_pose):
+def _chassis_map_y_half_extent(yaw: float) -> float:
+    return (abs(math.sin(yaw)) * CHASSIS_LENGTH * 0.5
+            + abs(math.cos(yaw)) * CHASSIS_WIDTH * 0.5)
+
+
+def station_safe_base_y(yaw: float, station: str) -> float:
+    if station not in WORKTABLE_STATIONS:
+        raise ValueError(f"{station} is not a worktable station")
+    return WORKTABLE_FRONT_Y - WORKTABLE_CLEARANCE - _chassis_map_y_half_extent(yaw)
+
+
+def worktable_clearance(base_pose, station: str) -> float:
+    if station not in WORKTABLE_STATIONS:
+        return math.inf
+    _x, y, yaw = [float(v) for v in base_pose]
+    return WORKTABLE_FRONT_Y - (y + _chassis_map_y_half_extent(yaw))
+
+
+def _limit_worktable_approach(cmd: Twist, base_pose, station: str) -> Twist:
+    if station not in WORKTABLE_STATIONS or base_pose is None:
+        return cmd
+    yaw = float(base_pose[2])
+    clearance = worktable_clearance(base_pose, station)
+    vx_map = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
+    vy_map = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    if clearance < WORKTABLE_CLEARANCE - 1.0e-6:
+        vx_map = 0.0
+        vy_map = -max(
+            WORKTABLE_MIN_EXIT_SPEED,
+            STATION_DOCK_GAIN_X * (WORKTABLE_CLEARANCE - clearance),
+        )
+        cmd.angular.z = 0.0
+    elif vy_map > 0.0:
+        remaining = max(0.0, clearance - WORKTABLE_CLEARANCE)
+        vy_map = min(vy_map, STATION_DOCK_GAIN_X * remaining)
+    cmd.linear.x = math.cos(yaw) * vx_map + math.sin(yaw) * vy_map
+    cmd.linear.y = -math.sin(yaw) * vx_map + math.cos(yaw) * vy_map
+    return cmd
+
+
+def dock_velocity_for_object(object_pose, base_pose=None, station="station_a"):
     error_x = float(object_pose[0]) - DOCK_TARGET_X
     error_y = float(object_pose[1]) - DOCK_TARGET_Y
     cmd = Twist()
@@ -148,11 +211,29 @@ def dock_velocity_for_object(object_pose):
         abs(error_x) <= DOCK_TOLERANCE_X
         and abs(error_y) <= DOCK_TOLERANCE_Y
     )
+    clearance = (
+        worktable_clearance(base_pose, station)
+        if base_pose is not None and station in WORKTABLE_STATIONS
+        else math.inf
+    )
+    in_safe_station_deadband = (
+        WORKTABLE_CLEARANCE - 1.0e-6
+        <= clearance
+        <= WORKTABLE_CLEARANCE + STATION_DOCK_TOLERANCE_Y
+    )
+    blocked_forward_alignment = (
+        in_safe_station_deadband
+        and DOCK_TOLERANCE_X < error_x
+        and float(object_pose[0]) <= DOCK_SAFE_HANDOFF_MAX_X
+        and abs(error_y) <= DOCK_TOLERANCE_Y
+    )
+    done = done or blocked_forward_alignment
     if done:
         return True, cmd
 
     cmd.linear.x = _clamp(DOCK_GAIN_X * error_x, DOCK_MAX_LINEAR_X)
     cmd.linear.y = _clamp(DOCK_GAIN_Y * error_y, DOCK_MAX_LINEAR_Y)
+    _limit_worktable_approach(cmd, base_pose, station)
     return False, cmd
 
 
@@ -195,7 +276,7 @@ def _station_b_table_contains(map_x: float, map_y: float) -> bool:
 
 def _station_b_safe_drop_contains(map_x: float, map_y: float) -> bool:
     return (
-        STATION_B_TABLE_MIN_X <= map_x <= STATION_B_TABLE_MAX_X
+        STATION_B_SAFE_DROP_MIN_X <= map_x <= STATION_B_SAFE_DROP_MAX_X
         and STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y
     )
 
@@ -203,6 +284,90 @@ def _station_b_safe_drop_contains(map_x: float, map_y: float) -> bool:
 def _station_base_pose(station: str):
     wp = get_waypoint(station)
     return (float(wp["x"]), float(wp["y"]), float(wp["yaw"]))
+
+
+def navigation_goals_for_station(station: str):
+    waypoint = get_waypoint(station)
+    return [(station, waypoint, station)]
+
+
+def axis_aligned_navigation_goals(station: str, current_pose):
+    if station not in WORKTABLE_STATIONS:
+        raise ValueError(f"{station} does not support axis-aligned transfer")
+
+    waypoint = get_waypoint(station)
+    current_x, current_y, current_yaw = [float(v) for v in current_pose]
+    target_x = float(waypoint["x"])
+    target_y = float(waypoint["y"])
+    target_yaw = float(waypoint["yaw"])
+    goals = []
+
+    if abs(_angle_wrap(target_yaw - current_yaw)) > AXIS_NAV_YAW_TOLERANCE:
+        goals.append((
+            f"{station}_rotate",
+            {"x": current_x, "y": current_y, "yaw": target_yaw},
+            "rotate",
+        ))
+    if abs(target_y - current_y) > AXIS_NAV_POSITION_TOLERANCE:
+        goals.append((
+            f"{station}_corridor_align",
+            {"x": current_x, "y": target_y, "yaw": target_yaw},
+            "forward",
+        ))
+    if abs(target_x - current_x) > AXIS_NAV_POSITION_TOLERANCE:
+        goals.append((
+            f"{station}_corridor_traverse",
+            {"x": target_x, "y": target_y, "yaw": target_yaw},
+            "strafe",
+        ))
+    if not goals:
+        goals.append((station, {"x": target_x, "y": target_y, "yaw": target_yaw}, "hold"))
+    return goals
+
+
+def axis_aligned_velocity_for_goal(base_pose, target_pose, mode: str):
+    cmd = Twist()
+    base_x, base_y, yaw = [float(v) for v in base_pose]
+    target_x = float(target_pose["x"])
+    target_y = float(target_pose["y"])
+    target_yaw = float(target_pose["yaw"])
+    error_x_map = target_x - base_x
+    error_y_map = target_y - base_y
+    error_yaw = _angle_wrap(target_yaw - yaw)
+
+    if mode == "hold":
+        done = (
+            abs(error_x_map) <= AXIS_NAV_POSITION_TOLERANCE
+            and abs(error_y_map) <= AXIS_NAV_POSITION_TOLERANCE
+            and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE
+        )
+        return done, cmd
+
+    if mode == "rotate":
+        if abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE:
+            return True, cmd
+        cmd.angular.z = _clamp(AXIS_NAV_GAIN_YAW * error_yaw, AXIS_NAV_MAX_ANGULAR)
+        return False, cmd
+
+    if abs(error_yaw) > AXIS_NAV_YAW_ONLY_THRESHOLD:
+        cmd.angular.z = _clamp(AXIS_NAV_GAIN_YAW * error_yaw, AXIS_NAV_MAX_ANGULAR)
+        return False, cmd
+
+    cmd.angular.z = _clamp(AXIS_NAV_GAIN_YAW * error_yaw, AXIS_NAV_MAX_ANGULAR)
+    if mode == "forward":
+        if abs(error_y_map) <= AXIS_NAV_POSITION_TOLERANCE and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE:
+            return True, cmd
+        base_forward = math.sin(yaw) * error_y_map
+        cmd.linear.x = _clamp(AXIS_NAV_GAIN_LINEAR * base_forward, AXIS_NAV_MAX_LINEAR)
+        return False, cmd
+    if mode == "strafe":
+        if abs(error_x_map) <= AXIS_NAV_POSITION_TOLERANCE and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE:
+            return True, cmd
+        base_lateral = -math.sin(yaw) * error_x_map
+        cmd.linear.y = _clamp(AXIS_NAV_GAIN_LINEAR * base_lateral, AXIS_NAV_MAX_LINEAR)
+        return False, cmd
+
+    raise ValueError(f"unsupported axis-aligned mode: {mode}")
 
 
 def place_navigation_handoff_ready(base_pose, place_pose) -> bool:
@@ -227,13 +392,22 @@ def station_dock_velocity_for_base(base_pose, station: str):
 
     base_x, base_y, yaw = [float(v) for v in base_pose]
     target_x, target_y, target_yaw = _station_base_pose(station)
+    if station in WORKTABLE_STATIONS:
+        target_y = station_safe_base_y(yaw, station)
     error_x_map = target_x - base_x
     error_y_map = target_y - base_y
     error_yaw = _angle_wrap(target_yaw - yaw)
 
+    clearance = worktable_clearance(base_pose, station)
+    longitudinal_done = abs(error_y_map) <= STATION_DOCK_TOLERANCE_Y
+    if station in WORKTABLE_STATIONS:
+        longitudinal_done = (
+            WORKTABLE_CLEARANCE - 1.0e-6 <= clearance
+            <= WORKTABLE_CLEARANCE + STATION_DOCK_TOLERANCE_Y
+        )
     done = (
         abs(error_x_map) <= STATION_DOCK_TOLERANCE_X
-        and abs(error_y_map) <= STATION_DOCK_TOLERANCE_Y
+        and longitudinal_done
         and abs(error_yaw) <= STATION_DOCK_TOLERANCE_YAW
     )
     if done:
@@ -261,6 +435,7 @@ def station_dock_velocity_for_base(base_pose, station: str):
         STATION_DOCK_GAIN_YAW * error_yaw,
         STATION_DOCK_MAX_ANGULAR,
     )
+    _limit_worktable_approach(cmd, base_pose, station)
     return False, cmd
 
 
@@ -276,14 +451,19 @@ def place_dock_velocity_for_base(base_pose, target_pose=None, place_pose=None):
     base_x, base_y, yaw = [float(v) for v in base_pose]
     target_x, target_y, target_yaw = [float(v) for v in target_pose]
     error_x_map = target_x - base_x
-    error_y_map = target_y - base_y
+    error_y_map = station_safe_base_y(yaw, "station_b") - base_y
     error_yaw = _angle_wrap(target_yaw - yaw)
     place_x, place_y = _base_target_to_map(base_pose, place_pose[:2])
     drop_target_on_table = _station_b_safe_drop_contains(place_x, place_y)
 
+    clearance = worktable_clearance(base_pose, "station_b")
+    longitudinal_done = (
+        WORKTABLE_CLEARANCE - 1.0e-6 <= clearance
+        <= WORKTABLE_CLEARANCE + PLACE_DOCK_TOLERANCE_Y
+    )
     done = (
         abs(error_x_map) <= PLACE_DOCK_TOLERANCE_X
-        and abs(error_y_map) <= PLACE_DOCK_TOLERANCE_Y
+        and longitudinal_done
         and abs(error_yaw) <= PLACE_DOCK_TOLERANCE_YAW
         and drop_target_on_table
     )
@@ -298,6 +478,7 @@ def place_dock_velocity_for_base(base_pose, target_pose=None, place_pose=None):
     cmd.linear.x = _clamp(PLACE_DOCK_GAIN_X * error_x_base, PLACE_DOCK_MAX_LINEAR_X)
     cmd.linear.y = _clamp(PLACE_DOCK_GAIN_Y * error_y_base, PLACE_DOCK_MAX_LINEAR_Y)
     cmd.angular.z = _clamp(PLACE_DOCK_GAIN_YAW * error_yaw, PLACE_DOCK_MAX_ANGULAR)
+    _limit_worktable_approach(cmd, base_pose, "station_b")
     return False, cmd
 
 
@@ -452,6 +633,11 @@ class MissionNode(Node):
             self.get_logger().info(
                 f"任务拆解[{result.source}]: {[s.name for s in result.steps]}"
             )
+            # 冷启动时 Nav2 生命周期节点可能仍在 configure/activate。
+            # 基础设施就绪不是业务步骤失败，不能消耗 NAV_TO_PICK 重试。
+            if not self._wait_for_navigation_ready():
+                self.get_logger().error("Nav2 启动超时,任务尚未开始")
+                return
             task = SequentialTask(result.steps, max_retries=1)
             task.start()
             self._publish(task.state)
@@ -526,9 +712,13 @@ class MissionNode(Node):
         return False
 
     def _finish_station_step(self, state: TaskState, ok: bool) -> bool:
-        if ok and requires_departure_retreat(state):
+        if not ok:
+            return False
+        if state == TaskState.PICK:
+            return self._retreat_from_station() and self.pp.go_home()
+        if requires_departure_retreat(state):
             return self._retreat_from_station()
-        return ok
+        return True
 
     def _tuck_arm_for_transit(self) -> None:
         """Tuck the arm to the home configuration before base transit."""
@@ -590,7 +780,11 @@ class MissionNode(Node):
             pose = self._detect()
             if pose is not None:
                 last_pose = pose
-                done, cmd = dock_velocity_for_object(pose)
+                done, cmd = dock_velocity_for_object(
+                    pose,
+                    base_pose=self._base_pose_in_map(timeout_sec=0.05),
+                    station="station_a",
+                )
                 if done:
                     self._stop_base(DOCK_STOP_SEC)
                     self.get_logger().info(
@@ -615,7 +809,7 @@ class MissionNode(Node):
         start = self.get_clock().now()
         last_pose = None
         while not self._duration_elapsed(start, STATION_DOCK_TIMEOUT_SEC):
-            pose = self._base_pose_in_odom(timeout_sec=0.05)
+            pose = self._base_pose_in_map(timeout_sec=0.05)
             if pose is not None:
                 last_pose = pose
                 done, cmd = station_dock_velocity_for_base(pose, station)
@@ -631,7 +825,7 @@ class MissionNode(Node):
 
         self._stop_base(STATION_DOCK_STOP_SEC)
         if last_pose is None:
-            self.get_logger().warn(f"地图精停失败: 未获取 {station} base_link odom 位姿")
+            self.get_logger().warn(f"地图精停失败: 未获取 {station} base_link map 位姿")
         else:
             self.get_logger().warn(
                 f"地图精停超时 {station}: "
@@ -682,64 +876,149 @@ class MissionNode(Node):
         self._publish_cmd_for_duration(stop, duration_sec)
 
     def _navigate(self, station: str) -> bool:
-        wp = get_waypoint(station)
-        self.get_logger().info(f"导航到 {station} ({wp['x']:.2f},{wp['y']:.2f})")
-        # 有界探测:BasicNavigator.goToPose 内部 wait_for_server 是无限等待,
-        # bt_navigator 偶发未就绪会让任务挂死到 E2E 420s 超时(重复统计实测)。
-        # 探测失败按导航失败处理,交给状态机重试与 FAILED 兜底。
+        if getattr(self, "_axis_aligned_station_transfer", False) and station in WORKTABLE_STATIONS:
+            current_pose = self._base_pose_in_map(timeout_sec=0.05)
+            if current_pose is not None:
+                return self._navigate_axis_aligned(station, current_pose)
+
+        for goal_name, waypoint, handoff_station in navigation_goals_for_station(station):
+            if not self._navigate_goal(goal_name, waypoint, handoff_station):
+                return False
+        return True
+
+    def _navigate_axis_aligned(self, station: str, current_pose) -> bool:
+        self.get_logger().info(f"axis-aligned transfer to {station}")
+        for goal_name, waypoint, mode in axis_aligned_navigation_goals(station, current_pose):
+            if not self._drive_axis_aligned_goal(goal_name, waypoint, mode):
+                return False
+        return True
+
+    def _drive_axis_aligned_goal(self, goal_name: str, target_pose, mode: str) -> bool:
+        start = self.get_clock().now()
+        last_pose = None
+        while not self._duration_elapsed(start, AXIS_NAV_TIMEOUT_SEC):
+            pose = self._base_pose_in_map(timeout_sec=0.05)
+            if pose is not None:
+                last_pose = pose
+                done, cmd = axis_aligned_velocity_for_goal(pose, target_pose, mode)
+                if done:
+                    self._stop_base(AXIS_NAV_STOP_SEC)
+                    self.get_logger().info(
+                        f"axis goal done {goal_name}: base=({pose[0]:.3f},{pose[1]:.3f},{math.degrees(pose[2]):.1f}deg)"
+                    )
+                    return True
+                self.retreat_pub.publish(cmd)
+            time.sleep(AXIS_NAV_PUBLISH_PERIOD_SEC)
+
+        self._stop_base(AXIS_NAV_STOP_SEC)
+        if last_pose is None:
+            self.get_logger().warn(f"axis goal failed {goal_name}: base pose unavailable")
+        else:
+            self.get_logger().warn(
+                f"axis goal timeout {goal_name}: base=({last_pose[0]:.3f},{last_pose[1]:.3f},{math.degrees(last_pose[2]):.1f}deg)"
+            )
+        return False
+
+    def _navigate_goal(self, goal_name: str, waypoint, handoff_station: str | None) -> bool:
+        self.get_logger().info(
+            f"navigating to {goal_name} ({waypoint['x']:.2f},{waypoint['y']:.2f})"
+        )
+        # Keep Nav2 server and TF readiness checks bounded so one stalled action
+        # cannot hang the whole mission.
         if not self.nav.nav_to_pose_client.wait_for_server(
             timeout_sec=NAV_SERVER_WAIT_SEC
         ):
-            self.get_logger().warn(f"导航服务未就绪,放弃导航到 {station}")
+            self.get_logger().warn(f"navigation server not ready for {goal_name}")
             return False
         if not self._wait_for_nav_active():
-            self.get_logger().warn(f"bt_navigator 未 active,放弃导航到 {station}")
+            self.get_logger().warn(f"bt_navigator not active for {goal_name}")
             return False
-        if not self._wait_for_navigation_tf(station):
+        if not self._wait_for_navigation_tf(goal_name):
             return False
         goal = PoseStamped()
         goal.header.frame_id = "map"
         goal.header.stamp = self.nav.get_clock().now().to_msg()
-        goal.pose.position.x = wp["x"]
-        goal.pose.position.y = wp["y"]
-        qx, qy, qz, qw = yaw_to_quat(wp["yaw"])
+        goal.pose.position.x = waypoint["x"]
+        goal.pose.position.y = waypoint["y"]
+        _qx, _qy, qz, qw = yaw_to_quat(waypoint["yaw"])
         goal.pose.orientation.z = qz
         goal.pose.orientation.w = qw
         self.nav.goToPose(goal)
         t0 = self.get_clock().now()
         timeout = rclpy.duration.Duration(seconds=NAV_TIMEOUT_SEC)
-        # BasicNavigator.isTaskComplete 内部 spin nav 节点;mission 由外部 executor spin,此处仅等待(避免双重 spin)
         while not self.nav.isTaskComplete():
-            if self._navigation_handoff_ready(station):
-                self.get_logger().info(f"导航到 {station} 已满足任务交接条件")
+            if handoff_station is not None and self._navigation_handoff_ready(handoff_station):
+                self.get_logger().info(
+                    f"navigation handoff ready at {goal_name}"
+                )
                 self.nav.cancelTask()
                 self._stop_base(NAV_HANDOFF_STOP_SEC)
                 return True
             if (self.get_clock().now() - t0).nanoseconds > timeout.nanoseconds:
-                self.get_logger().warn(f"导航到 {station} 超时，取消")
+                self.get_logger().warn(f"navigation timeout at {goal_name}")
                 self.nav.cancelTask()
                 self._stop_base(NAV_HANDOFF_STOP_SEC)
                 return False
             time.sleep(0.2)
         return self.nav.getResult() == TaskResult.SUCCEEDED
 
-    def _wait_for_nav_active(self) -> bool:
+    def _wait_for_navigation_ready(
+        self,
+        timeout_sec: float = NAV_STARTUP_WAIT_SEC,
+    ) -> bool:
+        """Wait for cold-start Nav2 without consuming mission retries."""
+        deadline = time.monotonic() + timeout_sec
+        logged = False
+        while rclpy.ok() and time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            probe = min(NAV_STARTUP_POLL_SEC, remaining)
+            if self.nav.nav_to_pose_client.wait_for_server(timeout_sec=probe):
+                remaining = max(0.0, deadline - time.monotonic())
+                if self._wait_for_nav_active(timeout_sec=remaining):
+                    return True
+            if not logged:
+                self.get_logger().info("等待 Nav2 action 与生命周期 active")
+                logged = True
+        return False
+
+    def _wait_for_nav_active(
+        self,
+        timeout_sec: float = NAV_ACTIVE_WAIT_SEC,
+    ) -> bool:
         """Wait until bt_navigator lifecycle state reaches active."""
-        start = self.get_clock().now()
-        while not self._duration_elapsed(start, NAV_ACTIVE_WAIT_SEC):
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and time.monotonic() < deadline:
+            result = None
             if self._bt_state_client.service_is_ready():
-                future = self._bt_state_client.call_async(GetState.Request())
-                deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
-                while not future.done() and time.time() < deadline:
-                    time.sleep(0.05)
-                result = future.result() if future.done() else None
+                try:
+                    future = self._bt_state_client.call_async(GetState.Request())
+                    call_deadline = min(
+                        deadline,
+                        time.monotonic() + NAV_ACTIVE_CALL_TIMEOUT_SEC,
+                    )
+                    while (
+                        rclpy.ok()
+                        and not future.done()
+                        and time.monotonic() < call_deadline
+                    ):
+                        remaining = max(
+                            0.0, call_deadline - time.monotonic()
+                        )
+                        time.sleep(min(0.05, remaining))
+                    if future.done():
+                        result = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    self.get_logger().warn(
+                        f"bt_navigator 状态探测失败,继续等待: {exc}"
+                    )
                 if (
                     result is not None
                     and result.current_state.id
                     == LifecycleState.PRIMARY_STATE_ACTIVE
                 ):
                     return True
-            time.sleep(NAV_ACTIVE_POLL_SEC)
+            remaining = max(0.0, deadline - time.monotonic())
+            time.sleep(min(NAV_ACTIVE_POLL_SEC, remaining))
         return False
 
     def _wait_for_navigation_tf(self, station: str) -> bool:
@@ -900,8 +1179,12 @@ def main():
         executor.spin()
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        executor.shutdown()
+        node.pp.destroy_node()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

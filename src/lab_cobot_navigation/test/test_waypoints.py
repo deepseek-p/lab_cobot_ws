@@ -54,7 +54,7 @@ def test_pick_station_stays_out_of_table_inflation():
 def test_place_station_stays_in_navigable_corridor():
     station_b = get_waypoint("station_b")
 
-    assert station_b["y"] <= 0.70
+    assert 0.60 <= station_b["y"] <= 0.70
 
 
 def test_place_station_stays_out_of_table_inflation_while_place_pose_reaches_table():
@@ -62,8 +62,15 @@ def test_place_station_stays_out_of_table_inflation_while_place_pose_reaches_tab
     station_table_front_y = 1.20
     default_place_forward_distance = 0.82
 
-    assert station_b["y"] <= 0.50
+    assert station_b["y"] >= 0.60
     assert station_b["y"] + default_place_forward_distance >= station_table_front_y
+
+
+def test_cross_station_transfer_uses_shared_corridor_y():
+    station_a = get_waypoint("station_a")
+    station_b = get_waypoint("station_b")
+
+    assert station_b["y"] == pytest.approx(station_a["y"])
 
 
 def test_get_waypoint_returns_copy():

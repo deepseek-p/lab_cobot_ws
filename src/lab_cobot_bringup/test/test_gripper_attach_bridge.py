@@ -2,6 +2,7 @@
 import importlib.util
 import math
 from pathlib import Path
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -43,7 +44,16 @@ def _launch_entities(entity):
     handler = getattr(entity, "_RegisterEventHandler__event_handler", None)
     if handler is not None:
         on_event = getattr(handler, "_OnActionEventBase__actions_on_event", [])
+        callback = getattr(handler, "_OnActionEventBase__on_event", None)
+        if callback is not None:
+            on_event = [*on_event, callback]
         for action in on_event:
+            if callable(action):
+                action = action(SimpleNamespace(returncode=0), None)
+            if isinstance(action, (list, tuple)):
+                for nested in action:
+                    yield from _launch_entities(nested)
+                continue
             yield from _launch_entities(action)
 
 

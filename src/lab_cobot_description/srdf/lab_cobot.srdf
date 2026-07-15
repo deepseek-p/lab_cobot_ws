@@ -46,10 +46,10 @@
   <end_effector name="gripper" parent_link="ur_tool0" group="gripper"/>
 
   <!-- 底盘平面运动由 lab_cobot_mecanum_drive 的轮速命令链路实现;不再使用旧平面移动插件。 -->
-  <passive_joint name="wheel_fl_joint"/>
-  <passive_joint name="wheel_fr_joint"/>
-  <passive_joint name="wheel_rl_joint"/>
-  <passive_joint name="wheel_rr_joint"/>
+  <passive_joint name="front_left_joint"/>
+  <passive_joint name="front_right_joint"/>
+  <passive_joint name="back_left_joint"/>
+  <passive_joint name="back_right_joint"/>
 
   <!-- ===== 碰撞禁用 ===== -->
   <!-- UR5e 相邻链 -->
@@ -79,10 +79,18 @@
   <disable_collisions link1="base_link" link2="pillar_link" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="laser" reason="Adjacent"/>
   <disable_collisions link1="base_link" link2="imu_link" reason="Adjacent"/>
-  <disable_collisions link1="base_link" link2="wheel_fl" reason="Adjacent"/>
-  <disable_collisions link1="base_link" link2="wheel_fr" reason="Adjacent"/>
-  <disable_collisions link1="base_link" link2="wheel_rl" reason="Adjacent"/>
-  <disable_collisions link1="base_link" link2="wheel_rr" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_left_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_right_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="back_left_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="back_right_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_left_arm" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="front_right_arm" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="back_left_arm" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="back_right_arm" reason="Adjacent"/>
+  <disable_collisions link1="front_left_arm" link2="front_left_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="front_right_arm" link2="front_right_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="back_left_arm" link2="back_left_wheel_1" reason="Adjacent"/>
+  <disable_collisions link1="back_right_arm" link2="back_right_wheel_1" reason="Adjacent"/>
   <disable_collisions link1="pillar_link" link2="ur_base_link_inertia" reason="Adjacent"/>
   <disable_collisions link1="pillar_link" link2="ur_shoulder_link" reason="Never"/>
   <disable_collisions link1="pillar_link" link2="camera_link" reason="Never"/>

@@ -12,7 +12,9 @@ from typing import Dict, List
 # name -> {x, y, yaw(rad)}
 WAYPOINTS: Dict[str, Dict[str, float]] = {
     "station_a": {"x": 2.0, "y": 0.62, "yaw": math.pi / 2.0},   # 工位A前,朝 +y
-    "station_b": {"x": -2.0, "y": 0.45, "yaw": math.pi / 2.0},  # 工位B前,朝 +y
+    # Keep A/B on the same corridor line so cross-station navigation favors a
+    # straight cross-aisle transfer instead of a long diagonal slide.
+    "station_b": {"x": -2.0, "y": 0.62, "yaw": math.pi / 2.0},  # front of station_b, facing +y
     "home": {"x": 0.0, "y": 0.0, "yaw": 0.0},
 }
 

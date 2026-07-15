@@ -1,24 +1,13 @@
-"""Cross-file configuration contracts for the mecanum drive plugin."""
-# 运动学行为由 test_mecanum_kinematics.cpp (gtest) 覆盖;原源码文本断言已退役:
-# - 正解公式/NaN 清洗/限幅/看门狗 -> ament_add_gtest(test_mecanum_kinematics)
-#   直测头文件实现(含与 mecanum_wheel_visualizer.py 逆解的互逆性对拍)
-# - 默认模式运行时行为 -> 诚实 E2E(机器人真被导航驱动)
-# 本文件只保留跨文件一致性合同:URDF 挂接配置与构建产物、可视化器参数一致。
+"""Contracts for the synchronous planar mecanum Gazebo plugin."""
+
 import subprocess
 from pathlib import Path
 from xml.etree import ElementTree
 
+
 GAZEBO = Path(__file__).resolve().parents[1]
 DESCRIPTION = GAZEBO.parent / "lab_cobot_description"
-
-# 与插件源码 OnUpdate 分发和 UsesWheelCommandWatchdog 一致的模式全集;
-# URDF 配置值必须落在其中,否则运行时 gzerr unknown control_mode 且底盘不动。
-VALID_CONTROL_MODES = {
-    "pose_from_wheel_commands",
-    "pose_from_wheel_joints",
-    "velocity_from_wheel_joints",
-    "force_from_wheel_joints",
-}
+PLANAR_PLUGIN = "liblab_cobot_planar_drive.so"
 
 
 def _robot_xml():
@@ -32,64 +21,43 @@ def _robot_xml():
     return ElementTree.fromstring(result.stdout)
 
 
-def _plugin(root):
-    for plugin in root.iter("plugin"):
-        if plugin.get("name") == "lab_cobot_mecanum_traction":
-            return plugin
-    raise AssertionError("URDF 中未找到插件 lab_cobot_mecanum_traction")
-
-
-def test_urdf_references_this_package_mecanum_plugin_library():
-    plugin = _plugin(_robot_xml())
-    assert plugin.get("filename") == "liblab_cobot_mecanum_drive.so"
-    cmake = (GAZEBO / "CMakeLists.txt").read_text(encoding="utf-8")
-    assert "add_library(lab_cobot_mecanum_drive SHARED" in cmake
-
-
-def test_urdf_control_mode_is_valid_and_honestly_named_pose_drive():
-    """Default control mode must be the honestly named pose drive."""
-    # 不得回退到已除名的 velocity_from_wheel_commands 等名不副实别名
-    plugin = _plugin(_robot_xml())
-    mode = plugin.findtext("control_mode")
-    assert mode in VALID_CONTROL_MODES
-    assert mode == "pose_from_wheel_commands"
-    # 插件源码不得再包含旧别名(防止别名复活让命名再度失实)
-    source = (GAZEBO / "src" / "lab_cobot_mecanum_drive.cpp").read_text(
-        encoding="utf-8"
+def test_generated_robot_uses_synchronous_planar_drive_plugin():
+    plugin = next(
+        node for node in _robot_xml().iter("plugin")
+        if node.get("filename") == PLANAR_PLUGIN
     )
-    assert "velocity_from_wheel_commands" not in source
+    assert plugin.findtext("wheel_command_topic") == "/wheel_velocity_controller/commands"
+    assert plugin.findtext("wheel_radius") == "0.07"
+    assert plugin.findtext("wheel_separation_width") == "0.24"
+    assert plugin.findtext("wheel_separation_length") == "0.175"
+    assert plugin.findtext("chassis_length") == "0.42"
+    assert plugin.findtext("chassis_width") == "0.30"
+    assert plugin.findtext("table_safety_margin") == "0.35"
+    assert plugin.findtext("table_a") == "2.0 1.5 0.8 0.6"
+    assert plugin.findtext("table_b") == "-2.0 1.5 0.8 0.6"
 
 
-def test_urdf_kinematics_params_match_visualizer_inverse_kinematics():
-    """Plugin FK params must match the visualizer IK params."""
-    # 参数不一致则 FK/IK 不再互逆,cmd_vel 与实际车体速度比例失真
-    plugin = _plugin(_robot_xml())
-    wheel_radius = float(plugin.findtext("wheel_radius"))
-    wheelbase_radius = float(plugin.findtext("wheelbase_radius"))
-
-    import importlib.util
-
-    visualizer = (
-        GAZEBO.parent
-        / "lab_cobot_bringup"
-        / "lab_cobot_bringup"
-        / "mecanum_wheel_visualizer.py"
-    )
-    spec = importlib.util.spec_from_file_location("mwv_contract", visualizer)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    assert wheel_radius == module.WHEEL_RADIUS
-    assert wheelbase_radius == module.WHEELBASE_RADIUS
+def test_generated_robot_keeps_ros2_control_for_visual_wheel_motion():
+    """Wheel joints remain animated independently of whole-model pose drive."""
+    plugin_filenames = {
+        plugin.get("filename") for plugin in _robot_xml().iter("plugin")
+    }
+    assert "libgazebo_ros2_control.so" in plugin_filenames
 
 
-def test_urdf_wheel_joint_order_matches_visualizer_convention():
-    """Wheel joint order must follow the [fl, fr, rl, rr] convention."""
-    plugin = _plugin(_robot_xml())
-    joints = [element.text for element in plugin.findall("wheel_joint")]
-    assert joints == [
-        "wheel_fl_joint",
-        "wheel_fr_joint",
-        "wheel_rl_joint",
-        "wheel_rr_joint",
-    ]
+def test_planar_plugin_updates_inside_gazebo_and_disables_model_gravity():
+    source = (GAZEBO / "src" / "lab_cobot_planar_drive.cpp").read_text()
+    assert "ConnectWorldUpdateBegin" in source
+    assert "model_->SetGravityMode(false)" in source
+    assert "wheelSpeedsToTwist" in source
+    assert '"lab_cobot_gazebo/planar_safety.hpp"' in source
+    assert "isSweptMotionAllowed" in source
+    assert "RCLCPP_WARN_THROTTLE" in source
+    assert "throw std::runtime_error" in source
+
+
+def test_planar_plugin_does_not_override_model_velocity():
+    """Whole-model velocity writes must not suppress joint visual rotation."""
+    source = (GAZEBO / "src" / "lab_cobot_planar_drive.cpp").read_text()
+    assert "model_->SetLinearVel" not in source
+    assert "model_->SetAngularVel" not in source

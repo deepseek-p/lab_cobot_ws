@@ -16,12 +16,23 @@ from launch.actions import (
     IncludeLaunchDescription,
     RegisterEventHandler,
     AppendEnvironmentVariable,
+    EmitEvent,
+    SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+
+
+def _continue_on_success(event, next_actions, controller_name):
+    if event.returncode == 0:
+        return next_actions
+    return [EmitEvent(event=Shutdown(
+        reason=f"controller {controller_name} failed with code {event.returncode}"
+    ))]
 
 
 def generate_launch_description():
@@ -56,6 +67,17 @@ def generate_launch_description():
 
     gui = LaunchConfiguration("gui")
 
+    gazebo_resources = AppendEnvironmentVariable(
+        "GAZEBO_RESOURCE_PATH", "/usr/share/gazebo-11"
+    )
+    gazebo_builtin_models = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"
+    )
+    description_package_models = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", os.path.dirname(desc_pkg)
+    )
+    gazebo_offline = SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")
+
     # 让 Gazebo 能解析 world 里的 model://aruco_sample
     model_path = AppendEnvironmentVariable(
         "GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")
@@ -74,7 +96,6 @@ def generate_launch_description():
         cmd=["gzclient", "--gui-client-plugin=libgazebo_ros_eol_gui.so"],
         output="screen",
         additional_env={
-            "GAZEBO_MODEL_PATH": os.path.join(gz_pkg, "models"),
             "GAZEBO_MODEL_DATABASE_URI": "",
         },
         condition=IfCondition(gui),
@@ -94,7 +115,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "0.0", "-y", "0.0", "-z", "0.0",
+            "-x", "0.0", "-y", "0.0", "-z", "0.12",
             # 注:Gazebo Classic 的 spawn_entity.py 不支持 -J 设初始关节;
             # 臂初始姿态由 URDF ros2_control 的 initial_value(=home 收拢)
             # 经 gazebo_ros2_control 设置,见 config/initial_positions.yaml
@@ -122,6 +143,20 @@ def generate_launch_description():
         executable="spawner",
         arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
     )
+    gazebo_odom_bridge = Node(
+        package="lab_cobot_gazebo",
+        executable="gazebo_odom_bridge",
+        output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "link_states_topic": "/gazebo/link_states",
+            "odom_topic": "/odom",
+            "target_link_name": "lab_cobot::base_footprint",
+            "fallback_link_name": "lab_cobot::base_link",
+            "odom_frame": "odom",
+            "base_frame": "base_footprint",
+        }],
+    )
 
     # spawn 完成后顺序激活控制器
     delay_jsb = RegisterEventHandler(
@@ -129,19 +164,36 @@ def generate_launch_description():
     )
     delay_jtc = RegisterEventHandler(
         OnProcessExit(
-            target_action=joint_state_broadcaster, on_exit=[joint_trajectory_controller]
+            target_action=joint_state_broadcaster,
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [joint_trajectory_controller], "joint_state_broadcaster"
+            ),
         )
     )
     delay_gripper = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_trajectory_controller,
-            on_exit=[gripper_position_controller],
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [gripper_position_controller], "joint_trajectory_controller"
+            ),
         )
     )
     delay_wheel_velocity = RegisterEventHandler(
         OnProcessExit(
             target_action=gripper_position_controller,
-            on_exit=[wheel_velocity_controller],
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [wheel_velocity_controller], "gripper_position_controller"
+            ),
+        )
+    )
+    delay_mecanum_runtime = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wheel_velocity_controller,
+            on_exit=lambda event, _context: _continue_on_success(
+                event,
+                [gazebo_odom_bridge],
+                "wheel_velocity_controller",
+            ),
         )
     )
 
@@ -151,6 +203,10 @@ def generate_launch_description():
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
         DeclareLaunchArgument("use_wrist_detect", default_value="false"),
+        gazebo_resources,
+        gazebo_builtin_models,
+        description_package_models,
+        gazebo_offline,
         model_path,
         gazebo_plugin_path,
         gzserver,
@@ -161,4 +217,5 @@ def generate_launch_description():
         delay_jtc,
         delay_gripper,
         delay_wheel_velocity,
+        delay_mecanum_runtime,
     ])

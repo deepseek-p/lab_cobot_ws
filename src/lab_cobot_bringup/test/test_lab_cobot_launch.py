@@ -176,20 +176,74 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
     assert _text(predicate[0].variable_name) == "launch_mission"
 
 
-def test_bringup_drives_mecanum_wheel_visuals_from_cmd_vel(monkeypatch):
+def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
-    executables = {node.node_executable for node in _nodes(launch_description)}
+    executables = [node.node_executable for node in _nodes(launch_description)]
+    includes = [
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+    ]
+    worlds = [
+        include
+        for include in includes
+        if _text(getattr(
+            include.launch_description_source,
+            "_LaunchDescriptionSource__location",
+        )).endswith("world.launch.py")
+    ]
 
-    assert "mecanum_wheel_visualizer" in executables
+    assert len(worlds) == 1
+    assert "mecanum_wheel_visualizer" not in executables
     assert "wheel_joint_state_publisher" not in executables
+    assert list(executables).count("rover_twist_relay") == 1
+    assert "mecanum_gazebo_kinematic_drive" not in executables
+    assert "gazebo_odom_bridge" not in executables
+
+    relay = _node("lab_cobot_bringup", "rover_twist_relay", launch_description)
+    assert _node_parameters(relay) == {
+        "use_sim_time": True,
+        "rover": "mecanum3",
+        "mecanum3.wheel_radius": 0.07,
+        "mecanum3.wheel_separation_width": 0.24,
+        "mecanum3.wheel_separation_length": 0.175,
+        "max_vx": 0.5,
+        "max_vy": 0.3,
+        "max_wz": 1.2,
+        "max_accel_xy": 0.5,
+        "max_accel_wz": 1.5,
+        "command_timeout": 0.25,
+    }
 
 
-def test_bringup_uses_gazebo_drive_plugin_as_only_odom_source(monkeypatch):
+def test_bringup_registers_worktables_in_existing_stage2(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
-    mecanum = _node("lab_cobot_bringup", "mecanum_wheel_visualizer", launch_description)
-    params = _node_parameters(mecanum)
+    stage2 = next(
+        entity
+        for entity in launch_description.entities
+        if isinstance(entity, TimerAction) and entity.period == 10.0
+    )
+    table_initializer = _node(
+        "lab_cobot_moveit", "table_scene_initializer", launch_description
+    )
 
-    assert params["publish_odom"] is False
+    assert table_initializer in stage2.actions
+    assert _node_parameters(table_initializer) == {
+        "use_sim_time": True,
+        "world_frame": "odom",
+    }
+
+
+def test_bringup_publishes_passive_mecanum_joint_states(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    nodes = [
+        node for node in _nodes(launch_description)
+        if node.node_executable == "passive_mecanum_joint_states"
+    ]
+
+    assert len(nodes) == 1
+    assert nodes[0].node_package == "lab_cobot_bringup"
+    assert _node_parameters(nodes[0])["use_sim_time"] is True
 
 
 def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):

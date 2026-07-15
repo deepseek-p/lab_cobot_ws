@@ -88,7 +88,7 @@
     <include>
       <uri>model://aruco_sample</uri>
       <name>aruco_sample</name>
-      <pose>2.0 1.5 0.785 0 0 0</pose>
+      <pose>2.0 1.32 0.785 0 0 0</pose>
     </include>
     <include>
       <uri>model://reagent_bottle</uri>

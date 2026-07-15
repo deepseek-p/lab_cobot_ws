@@ -9,22 +9,18 @@
 当前实现已完成导航地图、任务编排、抓取失败恢复、contact grasp 抓取、ArUco 相机位姿、MoveIt 等运行链路的修复和加固，默认路径不读 Gazebo 真值、不使用瞬移吸附。
 
 - `colcon build`：8 个包构建通过
-- `colcon test`：562 个测试（含 1 个禁真值 Gazebo 端到端与 36 个插件 gtest 行为用例），15 跳过（其中 13 个为 cppcheck 环境性跳过，对应源码均有 gtest 覆盖）
+- `colcon test`：相关功能与底盘回归测试通过；已知既有 lint 与 mission E2E 问题另行记录
 - 静态地图为 `slam_toolbox` 实跑产物（来源与质量门见 `maps/map_provenance.yaml`）
 - 默认 `use_truth_pose=false`、`use_sim_attach=false`：视觉走相机检测，抓取走 contact grasp 插件
-- 默认 `use_tactile_grasp=true`、`require_finger_contact=true`：抓取 attach 需几何封套命中且左右指触觉探针均上报真实接触对（两开关必须同值）
-- 默认 `use_wrist_detect=true`、`use_refine_detect=true`：腕相机 eye-in-hand 链为主路径——DETECT 移动到固定拍照位用腕相机定位（手眼变换经 Tsai 标定管线仿真验证），PICK 悬停后二次精修；任一环节失败自动降级 bench 全景相机/粗位姿
-- 默认 `use_planning_scene_obstacles=true`：机械臂规划场景注入工位台面碰撞盒与持物样件附着盒，PICK 完成后先收臂再导航（消除持物横扫工位的穿模）
 - headless 端到端（禁真值/禁吸附桥）已多次验证到 `DONE`
 - `mission_node` 是正式任务入口；旧的 `pick_place` console entry point 已移除
 - 末端执行器是平行双指夹爪；样件固定由 contact grasp 插件的 fixed-joint 实现
 
 ### 仿真保真度边界（诚实声明）
 
-- **底盘**：默认由自定义插件按"cmd_vel → 麦轮逆解 → 轮速命令 → 正解"驱动，运动学链真实，但施加层是**有界位姿积分（`SetWorldPose`）**——底盘不受碰撞阻挡、`/odom` 为插件自身积分（零漂移）。不是麦轮滚子接触动力学。
-- **抓取**：默认路径为触觉门控——attach 需要**几何封套命中且左右指触觉探针均上报真实几何接触对**（步进闭合，非一步到位）；接触判定是传感器上报的接触对，**不是力反馈**。物块全程保留质量/重力；fixed-joint 持有期样件碰撞响应被挂起、release 时原子恢复（消除固定关节与台面接触约束冲突）。放置采用悬空释放（名义落差约 5cm）避免约束冲突。不是真实摩擦力闭合。回退路径 `use_tactile_grasp:=false require_finger_contact:=false` 仍为"靠近即焊"，引用其行为时须注明。
-- **机械臂避障**：规划场景中的工位台面碰撞盒为**名义几何**（检测/放置点定中心 + 已知台面尺寸放大裕度），不是感知重建；只约束 MoveIt 规划的臂轨迹，底盘仍不受碰撞阻挡（见底盘边界）。
-- **视觉**：默认走 RGB-D + solvePnP 真实检测管线；`/gazebo/model_states` 仅保留为 `use_truth_pose:=true` 显式调试路径。腕相机拍照位检测为"拍一帧→手眼变换→开环执行"，不是接近过程闭环视觉伺服。
+- **底盘**：默认由 `rover_twist_relay` 完成麦轮逆解、`lab_cobot_planar_drive` 同步完成正解和**有界平面位姿积分（`SetWorldPose`）**，再由 `gazebo_odom_bridge` 从 Gazebo 状态发布 `/odom`。运动学链真实，但底盘不受碰撞阻挡，里程计无轮地接触造成的漂移；不是麦轮滚子接触动力学。
+- **抓取**：attach 触发是几何封套与双指触觉门控后的 fixed-joint，不是真实摩擦力闭合。搬运期间仅临时屏蔽被抓样件自身的 Gazebo 碰撞，释放时先解除 fixed-joint、恢复原碰撞掩码并清零速度；样件随后依靠重力落到 B 台面。质量、重力、桌面和底盘安全碰撞配置保持不变。
+- **视觉**：默认走 RGB-D + solvePnP 真实检测管线；`/gazebo/model_states` 仅保留为 `use_truth_pose:=true` 显式调试路径。
 
 ## 系统流程
 
@@ -32,13 +28,14 @@
 /task/instruction
   -> mission_node
   -> Nav2 AMCL/EKF + DWB
-  -> /cmd_vel -> mecanum_wheel_visualizer(麦轮逆解)
-  -> /wheel_velocity_controller/commands -> lab_cobot_mecanum_drive(正解+位姿积分)
-  -> aruco_detector(bench RGB-D solvePnP) + wrist_aruco_detector(腕相机拍照位/精修) -> TF/PoseStamped
-  -> MoveIt 2 + pymoveit2(规划场景含台面碰撞盒+持物样件附着盒)
+  -> /cmd_vel -> rover_twist_relay(移植的麦轮逆解)
+  -> /wheel_velocity_controller/commands -> lab_cobot_planar_drive(同步正解+平面位姿积分)
+  -> gazebo_odom_bridge -> /odom
+  -> aruco_detector(RGB-D solvePnP) -> TF/PoseStamped
+  -> MoveIt 2 + pymoveit2
   -> ContactGripperDriver
   -> /gripper_position_controller/commands
-  -> lab_cobot_grasp_fix(几何封套+双指接触门控 -> fixed joint attach/detach)
+  -> lab_cobot_grasp_fix(几何封套 -> fixed joint attach/detach)
   -> /task/status
 ```
 
@@ -94,7 +91,7 @@ sudo apt install -y \
 ## 构建
 
 ```bash
-cd ~/projects/lab_cobot_ws
+cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -112,7 +109,7 @@ colcon build --symlink-install
 启动完整仿真：
 
 ```bash
-cd ~/projects/lab_cobot_ws
+cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch lab_cobot_bringup lab_cobot.launch.py
@@ -122,7 +119,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/projects/lab_cobot_ws/install/setup.bash
+source ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port/install/setup.bash
 ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
 ```
 
@@ -142,9 +139,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false
 
 | 参数 | 默认值 | 作用 |
 |---|---|---|
-| `use_wrist_detect` | `true` | DETECT 阶段先移动到固定拍照位，使用腕相机顶面 ID=1 marker 定位；移动或检测失败时自动降级到 bench 相机。置 `false` 回退纯 bench 检测。 |
-| `use_refine_detect` | `true` | 启用腕部精修相机、`/perception/wrist` ArUco 检测实例和 PICK 悬停后的位姿精修；失败时自动沿用粗位姿。 |
-| `use_planning_scene_obstacles` | `true` | 向 MoveIt 规划场景注入工位台面碰撞盒与持物样件附着盒；置 `false` 回退规划对环境盲的旧行为。 |
+| `use_refine_detect` | `false` | 同时启用腕部精修相机、`/perception/wrist` ArUco 检测实例和 PICK 悬停后的位姿精修；失败时自动沿用粗位姿。 |
 
 只启动全栈但不启动任务节点：
 
@@ -162,6 +157,22 @@ ros2 launch lab_cobot_navigation navigation.launch.py
 ros2 launch lab_cobot_navigation mapping.launch.py
 ```
 
+调试底盘时仍从总启动入口启动完整的 `/cmd_vel` 适配链，但关闭任务节点和 RViz：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_mission:=false use_rviz:=false
+```
+
+另开终端发布一个前进指令：
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port/install/setup.bash
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
+```
+
+单独运行 `ros2 launch lab_cobot_gazebo world.launch.py` 会启动 Gazebo、控制器、底盘插件和 `gazebo_odom_bridge`，但不会启动 `rover_twist_relay`；需要完整运行链路时请使用上述 `lab_cobot_bringup` 总启动命令。
+
 ## 验证
 
 本机如果存在 user-level `anyio` pytest 插件问题，给 pytest/colcon 测试命令加上 `PYTEST_ADDOPTS='-p no:anyio'`。
@@ -169,7 +180,7 @@ ros2 launch lab_cobot_navigation mapping.launch.py
 完整构建和测试：
 
 ```bash
-cd ~/projects/lab_cobot_ws
+cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
 source /opt/ros/humble/setup.bash
 PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
 PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure
@@ -185,22 +196,22 @@ python3 src/lab_cobot_navigation/maps/check_map.py
 期望汇总：
 
 ```text
-Summary: 562 tests, 0 errors, 0 failures, 15 skipped
+PASS: 相关功能与底盘回归测试通过；已知既有 lint 与 mission E2E 问题另行记录
 PASS: map covers four walls, has low obstacle noise, and key points are free
 ```
 
 ## 运行注意
 
+- 当前底盘移植功能位于 `~/lab_cobot_ws/.worktrees/mecanum3-chassis-port` 的 `feature/mecanum3-chassis-port` 分支。合并前必须在此 worktree 构建和运行；`~/lab_cobot_ws` 主目录是 `main`，不会自动包含本分支的源码和 `install`。
+- 可直接复制的中文运行、验证和故障排查步骤见 `docs/运行与验证.md`。
+
 - `lab_cobot.launch.py` 默认延迟启动 MoveIt/Nav2/感知/mission，以等待 Gazebo、spawn 和控制器就绪。
-- 向刚启动的栈发布任务建议用连发模式（`timeout 4 ros2 topic pub -r 2 /task/instruction ...`）；`--once` 单发可能因 DDS discovery 未完成而丢失。
-- 平行夹爪通过 `gripper_position_controller` 驱动手指开合；样件固定由 `lab_cobot_grasp_fix` 插件在几何封套命中且双指触觉探针均上报接触对时创建 fixed joint 实现（接触判定为几何接触对，非力反馈，也非 SetEntityState 瞬移）；旧的 `gripper_attach_bridge` 仅在 `use_sim_attach:=true` 时作为调试后端启动。
+- 平行夹爪通过 `gripper_position_controller` 驱动手指开合；样件固定由 `lab_cobot_grasp_fix` 插件在几何封套满足时创建 fixed joint 实现（非接触力检测，也非 SetEntityState 瞬移）；旧的 `gripper_attach_bridge` 仅在 `use_sim_attach:=true` 时作为调试后端启动。
 - WSLg 下 launch 会设置 D3D12 和 Qt 相关环境变量以提高 Gazebo/RViz 稳定性。
 - headless 结束 launch 时，MoveIt/rclpy 可能输出 SIGINT/shutdown 噪声；判断任务结果以 `/task/status` 是否到 `DONE` 为准。
 - Gazebo GUI、物理步进和渲染性能会影响端到端任务耗时。
 
 ## 文档
-
-以下为内部工作区文档（不随发布快照分发，发布仓库中不存在 `docs/` 目录）：
 
 - `docs/HANDOVER.md`：项目交接和运行记录
 - `docs/STATUS_HONEST.md`：阶段性状态说明

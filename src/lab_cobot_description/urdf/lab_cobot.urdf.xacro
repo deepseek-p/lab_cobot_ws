@@ -2,9 +2,9 @@
 <!--
   一体化麦轮移动机械臂:麦轮全向底盘 + 基座立柱 + UR5e + 平行夹爪 + 传感器。
   UR5e 用官方 ur_description 的 ur_robot macro(sim_gazebo 模式),装在立柱顶 arm_mount_link。
-  关节由 gazebo_ros2_control 驱动;底盘车体运动由 lab_cobot_mecanum_drive 的
-  位姿积分模型(pose_from_wheel_commands,逐 tick SetWorldPose)施加,
-  轮关节旋转仅为视觉同步,不参与推进。
+  底盘视觉轮由 wheel_velocity_controller 驱动；整机位姿由后续/外部
+  mecanum_gazebo_kinematic_drive 节点通过 /set_entity_state 推进。
+  URDF 不再内嵌旧 lab_cobot_mecanum_drive 插件。
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="lab_cobot">
 
@@ -18,7 +18,7 @@
 
   <!-- ===== 部件宏 ===== -->
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/common.xacro"/>
-  <xacro:include filename="$(find lab_cobot_description)/urdf/inc/mecanum_base.xacro"/>
+  <xacro:include filename="$(find lab_cobot_description)/urdf/inc/mecanum3_base.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/pillar.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/sensors.xacro"/>
   <xacro:include filename="$(find lab_cobot_description)/urdf/inc/wrist_camera.xacro"/>
@@ -42,9 +42,9 @@
 
   <!-- ===== 组装:底盘 → 立柱 → 传感器 ===== -->
   <!-- base_mass 加重以压低重心；Gazebo Classic 麦轮接触仍为近似模型。 -->
-  <xacro:mecanum_base base_mass="180.0"/>
+  <xacro:mecanum3_base/>
   <!-- 立柱降低(0.30)以降低臂安装点与整机重心;仍足够 UR5e 够到 0.75 桌面 -->
-  <xacro:base_pillar parent="base_link" column_height="0.30"/>
+  <xacro:base_pillar parent="chassis_mount_link" column_height="0.289" mount_offset="0.0"/>
   <xacro:lab_sensors/>
 
   <!-- ===== UR5e(装在立柱顶 arm_mount_link;Gazebo 仿真) ===== -->
@@ -116,7 +116,7 @@
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
-    <joint name="wheel_fl_joint">
+    <joint name="front_left_joint">
       <command_interface name="velocity"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -124,7 +124,7 @@
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
-    <joint name="wheel_fr_joint">
+    <joint name="front_right_joint">
       <command_interface name="velocity"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -132,7 +132,7 @@
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
-    <joint name="wheel_rl_joint">
+    <joint name="back_left_joint">
       <command_interface name="velocity"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -140,11 +140,31 @@
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
-    <joint name="wheel_rr_joint">
+    <joint name="back_right_joint">
       <command_interface name="velocity"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
       </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="front_left_suspension_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="front_right_suspension_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="back_left_suspension_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="back_right_suspension_joint">
+      <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
@@ -157,32 +177,26 @@
     </plugin>
   </gazebo>
 
+  <!-- The chassis is a planar kinematic abstraction. Updating it synchronously
+       in Gazebo prevents gravity from fighting an asynchronous pose service. -->
   <gazebo>
-    <plugin name="lab_cobot_mecanum_traction" filename="liblab_cobot_mecanum_drive.so">
-      <control_mode>pose_from_wheel_commands</control_mode>
+    <plugin name="lab_cobot_planar_drive" filename="liblab_cobot_planar_drive.so">
       <wheel_command_topic>/wheel_velocity_controller/commands</wheel_command_topic>
-      <base_link>base_link</base_link>
-      <wheel_joint>wheel_fl_joint</wheel_joint>
-      <wheel_joint>wheel_fr_joint</wheel_joint>
-      <wheel_joint>wheel_rl_joint</wheel_joint>
-      <wheel_joint>wheel_rr_joint</wheel_joint>
-      <wheel_radius>${wheel_radius}</wheel_radius>
-      <wheelbase_radius>${base_length/2.0 - wheel_radius + base_width/2.0 + wheel_width/2.0}</wheelbase_radius>
-      <linear_gain>14.0</linear_gain>
-      <angular_gain>24.0</angular_gain>
-      <max_force>2600.0</max_force>
-      <max_torque>1400.0</max_torque>
-      <max_linear_speed>0.45</max_linear_speed>
-      <max_angular_speed>0.9</max_angular_speed>
-      <max_linear_accel>0.8</max_linear_accel>
-      <max_angular_accel>1.5</max_angular_accel>
-      <publish_odom>true</publish_odom>
-      <odom_topic>/odom</odom_topic>
-      <odom_frame>odom</odom_frame>
-      <base_frame>base_footprint</base_frame>
-      <odom_rate>20.0</odom_rate>
+      <wheel_radius>0.07</wheel_radius>
+      <wheel_separation_width>0.24</wheel_separation_width>
+      <wheel_separation_length>0.175</wheel_separation_length>
+      <max_vx>0.5</max_vx>
+      <max_vy>0.3</max_vy>
+      <max_wz>1.2</max_wz>
+      <command_timeout>0.3</command_timeout>
+      <chassis_length>0.42</chassis_length>
+      <chassis_width>0.30</chassis_width>
+      <table_safety_margin>0.35</table_safety_margin>
+      <table_a>2.0 1.5 0.8 0.6</table_a>
+      <table_b>-2.0 1.5 0.8 0.6</table_b>
     </plugin>
   </gazebo>
+
 
   <gazebo>
     <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">

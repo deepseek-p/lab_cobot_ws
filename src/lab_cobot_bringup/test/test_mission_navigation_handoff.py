@@ -73,11 +73,52 @@ def test_base_pose_from_odom_msg_extracts_planar_pose():
     assert mission_node.base_pose_from_odom_msg(msg) == pytest.approx([1.2, -0.4, yaw])
 
 
-def test_station_docking_reads_raw_odom_cache_not_ekf_tf():
+def test_raw_odom_cache_remains_available_for_non_safety_consumers():
     node = mission_node.MissionNode.__new__(mission_node.MissionNode)
     node._latest_odom_pose = [2.0, 0.62, math.pi / 2.0]
 
     assert mission_node.MissionNode._base_pose_in_odom(node) == node._latest_odom_pose
+
+
+def test_station_safety_uses_map_pose_when_map_and_odom_are_offset():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    calls = []
+    node.get_logger = lambda: type(
+        "Logger", (), {"info": lambda *args: None, "warn": lambda *args: None}
+    )()
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: object()})()
+    node._duration_elapsed = lambda *_args: False
+    node._base_pose_in_map = lambda timeout_sec=2.0: [2.0, safe_y, math.pi / 2.0]
+    node._base_pose_in_odom = lambda timeout_sec=2.0: (_ for _ in ()).throw(
+        AssertionError("map safety must not consume offset odom coordinates")
+    )
+    node._stop_base = lambda duration: calls.append(duration)
+
+    assert mission_node.MissionNode._dock_to_station_pose(node, "station_a")
+    assert calls == [mission_node.STATION_DOCK_STOP_SEC]
+
+
+def test_pick_visual_safety_uses_map_pose_when_map_and_odom_are_offset():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    node.get_logger = lambda: type(
+        "Logger", (), {"info": lambda *args: None, "warn": lambda *args: None}
+    )()
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: object()})()
+    node._duration_elapsed = lambda *_args: False
+    node._detect = lambda: [
+        mission_node.DOCK_SAFE_HANDOFF_MAX_X - 0.01,
+        0.0,
+        0.63,
+    ]
+    node._base_pose_in_map = lambda timeout_sec=2.0: [2.0, safe_y, math.pi / 2.0]
+    node._base_pose_in_odom = lambda timeout_sec=2.0: (_ for _ in ()).throw(
+        AssertionError("map safety must not consume offset odom coordinates")
+    )
+    node._stop_base = lambda _duration: None
+
+    assert mission_node.MissionNode._dock_to_pick_target(node)
 
 
 def test_detect_uses_fresh_perception_pose_topic_before_tf_lookup():
@@ -358,6 +399,61 @@ def test_nav_to_place_uses_nav2_before_local_place_docking():
     ]
 
 
+def test_axis_aligned_navigation_goals_rotate_align_and_traverse_for_station_b():
+    goals = mission_node.axis_aligned_navigation_goals(
+        "station_b",
+        [1.80, -0.20, 0.0],
+    )
+
+    assert goals == [
+        ("station_b_rotate", {"x": 1.80, "y": -0.20, "yaw": math.pi / 2.0}, "rotate"),
+        ("station_b_corridor_align", {"x": 1.80, "y": 0.62, "yaw": math.pi / 2.0}, "forward"),
+        ("station_b_corridor_traverse", {"x": -2.0, "y": 0.62, "yaw": math.pi / 2.0}, "strafe"),
+    ]
+
+
+def test_axis_aligned_velocity_uses_single_axis_commands_per_stage():
+    rotate_done, rotate_cmd = mission_node.axis_aligned_velocity_for_goal(
+        [0.0, 0.0, 0.0],
+        {"x": 0.0, "y": 0.0, "yaw": math.pi / 2.0},
+        "rotate",
+    )
+    forward_done, forward_cmd = mission_node.axis_aligned_velocity_for_goal(
+        [1.80, -0.20, math.pi / 2.0],
+        {"x": 1.80, "y": 0.62, "yaw": math.pi / 2.0},
+        "forward",
+    )
+    strafe_done, strafe_cmd = mission_node.axis_aligned_velocity_for_goal(
+        [1.80, 0.62, math.pi / 2.0],
+        {"x": -2.0, "y": 0.62, "yaw": math.pi / 2.0},
+        "strafe",
+    )
+
+    assert not rotate_done
+    assert rotate_cmd.linear.x == pytest.approx(0.0)
+    assert rotate_cmd.linear.y == pytest.approx(0.0)
+    assert rotate_cmd.angular.z > 0.0
+
+    assert not forward_done
+    assert forward_cmd.linear.x > 0.0
+    assert forward_cmd.linear.y == pytest.approx(0.0)
+
+    assert not strafe_done
+    assert strafe_cmd.linear.x == pytest.approx(0.0)
+    assert strafe_cmd.linear.y > 0.0
+
+
+def test_navigate_prefers_axis_aligned_transfer_when_enabled_and_pose_available():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._axis_aligned_station_transfer = True
+    node._base_pose_in_map = lambda timeout_sec=0.05: [0.20, 0.00, 0.0]
+    calls = []
+    node._navigate_axis_aligned = lambda station, pose: calls.append((station, pose)) or True
+
+    assert mission_node.MissionNode._navigate(node, "station_a")
+    assert calls == [("station_a", [0.20, 0.00, 0.0])]
+
+
 def test_return_home_retracts_arm_before_base_navigation():
     events = []
 
@@ -403,12 +499,114 @@ def test_return_home_does_not_move_base_when_arm_home_fails():
 def test_station_dock_velocity_stops_when_station_a_aligned():
     station_dock_velocity_for_base = _policy("station_dock_velocity_for_base")
 
-    done, cmd = station_dock_velocity_for_base((2.0, 0.62, math.radians(90.0)), "station_a")
+    done, cmd = station_dock_velocity_for_base(
+        (2.0, 0.62, math.radians(90.0)), "station_a"
+    )
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)
     assert cmd.linear.y == pytest.approx(0.0)
     assert cmd.angular.z == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("station,x", [("station_a", 2.0), ("station_b", -2.0)])
+def test_station_dock_stops_on_worktable_safety_line(station, x):
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, station)
+    done, cmd = mission_node.station_dock_velocity_for_base(
+        (x, safe_y, math.pi / 2.0), station
+    )
+    assert done
+    clearance = mission_node.worktable_clearance(
+        (x, safe_y, math.pi / 2.0), station
+    )
+    assert clearance == pytest.approx(0.35)
+    assert cmd.linear.x == pytest.approx(0.0)
+
+
+def test_station_dock_slows_continuously_before_safety_line():
+    far_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a") - 0.30
+    near_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a") - 0.08
+    _, far_cmd = mission_node.station_dock_velocity_for_base(
+        (2.0, far_y, math.pi / 2.0), "station_a"
+    )
+    _, near_cmd = mission_node.station_dock_velocity_for_base(
+        (2.0, near_y, math.pi / 2.0), "station_a"
+    )
+    assert far_cmd.linear.x > near_cmd.linear.x > 0.0
+
+
+def test_station_dock_past_safety_line_only_commands_exit():
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_b")
+    done, cmd = mission_node.station_dock_velocity_for_base(
+        (-2.0, safe_y + 0.05, math.pi / 2.0), "station_b"
+    )
+    assert not done
+    assert cmd.linear.x < 0.0
+    assert cmd.linear.y == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("station,x", [("station_a", 2.10), ("station_b", -1.90)])
+def test_station_dock_past_safety_line_suppresses_lateral_and_yaw(station, x):
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, station)
+    done, cmd = mission_node.station_dock_velocity_for_base(
+        (x, safe_y + 0.001, math.radians(84.0)), station
+    )
+    assert not done
+    yaw = math.radians(84.0)
+    away_map = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    lateral_map = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
+    assert away_map <= -0.02
+    assert lateral_map == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
+
+
+def test_station_dock_at_safety_line_still_allows_lateral_and_yaw_alignment():
+    yaw = math.radians(84.0)
+    safe_y = mission_node.station_safe_base_y(yaw, "station_a")
+    done, cmd = mission_node.station_dock_velocity_for_base((2.10, safe_y, yaw), "station_a")
+    assert not done
+    map_forward = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    assert map_forward <= 0.0
+    assert abs(cmd.linear.y) > 0.0
+    assert cmd.angular.z > 0.0
+
+def test_pick_visual_handoff_rejects_large_lateral_error_at_safety_line():
+    yaw = math.pi / 2.0
+    safe_y = mission_node.station_safe_base_y(yaw, "station_a")
+
+    done, cmd = mission_node.dock_velocity_for_object(
+        (0.769, 0.035, 0.670),
+        base_pose=(2.0, safe_y, yaw),
+        station="station_a",
+    )
+
+    assert not done
+    toward_table = math.sin(yaw) * cmd.linear.x + math.cos(yaw) * cmd.linear.y
+    lateral = math.cos(yaw) * cmd.linear.x - math.sin(yaw) * cmd.linear.y
+    assert toward_table == pytest.approx(0.0)
+    assert lateral != pytest.approx(0.0)
+
+
+def test_pick_visual_handoff_accepts_graspable_lateral_error_at_safety_line():
+    yaw = math.pi / 2.0
+    safe_y = mission_node.station_safe_base_y(yaw, "station_a")
+
+    done, cmd = mission_node.dock_velocity_for_object(
+        (0.769, 0.010, 0.670),
+        base_pose=(2.0, safe_y, yaw),
+        station="station_a",
+    )
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)
+
+
+def test_home_station_docking_keeps_original_waypoint_behavior():
+    done, cmd = mission_node.station_dock_velocity_for_base((0.0, -0.20, 0.0), "home")
+    assert not done
+    assert cmd.linear.y > 0.0
 
 
 def test_place_navigation_can_handoff_when_tcp_target_is_on_station_b_table():
@@ -420,7 +618,7 @@ def test_place_navigation_can_handoff_when_tcp_target_is_on_station_b_table():
 
 def test_place_navigation_can_handoff_when_projected_drop_point_is_on_table():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
-    base_pose = (-1.80, 0.75, math.radians(90.0))
+    base_pose = (-1.65, 0.45, math.radians(90.0))
     station_b = mission_node._station_base_pose("station_b")
     distance_to_station = math.hypot(
         base_pose[0] - station_b[0],
@@ -566,31 +764,46 @@ class _FakeBtStateClient:
         return _FakeStateFuture(self._state_id)
 
 
-def _make_wait_node(client, elapsed_results):
+def _make_wait_node(client):
     # 2026-07-10 GUI 竞态修复:wait_for_server 只保证 server 存在,不保证
     # active;本组用例锁定 _wait_for_nav_active 的等待/放行行为。
     node = mission_node.MissionNode.__new__(mission_node.MissionNode)
     node._bt_state_client = client
-    results = iter(elapsed_results)
-    node._duration_elapsed = lambda start, dur: next(results)
-    node.get_clock = lambda: type("C", (), {"now": staticmethod(lambda: 0)})()
+    node.get_logger = lambda: type(
+        "Logger", (), {"warn": staticmethod(lambda _msg: None)}
+    )()
     return node
 
 
+def _install_monotonic_wait_clock(monkeypatch):
+    clock = {"seconds": 0.0}
+    monkeypatch.setattr(
+        mission_node.time, "monotonic", lambda: clock["seconds"]
+    )
+    monkeypatch.setattr(
+        mission_node.time,
+        "sleep",
+        lambda seconds: clock.__setitem__(
+            "seconds", clock["seconds"] + seconds
+        ),
+    )
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+
 def test_wait_for_nav_active_passes_when_bt_navigator_active(monkeypatch):
-    monkeypatch.setattr(mission_node.time, "sleep", lambda s: None)
+    _install_monotonic_wait_clock(monkeypatch)
     client = _FakeBtStateClient(ready=True, state_id=3)
-    node = _make_wait_node(client, [False, False])
+    node = _make_wait_node(client)
 
     assert mission_node.MissionNode._wait_for_nav_active(node)
     assert client.calls == 1
 
 
 def test_wait_for_nav_active_keeps_polling_until_active(monkeypatch):
-    monkeypatch.setattr(mission_node.time, "sleep", lambda s: None)
+    _install_monotonic_wait_clock(monkeypatch)
     # 前两轮 inactive(id=2),第三轮 active
     client = _FakeBtStateClient(ready=True, state_id=2)
-    node = _make_wait_node(client, [False, False, False, False])
+    node = _make_wait_node(client)
     calls = {"n": 0}
     real_call = client.call_async
 
@@ -607,8 +820,10 @@ def test_wait_for_nav_active_keeps_polling_until_active(monkeypatch):
 
 
 def test_wait_for_nav_active_times_out_when_never_active(monkeypatch):
-    monkeypatch.setattr(mission_node.time, "sleep", lambda s: None)
+    _install_monotonic_wait_clock(monkeypatch)
     client = _FakeBtStateClient(ready=True, state_id=2)
-    node = _make_wait_node(client, [False, False, False, True])
+    node = _make_wait_node(client)
 
-    assert not mission_node.MissionNode._wait_for_nav_active(node)
+    assert not mission_node.MissionNode._wait_for_nav_active(
+        node, timeout_sec=1.5
+    )

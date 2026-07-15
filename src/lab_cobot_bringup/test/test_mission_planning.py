@@ -21,6 +21,7 @@ class FakeLogger:
 def _make_node(executed, published):
     node = MissionNode.__new__(MissionNode)
     node._busy = True
+    node._wait_for_navigation_ready = lambda: True
     node._execute = lambda state: executed.append(state) or True
     node._publish = lambda state: published.append(state.name)
     node.get_logger = lambda: FakeLogger()

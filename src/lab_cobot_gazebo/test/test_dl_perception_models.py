@@ -56,6 +56,12 @@ def test_world_places_new_objects_by_goal_s_constraints():
     reagent = _include_pose("reagent_bottle")
     toolbox = _include_pose("toolbox_yellow")
 
+    assert aruco[:3] == pytest.approx([2.0, 1.32, 0.785])
+    sample_half_extent = 0.035
+    table_front_y = 1.20
+    table_back_y = 1.80
+    assert aruco[1] - sample_half_extent > table_front_y
+    assert aruco[1] + sample_half_extent < table_back_y
     assert reagent[:3] == pytest.approx([2.28, 1.62, 0.83])
     assert toolbox[:3] == pytest.approx([1.72, 1.62, 0.80])
     assert abs(reagent[0] - 2.0) >= 0.25
