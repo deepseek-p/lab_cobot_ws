@@ -151,8 +151,8 @@ def generate_launch_description():
             "use_sim_time": True,
             "rover": "mecanum3",
             "mecanum3.wheel_radius": 0.07,
-            "mecanum3.wheel_separation_width": 0.24,
-            "mecanum3.wheel_separation_length": 0.175,
+            "mecanum3.wheel_separation_width": 0.36,
+            "mecanum3.wheel_separation_length": 0.263,
             "max_vx": 0.5,
             "max_vy": 0.3,
             "max_wz": 1.2,
@@ -175,7 +175,13 @@ def generate_launch_description():
             "use_sim_time": True,
             "tf_reference_frame": "odom",
         }],
-        condition=IfCondition(use_sim_attach),
+        condition=IfCondition(PythonExpression([
+            "'true' if ('",
+            use_sim_attach,
+            "' == 'true' or '",
+            use_tactile_grasp,
+            "' == 'true') else 'false'",
+        ])),
     )
     mission = Node(
         package="lab_cobot_bringup",

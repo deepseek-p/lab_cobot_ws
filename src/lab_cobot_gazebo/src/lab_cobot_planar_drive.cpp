@@ -70,7 +70,7 @@ public:
   void Load(physics::ModelPtr model, sdf::ElementPtr sdf) override
   {
     model_ = std::move(model);
-    wheel_radius_ = sdfDouble(sdf, "wheel_radius", 0.07);
+    wheel_radius_ = sdfDouble(sdf, "wheel_radius", 0.08);
     wheel_width_ = sdfDouble(sdf, "wheel_separation_width", 0.24);
     wheel_length_ = sdfDouble(sdf, "wheel_separation_length", 0.175);
     max_vx_ = sdfDouble(sdf, "max_vx", 0.5);
@@ -204,7 +204,7 @@ private:
   std::array<double, 4> wheel_commands_{};
   std::size_t command_generation_{0};
   std::size_t applied_generation_{0};
-  double wheel_radius_{0.07};
+  double wheel_radius_{0.08};
   double wheel_width_{0.24};
   double wheel_length_{0.175};
   double max_vx_{0.5};

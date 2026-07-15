@@ -414,8 +414,8 @@ def test_station_a_sample_projects_into_camera_image():
         urdf, "camera_joint"
     )
 
-    base_length = 0.55
-    base_width = 0.50
+    base_length = 0.63
+    base_width = 0.45
     base_height = 0.15
     wheel_radius = 0.08
     assert abs(arm_x) <= base_length / 2.0

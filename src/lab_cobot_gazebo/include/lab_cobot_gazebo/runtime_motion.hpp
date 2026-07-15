@@ -22,8 +22,8 @@ struct PlanarTwist
 inline PlanarTwist wheelSpeedsToTwist(
   const std::array<double, 4> & controller_speeds,
   double wheel_radius = 0.07,
-  double wheel_separation_width = 0.24,
-  double wheel_separation_length = 0.175)
+  double wheel_separation_width = 0.36,
+  double wheel_separation_length = 0.263)
 {
   // RoverTwistRelay publishes [-FL, -FR, -BL, -BR].  Undo that
   // controller convention while applying the standard mecanum inverse.

@@ -192,9 +192,11 @@ class ContactGripperDriver:
         node,
         command_settle_sec: float = 0.0,
         contact_timeout_sec: float = DEFAULT_CONTACT_TIMEOUT_SEC,
+        attach_timeout_sec: float = DEFAULT_ATTACH_TIMEOUT_SEC,
         target_object: str = DEFAULT_TARGET_OBJECT,
         use_tactile_grasp: bool = False,
         tactile_dwell_sec: float = TACTILE_DWELL_SEC,
+        enable_attach_fallback: bool = False,
     ) -> None:
         self._node = node
         self._command_settle_sec = float(command_settle_sec)
@@ -202,9 +204,11 @@ class ContactGripperDriver:
         self._target_object = str(target_object)
         self._use_tactile_grasp = bool(use_tactile_grasp)
         self._tactile_dwell_sec = float(tactile_dwell_sec)
+        self._attach_fallback_enabled = bool(enable_attach_fallback)
         self._contact_status_event = threading.Event()
         self._last_contact_status = ""
         self._holding_object = False
+        self._using_attach_fallback = False
         self._last_left_contact_time = None
         self._last_right_contact_time = None
         self._command_pub = node.create_publisher(
@@ -237,8 +241,20 @@ class ContactGripperDriver:
             self._on_right_contacts,
             10,
         )
+        self._attach_fallback = (
+            SimAttachGripperDriver(
+                node,
+                command_settle_sec=0.0,
+                attach_timeout_sec=attach_timeout_sec,
+            )
+            if self._attach_fallback_enabled
+            else None
+        )
 
     def open(self) -> bool:
+        if self._using_attach_fallback and self._attach_fallback is not None:
+            self._attach_fallback.release_object()
+            self._using_attach_fallback = False
         self._publish_positions(OPEN_POSITIONS)
         self._holding_object = False
         self._log("夹爪打开")
@@ -283,11 +299,18 @@ class ContactGripperDriver:
             self._warn(f"夹爪 contact attach refused: {self._last_contact_status}")
             self._holding_object = False
             return False
+        if self._try_attach_fallback():
+            return True
         self._warn("夹爪 contact attach timed out waiting for grasp plugin")
         self._holding_object = False
         return False
 
     def release_object(self) -> bool:
+        if self._using_attach_fallback and self._attach_fallback is not None:
+            released = self._attach_fallback.release_object()
+            self._using_attach_fallback = False
+            self._holding_object = False
+            return released
         self._last_contact_status = ""
         self._contact_status_event.clear()
         self._release_pub.publish(Empty())
@@ -351,6 +374,18 @@ class ContactGripperDriver:
         if now is None:
             now = time.monotonic()
         return now - self._last_right_contact_time <= TACTILE_CONTACT_FRESH_SEC
+
+    def _try_attach_fallback(self) -> bool:
+        if self._attach_fallback is None or not self._use_tactile_grasp:
+            return False
+        if not self._both_fingers_touch_target():
+            return False
+        self._warn("contact attach timeout; falling back to attach bridge")
+        if not self._attach_fallback.acquire_object():
+            return False
+        self._using_attach_fallback = True
+        self._holding_object = True
+        return True
 
     def _wait_for_contact_status(
         self,
@@ -458,6 +493,7 @@ def make_gripper_driver(
     target_object: str = DEFAULT_TARGET_OBJECT,
     use_tactile_grasp: bool = False,
     contact_timeout_sec: float = DEFAULT_CONTACT_TIMEOUT_SEC,
+    enable_attach_fallback: bool = False,
 ) -> GripperDriver:
     normalized = str(backend).strip().lower()
     if normalized == SIM_ATTACH_BACKEND:
@@ -473,8 +509,10 @@ def make_gripper_driver(
             node,
             command_settle_sec=command_settle_sec,
             contact_timeout_sec=contact_timeout_sec,
+            attach_timeout_sec=attach_timeout_sec,
             target_object=target_object,
             use_tactile_grasp=use_tactile_grasp,
+            enable_attach_fallback=enable_attach_fallback,
         )
     raise ValueError(
         "unsupported gripper backend %r; expected %r or %r"

@@ -139,8 +139,8 @@ class RoverTwistRelay(Node):
 
         # Declare default (fallback) geometry
         self.declare_parameter('wheel_radius', 0.07)
-        self.declare_parameter('wheel_separation_width', 0.24)
-        self.declare_parameter('wheel_separation_length', 0.175)
+        self.declare_parameter('wheel_separation_width', 0.36)
+        self.declare_parameter('wheel_separation_length', 0.263)
 
         # Command limits and smoothing. Keep these aligned with the Gazebo
         # kinematic drive node in gazebo_bringup.launch.py.
@@ -155,8 +155,8 @@ class RoverTwistRelay(Node):
 
         # Declare per-rover parameters (flat names)
         self.declare_parameter('mecanum3.wheel_radius', 0.07)
-        self.declare_parameter('mecanum3.wheel_separation_width', 0.24)
-        self.declare_parameter('mecanum3.wheel_separation_length', 0.175)
+        self.declare_parameter('mecanum3.wheel_separation_width', 0.36)
+        self.declare_parameter('mecanum3.wheel_separation_length', 0.263)
 
         self.declare_parameter('g120a.wheel_radius', 0.085)
         self.declare_parameter('g120a.wheel_separation_width', 0.30)

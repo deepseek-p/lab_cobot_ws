@@ -19,8 +19,8 @@ WHEEL_JOINT_NAMES = ["wheel_fl_joint", "wheel_fr_joint", "wheel_rl_joint", "whee
 # Match the active mecanum runtime geometry used by rover_twist_relay, the
 # Gazebo kinematic drive, and the mecanum3 collision model.
 WHEEL_RADIUS = 0.07
-WHEEL_SEPARATION_WIDTH = 0.24
-WHEEL_SEPARATION_LENGTH = 0.175
+WHEEL_SEPARATION_WIDTH = 0.36
+WHEEL_SEPARATION_LENGTH = 0.263
 WHEELBASE_RADIUS = WHEEL_SEPARATION_WIDTH + WHEEL_SEPARATION_LENGTH
 COMMAND_TIMEOUT_SEC = 0.25
 PUBLISH_PERIOD_SEC = 0.05

@@ -20,7 +20,7 @@
     <joint name="laser_joint" type="fixed">
       <parent link="base_link"/>
       <child link="laser"/>
-      <origin xyz="${base_length/2.0 - 0.05} 0 ${base_height/2.0 + 0.04}" rpy="0 0 0"/>
+      <origin xyz="${base_length/2.0 - 0.04} 0 ${base_height/2.0 + 0.04}" rpy="0 0 0"/>
     </joint>
     <gazebo reference="laser">
       <material>Gazebo/Black</material>

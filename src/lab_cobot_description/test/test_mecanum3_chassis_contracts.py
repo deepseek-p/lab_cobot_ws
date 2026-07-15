@@ -53,14 +53,14 @@ def test_meshes_are_packaged_and_uris_and_base_scale_are_correct():
         assert (PACKAGE / "meshes" / "mecanum3" / name).is_file()
         assert f"package://lab_cobot_description/meshes/mecanum3/{name}" in text
     mesh = root.find("./link[@name='base_link']/visual/geometry/mesh")
-    assert mesh is not None and mesh.attrib["scale"] == "0.001 0.001 0.001"
+    assert mesh is not None and mesh.attrib["scale"] == "0.0015 0.0015 0.0015"
 
 def test_mount_and_removed_legacy_drive_contracts():
     text, root = _generated()
     mount = root.find("./joint[@name='chassis_mount_joint']")
     assert mount is not None
     assert mount.find("parent").attrib["link"] == "base_link"
-    assert mount.find("origin").attrib["xyz"] == "0 0 0.165"
+    assert mount.find("origin").attrib["xyz"] == "0 0 0.248"
     assert root.find("./joint[@name='pillar_joint']/parent").attrib["link"] == "chassis_mount_link"
     assert "liblab_cobot_mecanum_drive.so" not in text
     assert all(old not in text for old in ("wheel_fl_joint", "wheel_fr_joint", "wheel_rl_joint", "wheel_rr_joint"))

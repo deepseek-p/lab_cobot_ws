@@ -90,13 +90,48 @@
       <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
       <geometry>
         <mesh filename="package://lab_cobot_description/meshes/mecanum3/base_link.stl"
-              scale="0.001 0.001 0.001"/>
+              scale="0.0015 0.0015 0.0015"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.0525" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.63 0.18 0.065"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <visual>
+      <origin xyz="0.275 0.1575 0.0525" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.135 0.065"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <visual>
+      <origin xyz="0.275 -0.1575 0.0525" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.135 0.065"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.275 0.1575 0.0525" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.135 0.065"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.275 -0.1575 0.0525" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.135 0.065"/>
       </geometry>
       <material name="silver"/>
     </visual>
     <collision name="base_simplified_collision">
-      <origin xyz="0 0 0.08" rpy="0 0 0"/>
-      <geometry><box size="0.42 0.30 0.12"/></geometry>
+      <origin xyz="0 0 0.11" rpy="0 0 0"/>
+      <geometry><box size="0.63 0.45 0.18"/></geometry>
     </collision>
   </link>
 
@@ -157,7 +192,7 @@
       </visual>
       <collision>
         <geometry>
-          <cylinder radius="0.07" length="0.045"/>
+          <cylinder radius="0.08" length="0.045"/>
         </geometry>
       </collision>
     </link>
@@ -179,7 +214,7 @@
       </visual>
       <collision>
         <geometry>
-          <cylinder radius="0.07" length="0.064"/>
+          <cylinder radius="0.08" length="0.064"/>
         </geometry>
       </collision>
     </link>
@@ -210,28 +245,28 @@
     name="front_left_suspension_joint"
     parent="base_link"
     child="front_left_arm"
-    xyz="0.020 0.085 0.076"
+    xyz="0.030 0.128 0.020"
     rpy="0 0 ${radians(90)}"/>
 
   <xacro:mecanum_suspension_joint
     name="front_right_suspension_joint"
     parent="base_link"
     child="front_right_arm"
-    xyz="0.020 -0.085 0.076"
+    xyz="0.030 -0.128 0.020"
     rpy="0 0 ${radians(90)}"/>
 
   <xacro:mecanum_suspension_joint
     name="back_left_suspension_joint"
     parent="base_link"
     child="back_left_arm"
-    xyz="-0.020 0.085 0.076"
+    xyz="-0.030 0.128 0.020"
     rpy="0 0 ${radians(-90)}"/>
 
   <xacro:mecanum_suspension_joint
     name="back_right_suspension_joint"
     parent="base_link"
     child="back_right_arm"
-    xyz="-0.020 -0.085 0.076"
+    xyz="-0.030 -0.128 0.020"
     rpy="0 0 ${radians(-90)}"/>
 
 
@@ -247,7 +282,7 @@
     name="front_left_joint"
     parent="front_left_arm"
     child="front_left_wheel_1"
-    xyz="0.03 -0.100 0"
+    xyz="0.045 -0.100 0"
     rpy="0 ${radians(-270)} 0"
     axis_z="-1"/>
 
@@ -255,7 +290,7 @@
     name="front_right_joint"
     parent="front_right_arm"
     child="front_right_wheel_1"
-    xyz="-0.03 -0.100 0"
+    xyz="-0.045 -0.100 0"
     rpy="0 ${radians(-90)} 0"
     axis_z="1"/>
 
@@ -263,7 +298,7 @@
     name="back_left_joint"
     parent="back_left_arm"
     child="back_left_wheel_1"
-    xyz="-0.03 -0.100 0"
+    xyz="-0.045 -0.100 0"
     rpy="0 ${radians(270)} 0"
     axis_z="-1"/>
 
@@ -271,7 +306,7 @@
     name="back_right_joint"
     parent="back_right_arm"
     child="back_right_wheel_1"
-    xyz="0.03 -0.100 0"
+    xyz="0.045 -0.100 0"
     rpy="0 ${radians(90)} 0"
     axis_z="1"/>
 
@@ -300,7 +335,7 @@
   <link name="chassis_mount_link"/>
   <joint name="chassis_mount_joint" type="fixed">
     <parent link="base_link"/><child link="chassis_mount_link"/>
-    <origin xyz="0 0 0.165" rpy="0 0 0"/>
+    <origin xyz="0 0 0.248" rpy="0 0 0"/>
   </joint>
   <xacro:macro name="m3_material" params="ref material"><gazebo reference="${ref}"><material>${material}</material></gazebo></xacro:macro>
   <xacro:macro name="m3_spring" params="joint"><gazebo reference="${joint}"><springReference>0.0</springReference><springStiffness>266</springStiffness><damping>8</damping></gazebo></xacro:macro>

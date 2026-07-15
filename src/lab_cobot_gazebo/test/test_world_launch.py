@@ -129,7 +129,7 @@ def test_spawn_entity_waits_for_slow_gazebo_factory_startup():
 def test_spawn_entity_restores_source_mecanum_ground_clearance():
     args = _spawn_entity_args()
     assert "-z" in args
-    assert float(args[args.index("-z") + 1]) == 0.12
+    assert float(args[args.index("-z") + 1]) == 0.06
 
 
 def test_world_launch_spawns_wheel_velocity_controller():

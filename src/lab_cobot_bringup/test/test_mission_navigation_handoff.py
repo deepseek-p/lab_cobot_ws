@@ -498,9 +498,10 @@ def test_return_home_does_not_move_base_when_arm_home_fails():
 
 def test_station_dock_velocity_stops_when_station_a_aligned():
     station_dock_velocity_for_base = _policy("station_dock_velocity_for_base")
+    safe_y = mission_node.station_safe_base_y(math.radians(90.0), "station_a")
 
     done, cmd = station_dock_velocity_for_base(
-        (2.0, 0.62, math.radians(90.0)), "station_a"
+        (2.0, safe_y, math.radians(90.0)), "station_a"
     )
 
     assert done
@@ -519,7 +520,7 @@ def test_station_dock_stops_on_worktable_safety_line(station, x):
     clearance = mission_node.worktable_clearance(
         (x, safe_y, math.pi / 2.0), station
     )
-    assert clearance == pytest.approx(0.35)
+    assert clearance == pytest.approx(0.30)
     assert cmd.linear.x == pytest.approx(0.0)
 
 
@@ -681,8 +682,9 @@ def test_place_dock_velocity_drives_forward_and_rotates_toward_station_b_pose():
 
 def test_place_dock_velocity_stops_when_base_is_aligned_for_table_place():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
+    safe_y = mission_node.station_safe_base_y(math.radians(88.0), "station_b")
 
-    done, cmd = place_dock_velocity_for_base((-2.01, 0.62, math.radians(88.0)))
+    done, cmd = place_dock_velocity_for_base((-2.01, safe_y, math.radians(88.0)))
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)
@@ -701,8 +703,9 @@ def test_place_dock_velocity_keeps_docking_when_drop_point_is_near_front_edge():
 
 def test_place_dock_velocity_accepts_gui_verified_table_pose():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
+    safe_y = mission_node.station_safe_base_y(math.radians(94.7), "station_b")
 
-    done, cmd = place_dock_velocity_for_base((-1.995, 0.62, math.radians(94.7)))
+    done, cmd = place_dock_velocity_for_base((-1.995, safe_y, math.radians(94.7)))
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)

@@ -115,7 +115,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "0.0", "-y", "0.0", "-z", "0.12",
+            "-x", "0.0", "-y", "0.0", "-z", "0.06",
             # 注:Gazebo Classic 的 spawn_entity.py 不支持 -J 设初始关节;
             # 臂初始姿态由 URDF ros2_control 的 initial_value(=home 收拢)
             # 经 gazebo_ros2_control 设置,见 config/initial_positions.yaml

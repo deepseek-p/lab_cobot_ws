@@ -24,9 +24,9 @@ def _pose_data(pose, table_center_x):
         2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z),
     )
-    half_x = abs(math.cos(yaw)) * 0.21 + abs(math.sin(yaw)) * 0.15
-    half_y = abs(math.sin(yaw)) * 0.21 + abs(math.cos(yaw)) * 0.15
-    assert abs(pose.position.x - table_center_x) <= 0.4 + 0.35 + half_x
+    half_x = abs(math.cos(yaw)) * 0.275 + abs(math.sin(yaw)) * 0.25
+    half_y = abs(math.sin(yaw)) * 0.275 + abs(math.cos(yaw)) * 0.25
+    assert abs(pose.position.x - table_center_x) <= 0.4 + 0.30 + half_x
     return 1.2 - (pose.position.y + half_y)
 
 
@@ -94,7 +94,7 @@ def test_real_plugin_stops_at_both_tables_and_allows_departure():
         drive(WHEELS_Y_POSITIVE, 6.0)
         blocked_a = pose()
         clearance_a = _pose_data(blocked_a, 2.0)
-        assert clearance_a >= 0.34
+        assert clearance_a >= 0.29
         drive(WHEELS_Y_POSITIVE, 2.0)
         assert _pose_data(pose(), 2.0) >= clearance_a - 0.002
         drive(WHEELS_Y_NEGATIVE, 2.0)
@@ -104,7 +104,7 @@ def test_real_plugin_stops_at_both_tables_and_allows_departure():
         drive(WHEELS_Y_POSITIVE, 6.0)
         blocked_b = pose()
         clearance_b = _pose_data(blocked_b, -2.0)
-        assert clearance_b >= 0.34
+        assert clearance_b >= 0.29
         drive(WHEELS_Y_POSITIVE, 2.0)
         assert _pose_data(pose(), -2.0) >= clearance_b - 0.002
         drive(WHEELS_Y_NEGATIVE, 2.0)

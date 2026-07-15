@@ -27,12 +27,12 @@ def test_generated_robot_uses_synchronous_planar_drive_plugin():
         if node.get("filename") == PLANAR_PLUGIN
     )
     assert plugin.findtext("wheel_command_topic") == "/wheel_velocity_controller/commands"
-    assert plugin.findtext("wheel_radius") == "0.07"
+    assert plugin.findtext("wheel_radius") == "0.08"
     assert plugin.findtext("wheel_separation_width") == "0.24"
     assert plugin.findtext("wheel_separation_length") == "0.175"
-    assert plugin.findtext("chassis_length") == "0.42"
-    assert plugin.findtext("chassis_width") == "0.30"
-    assert plugin.findtext("table_safety_margin") == "0.35"
+    assert plugin.findtext("chassis_length") == "0.63"
+    assert plugin.findtext("chassis_width") == "0.45"
+    assert plugin.findtext("table_safety_margin") == "0.30"
     assert plugin.findtext("table_a") == "2.0 1.5 0.8 0.6"
     assert plugin.findtext("table_b") == "-2.0 1.5 0.8 0.6"
 

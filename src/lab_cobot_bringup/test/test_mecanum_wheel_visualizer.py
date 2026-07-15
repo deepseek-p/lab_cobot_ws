@@ -73,7 +73,7 @@ def test_forward_kinematics_recovers_twist_from_wheel_speeds():
 
 def test_visualizer_geometry_matches_active_runtime_drive():
     assert mecanum_wheel_visualizer.WHEEL_RADIUS == pytest.approx(0.07)
-    assert mecanum_wheel_visualizer.WHEELBASE_RADIUS == pytest.approx(0.415)
+    assert mecanum_wheel_visualizer.WHEELBASE_RADIUS == pytest.approx(0.623)
 
 
 def test_pose_model_odometry_twist_is_limited_like_gazebo_drive_plugin():

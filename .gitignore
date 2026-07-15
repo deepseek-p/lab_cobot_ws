@@ -16,3 +16,4 @@ benchmarks/results/
 .agents/
 CLAUDE.md
 .gitattributes
+docs/

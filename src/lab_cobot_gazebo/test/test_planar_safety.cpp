@@ -11,19 +11,19 @@ namespace
 constexpr double kPi = 3.14159265358979323846;
 const safety::AxisAlignedBox kStationA{1.6, 2.4, 1.2, 1.8};
 const safety::AxisAlignedBox kStationB{-2.4, -1.6, 1.2, 1.8};
-constexpr double kMargin = 0.35;
+constexpr double kMargin = 0.30;
 
 safety::OrientedBox chassis(double x, double y, double yaw = 0.0)
 {
-  return {{x, y}, yaw, 0.42, 0.30};
+  return {{x, y}, yaw, 0.63, 0.45};
 }
 }  // namespace
 
 TEST(PlanarSafety, ValidatesFinitePositiveGeometryAndMargin)
 {
   EXPECT_TRUE(safety::isValid(chassis(0.0, 0.0)));
-  EXPECT_FALSE(safety::isValid({{0.0, 0.0}, 0.0, 0.0, 0.30}));
-  EXPECT_FALSE(safety::isValid({{NAN, 0.0}, 0.0, 0.42, 0.30}));
+  EXPECT_FALSE(safety::isValid({{0.0, 0.0}, 0.0, 0.0, 0.50}));
+  EXPECT_FALSE(safety::isValid({{NAN, 0.0}, 0.0, 0.63, 0.45}));
   EXPECT_TRUE(safety::isValid(kStationA));
   EXPECT_FALSE(safety::isValid(safety::AxisAlignedBox{2.4, 1.6, 1.2, 1.8}));
   EXPECT_TRUE(safety::isValidMargin(kMargin));
@@ -40,8 +40,8 @@ TEST(PlanarSafety, AllowsOutsideAndBlocksSafetyBoundaryAtBothStations)
 
 TEST(PlanarSafety, RotationCanMoveAChassisCornerIntoTheSafetyZone)
 {
-  const auto unrotated = chassis(2.0, 0.665, 0.0);
-  const auto rotated = chassis(2.0, 0.665, kPi / 4.0);
+  const auto unrotated = chassis(2.0, 0.55, 0.0);
+  const auto rotated = chassis(2.0, 0.55, kPi / 4.0);
   EXPECT_FALSE(safety::intersects(unrotated, kStationA, kMargin));
   EXPECT_TRUE(safety::intersects(rotated, kStationA, kMargin));
 }
@@ -84,8 +84,8 @@ TEST(PlanarSafety, SweptTranslationCannotCrossEitherStationWithSafeEndpoints)
 
 TEST(PlanarSafety, SweptRotationCannotPassAnUnsafeIntermediateAngle)
 {
-  const auto start = chassis(2.0, 0.63, -kPi / 2.0);
-  const auto finish = chassis(2.0, 0.63, kPi / 2.0);
+  const auto start = chassis(2.0, 0.50, -kPi / 2.0);
+  const auto finish = chassis(2.0, 0.50, kPi / 2.0);
   EXPECT_FALSE(safety::intersects(start, kStationA, kMargin));
   EXPECT_FALSE(safety::intersects(finish, kStationA, kMargin));
   EXPECT_FALSE(
@@ -95,8 +95,8 @@ TEST(PlanarSafety, SweptRotationCannotPassAnUnsafeIntermediateAngle)
 
 TEST(PlanarSafety, ConservativeSegmentRejectsCornerContactBetweenSafeSamples)
 {
-  const auto start = chassis(2.0, 0.63, -kPi / 2.0);
-  const auto finish = chassis(2.0, 0.63, kPi / 2.0);
+  const auto start = chassis(2.0, 0.50, -kPi / 2.0);
+  const auto finish = chassis(2.0, 0.50, kPi / 2.0);
   EXPECT_FALSE(safety::intersects(start, kStationA, kMargin));
   EXPECT_FALSE(safety::intersects(finish, kStationA, kMargin));
   // A one-segment discrete endpoint check misses the unsafe +/-45 degree arc.
