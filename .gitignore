@@ -9,10 +9,10 @@ __pycache__/
 
 # Local GUI/debug artifacts
 屏幕截图*.png
-docs/NIGHT_REPORT.md
-docs/superpowers/plans/
+docs/
 src/lab_cobot_navigation/maps/*_backup.pgm
 .codex/*
 !.codex/skills/
 benchmarks/results/
 .worktrees/
+.agents/
