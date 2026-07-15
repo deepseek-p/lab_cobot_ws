@@ -5,7 +5,6 @@ __pycache__/
 *.pyc
 *.pt
 .claude/*
-!.claude/skills/
 
 # Local GUI/debug artifacts
 屏幕截图*.png
