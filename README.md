@@ -91,7 +91,7 @@ sudo apt install -y \
 ## 构建
 
 ```bash
-cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
+cd ~/lab_cobot_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -109,7 +109,7 @@ colcon build --symlink-install
 启动完整仿真：
 
 ```bash
-cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
+cd ~/lab_cobot_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch lab_cobot_bringup lab_cobot.launch.py
@@ -119,7 +119,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port/install/setup.bash
+source ~/lab_cobot_ws/install/setup.bash
 ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
 ```
 
@@ -167,7 +167,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_mission:=false use_rviz
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port/install/setup.bash
+source ~/lab_cobot_ws/install/setup.bash
 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
 ```
 
@@ -180,7 +180,7 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angul
 完整构建和测试：
 
 ```bash
-cd ~/lab_cobot_ws/.worktrees/mecanum3-chassis-port
+cd ~/lab_cobot_ws
 source /opt/ros/humble/setup.bash
 PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
 PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure
@@ -202,8 +202,7 @@ PASS: map covers four walls, has low obstacle noise, and key points are free
 
 ## 运行注意
 
-- 当前底盘移植功能位于 `~/lab_cobot_ws/.worktrees/mecanum3-chassis-port` 的 `feature/mecanum3-chassis-port` 分支。合并前必须在此 worktree 构建和运行；`~/lab_cobot_ws` 主目录是 `main`，不会自动包含本分支的源码和 `install`。
-- 可直接复制的中文运行、验证和故障排查步骤见 `docs/运行与验证.md`。
+- 麦轮底盘移植已合并；`feature/navigation` 是当前开发分支。
 
 - `lab_cobot.launch.py` 默认延迟启动 MoveIt/Nav2/感知/mission，以等待 Gazebo、spawn 和控制器就绪。
 - 平行夹爪通过 `gripper_position_controller` 驱动手指开合；样件固定由 `lab_cobot_grasp_fix` 插件在几何封套满足时创建 fixed joint 实现（非接触力检测，也非 SetEntityState 瞬移）；旧的 `gripper_attach_bridge` 仅在 `use_sim_attach:=true` 时作为调试后端启动。
@@ -212,6 +211,8 @@ PASS: map covers four walls, has low obstacle noise, and key points are free
 - Gazebo GUI、物理步进和渲染性能会影响端到端任务耗时。
 
 ## 文档
+
+以下为内部工作区文档（不随发布快照分发，仓库中不存在 `docs/` 目录）：
 
 - `docs/HANDOVER.md`：项目交接和运行记录
 - `docs/STATUS_HONEST.md`：阶段性状态说明
