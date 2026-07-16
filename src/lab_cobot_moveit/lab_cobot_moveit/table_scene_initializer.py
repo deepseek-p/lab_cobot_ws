@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register the two fixed Gazebo worktables in MoveIt's PlanningScene."""
+"""Register the frozen five-zone Gazebo worktables in MoveIt's PlanningScene."""
 
 import rclpy
 from geometry_msgs.msg import Pose
@@ -10,8 +10,10 @@ from shape_msgs.msg import SolidPrimitive
 
 
 TABLES = (
-    ("station_a_table", 2.0, 1.5),
-    ("station_b_table", -2.0, 1.5),
+    ("station_a_table", -2.15, 1.9),
+    ("tooling_zone_table", -2.05, -1.15),
+    ("aging_zone_table", 0.1, 2.1),
+    ("station_b_table", 0.15, -0.85),
 )
 TABLE_SIZE = (0.8, 0.6, 0.75)
 TABLE_CENTER_Z = 0.375
@@ -55,9 +57,9 @@ class TableSceneInitializer(Node):
 
     def __init__(self):
         super().__init__("table_scene_initializer")
-        self.declare_parameter("world_frame", "odom")
-        self.declare_parameter("max_attempts", 30)
-        self.declare_parameter("retry_delay", 1.0)
+        self.declare_parameter("world_frame", "map")
+        self.declare_parameter("max_attempts", 120)
+        self.declare_parameter("retry_delay", 0.5)
         self._client = self.create_client(
             ApplyPlanningScene, "/apply_planning_scene"
         )
@@ -84,8 +86,7 @@ class TableSceneInitializer(Node):
                 response = future.result()
                 if response is not None and response.success:
                     self.get_logger().info(
-                        "Registered station_a_table and station_b_table in "
-                        f"PlanningScene frame {frame_id}"
+                        f"Registered {len(TABLES)} frozen worktables in PlanningScene frame {frame_id}"
                     )
                     return True
             self.get_logger().warning(

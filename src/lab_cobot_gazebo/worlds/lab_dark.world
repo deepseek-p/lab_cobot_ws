@@ -1,8 +1,8 @@
-<?xml version="1.0"?>
+﻿<?xml version="1.0"?>
 <!--
-  Lab standard environment (Gazebo Classic): five functional zones plus
-  a dedicated home bay. The semantic layout follows the traction-drive
-  laboratory brief rather than a single-row toy staging.
+  Lab standard environment (Gazebo Classic): five functional zones.
+  Existing A->B chain is preserved at station_a / station_b while adding:
+  inspection_zone, tooling_zone, and aging_zone.
 -->
 <sdf version="1.6">
   <world name="lab">
@@ -21,13 +21,13 @@
     <light name="sun" type="directional">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.82 0.82 0.82 1</diffuse>
-      <specular>0.25 0.25 0.25 1</specular>
+      <diffuse>0.32 0.32 0.36 1</diffuse>
+      <specular>0.08 0.08 0.10 1</specular>
       <direction>-0.28 0.24 -0.93</direction>
     </light>
     <scene>
-      <ambient>0.52 0.52 0.52 1</ambient>
-      <background>0.85 0.87 0.90 1</background>
+      <ambient>0.16 0.17 0.20 1</ambient>
+      <background>0.06 0.07 0.10 1</background>
       <shadows>true</shadows>
     </scene>
 
@@ -41,9 +41,9 @@
         <visual name="visual">
           <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
           <material>
-            <ambient>0.78 0.79 0.80 1</ambient>
-            <diffuse>0.88 0.89 0.90 1</diffuse>
-            <specular>0.05 0.05 0.05 1</specular>
+            <ambient>0.18 0.19 0.21 1</ambient>
+            <diffuse>0.25 0.26 0.29 1</diffuse>
+            <specular>0.03 0.03 0.03 1</specular>
             <shininess>80</shininess>
           </material>
         </visual>
@@ -246,3 +246,4 @@
     </physics>
   </world>
 </sdf>
+

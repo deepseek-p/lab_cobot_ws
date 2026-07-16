@@ -1,8 +1,8 @@
 """
 工位 waypoint 表与查询(纯逻辑,可单元测试).
 
-坐标为 map 系下的机器人停靠位姿:停在工作台前、朝向工作台(+y)。
-工作台位置见 lab_cobot_gazebo/worlds/lab.world(工位A 2.0,1.5;工位B -2.0,1.5)。
+坐标为 map 系下的机器人停靠位姿:停在工作台前、朝向工作台(+y).
+五功能区沿北侧共享走廊排布,其中 station_a / station_b 保持原有任务语义。
 """
 from __future__ import annotations
 
@@ -11,11 +11,12 @@ from typing import Dict, List
 
 # name -> {x, y, yaw(rad)}
 WAYPOINTS: Dict[str, Dict[str, float]] = {
-    "station_a": {"x": 2.0, "y": 0.62, "yaw": math.pi / 2.0},   # 工位A前,朝 +y
-    # Keep A/B on the same corridor line so cross-station navigation favors a
-    # straight cross-aisle transfer instead of a long diagonal slide.
-    "station_b": {"x": -2.0, "y": 0.62, "yaw": math.pi / 2.0},  # front of station_b, facing +y
-    "home": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    "station_a": {"x": -2.15, "y": 0.78, "yaw": math.pi / 2.0},
+    "inspection_zone": {"x": 2.05, "y": 0.55, "yaw": math.pi / 2.0},
+    "tooling_zone": {"x": -2.05, "y": -1.95, "yaw": math.pi / 2.0},
+    "aging_zone": {"x": 0.10, "y": 1.30, "yaw": math.pi / 2.0},
+    "station_b": {"x": 0.15, "y": -1.96, "yaw": math.pi / 2.0},
+    "home": {"x": 2.25, "y": -2.10, "yaw": 0.0},
 }
 
 

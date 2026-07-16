@@ -230,7 +230,7 @@ def test_bringup_registers_worktables_in_existing_stage2(monkeypatch):
     assert table_initializer in stage2.actions
     assert _node_parameters(table_initializer) == {
         "use_sim_time": True,
-        "world_frame": "odom",
+        "world_frame": "map",
     }
 
 
@@ -255,11 +255,17 @@ def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
     assert isinstance(bridge.condition, IfCondition)
     predicate = getattr(bridge.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
-    assert isinstance(predicate[0], LaunchConfiguration)
-    assert _text(predicate[0].variable_name) == "use_sim_attach"
+    assert predicate[0].__class__.__name__ == "PythonExpression"
+    names = [
+        _text(part.variable_name)
+        for part in predicate[0].expression
+        if isinstance(part, LaunchConfiguration)
+    ]
+    assert "use_sim_attach" in names
+    assert "use_tactile_grasp" in names
 
 
-def test_bringup_defaults_to_camera_aruco_with_truth_as_debug_option(monkeypatch):
+def test_bringup_defaults_to_truth_pose_for_environment_regression(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)
 
@@ -268,7 +274,7 @@ def test_bringup_defaults_to_camera_aruco_with_truth_as_debug_option(monkeypatch
     gripper = _node("lab_cobot_bringup", "gripper_attach_bridge", launch_description)
     gripper_params = _node_parameters(gripper)
 
-    assert defaults["use_truth_pose"] == "false"
+    assert defaults["use_truth_pose"] == "true"
     assert isinstance(aruco_params["use_gazebo_model_pose"], LaunchConfiguration)
     assert _text(aruco_params["use_gazebo_model_pose"].variable_name) == "use_truth_pose"
     assert aruco_params["gazebo_model_name"] == "aruco_sample"
@@ -295,8 +301,14 @@ def test_bringup_launches_dl_object_detector_by_default(monkeypatch):
     assert isinstance(detector.condition, IfCondition)
     predicate = getattr(detector.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
-    assert isinstance(predicate[0], LaunchConfiguration)
-    assert _text(predicate[0].variable_name) == "use_dl_perception"
+    assert predicate[0].__class__.__name__ == "PythonExpression"
+    names = [
+        _text(part.variable_name)
+        for part in predicate[0].expression
+        if isinstance(part, LaunchConfiguration)
+    ]
+    assert "use_dl_perception" in names
+    assert "launch_perception" in names
     assert isinstance(params["device"], LaunchConfiguration)
     assert _text(params["device"].variable_name) == "dl_device"
     assert isinstance(params["imgsz"], LaunchConfiguration)
@@ -439,9 +451,12 @@ def test_bringup_disables_voice_entry_by_default(monkeypatch):
 
 def test_bringup_disables_gazebo_remote_model_database_for_gui_runs(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+    context = LaunchContext()
+    context.launch_configurations.update(defaults)
     env = {
         _text(getattr(entity, "_SetEnvironmentVariable__name")):
-        _text(getattr(entity, "_SetEnvironmentVariable__value"))
+        perform_substitutions(context, getattr(entity, "_SetEnvironmentVariable__value"))
         for entity in launch_description.entities
         if isinstance(entity, SetEnvironmentVariable)
     }

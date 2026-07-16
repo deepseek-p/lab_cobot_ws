@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="igbt_module_plain">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry><box><size>0.09 0.09 0.06</size></box></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry><box><size>0.09 0.09 0.06</size></box></geometry>
+        <material>
+          <ambient>0.12 0.14 0.16 1</ambient>
+          <diffuse>0.28 0.31 0.34 1</diffuse>
+          <specular>0.10 0.10 0.10 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

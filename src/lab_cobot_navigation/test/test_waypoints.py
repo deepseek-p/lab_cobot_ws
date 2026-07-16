@@ -4,15 +4,22 @@ import math
 import pytest
 
 from lab_cobot_navigation.waypoints import (
+    WAYPOINTS,
     get_waypoint,
     list_stations,
     yaw_to_quat,
-    WAYPOINTS,
 )
 
 
 def test_known_stations_present():
-    assert set(list_stations()) >= {"station_a", "station_b", "home"}
+    assert set(list_stations()) >= {
+        "station_a",
+        "inspection_zone",
+        "tooling_zone",
+        "aging_zone",
+        "station_b",
+        "home",
+    }
 
 
 def test_get_waypoint_has_fields():
@@ -31,22 +38,22 @@ def test_stations_distinct_positions():
     assert (a["x"], a["y"]) != (b["x"], b["y"])
 
 
-def test_pick_station_is_within_manipulator_reach():
+def test_pick_station_leaves_visual_docking_standoff():
     station_a = get_waypoint("station_a")
-    sample_y = 1.5
+    sample_y = 1.72
     nav_xy_goal_tolerance = 0.12
 
     nominal_forward_distance = sample_y - station_a["y"]
     worst_case_forward_distance = nominal_forward_distance + nav_xy_goal_tolerance
 
-    assert 0.80 <= nominal_forward_distance <= 0.95
-    assert worst_case_forward_distance <= 1.05
+    assert 0.85 <= nominal_forward_distance <= 1.00
+    assert worst_case_forward_distance <= 1.12
 
 
 def test_pick_station_stays_out_of_table_inflation():
     station_a = get_waypoint("station_a")
-    station_table_front_y = 1.20
-    robot_radius = 0.42
+    station_table_front_y = 1.60
+    robot_radius = 0.72
 
     assert station_table_front_y - station_a["y"] > robot_radius
 
@@ -54,29 +61,38 @@ def test_pick_station_stays_out_of_table_inflation():
 def test_place_station_stays_in_navigable_corridor():
     station_b = get_waypoint("station_b")
 
-    assert 0.60 <= station_b["y"] <= 0.70
+    assert -2.05 <= station_b["y"] <= -1.88
 
 
 def test_place_station_stays_out_of_table_inflation_while_place_pose_reaches_table():
     station_b = get_waypoint("station_b")
-    station_table_front_y = 1.20
+    station_table_front_y = -1.15
     default_place_forward_distance = 0.82
 
-    assert station_b["y"] >= 0.60
+    assert station_b["y"] <= -1.88
     assert station_b["y"] + default_place_forward_distance >= station_table_front_y
 
 
-def test_cross_station_transfer_uses_shared_corridor_y():
+def test_new_zones_fill_the_lab_like_offset_layout():
     station_a = get_waypoint("station_a")
     station_b = get_waypoint("station_b")
+    inspection = get_waypoint("inspection_zone")
+    tooling = get_waypoint("tooling_zone")
+    aging = get_waypoint("aging_zone")
+    home = get_waypoint("home")
 
-    assert station_b["y"] == pytest.approx(station_a["y"])
+    assert station_a["x"] < -1.5 and 0.70 <= station_a["y"] <= 0.85
+    assert -0.2 <= aging["x"] <= 0.2 and aging["y"] > 1.2
+    assert inspection["x"] > 1.6 and inspection["y"] > 0.4
+    assert tooling["x"] < -1.5 and tooling["y"] < -1.5
+    assert -0.1 <= station_b["x"] <= 0.3 and station_b["y"] < -1.85
+    assert home["x"] > 1.8 and home["y"] < -1.9
 
 
 def test_get_waypoint_returns_copy():
     wp = get_waypoint("home")
     wp["x"] = 999.0
-    assert WAYPOINTS["home"]["x"] == 0.0  # 原表不被修改
+    assert WAYPOINTS["home"]["x"] == 2.25
 
 
 def test_yaw_to_quat_zero():

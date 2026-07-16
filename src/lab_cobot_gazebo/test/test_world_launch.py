@@ -3,8 +3,7 @@ import importlib.util
 from pathlib import Path
 
 from launch import LaunchContext
-from launch.actions import ExecuteProcess, TimerAction
-from launch.actions import EmitEvent
+from launch.actions import EmitEvent, ExecuteProcess, OpaqueFunction, TimerAction
 from launch.events import Shutdown
 from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
@@ -17,7 +16,7 @@ def _load_world_launch():
     spec = importlib.util.spec_from_file_location("world_launch_test", launch_file)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.generate_launch_description()
+    return module.generate_launch_description(), module
 
 
 def test_world_launch_provides_offline_gazebo_resources():
@@ -25,17 +24,21 @@ def test_world_launch_provides_offline_gazebo_resources():
     assert '"GAZEBO_RESOURCE_PATH", "/usr/share/gazebo-11"' in source
     assert '"GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"' in source
     assert 'SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")' in source
-    assert '"GAZEBO_MODEL_PATH", os.path.dirname(desc_pkg)' in source
+    assert '"GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")' in source
 
 
 def _all_actions(launch_description):
-    """Recursively expand timers and exit handlers into a flat action list."""
     actions = []
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
 
     def _walk(entity):
         actions.append(entity)
         if isinstance(entity, TimerAction):
             for child in entity.actions:
+                _walk(child)
+        if isinstance(entity, OpaqueFunction):
+            for child in entity.execute(context):
                 _walk(child)
         handler = getattr(entity, "handler", None) or getattr(
             entity, "_RegisterEventHandler__event_handler", None
@@ -46,7 +49,7 @@ def _all_actions(launch_description):
         callback = getattr(handler, "_OnActionEventBase__on_event", None)
         if callback is not None:
             on_exit = callback(
-                type("Event", (), {"returncode": 0})(), LaunchContext()
+                type("Event", (), {"returncode": 0})(), context
             )
         for child in on_exit or []:
             _walk(child)
@@ -56,8 +59,8 @@ def _all_actions(launch_description):
     return actions
 
 
-def _text_list(values):
-    context = LaunchContext()
+def _text_list(values, context=None):
+    context = context or LaunchContext()
     out = []
     for value in values or []:
         if isinstance(value, (list, tuple)):
@@ -86,6 +89,8 @@ def _declared_defaults(launch_description):
 
 def _robot_description_command(launch_description):
     actions = _all_actions(launch_description)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
     publisher = next(
         node
         for node in _nodes(actions)
@@ -95,14 +100,14 @@ def _robot_description_command(launch_description):
         if not isinstance(parameter_set, dict):
             continue
         for key, value in parameter_set.items():
-            key_text = perform_substitutions(LaunchContext(), list(key))
+            key_text = perform_substitutions(context, list(key))
             if key_text == "robot_description":
                 return value[0]
     raise AssertionError("missing robot_description Command")
 
 
 def _robot_description_command_text(overrides=None):
-    launch_description = _load_world_launch()
+    launch_description, _module = _load_world_launch()
     context = LaunchContext()
     context.launch_configurations.update(_declared_defaults(launch_description))
     context.launch_configurations.update(overrides or {})
@@ -111,13 +116,31 @@ def _robot_description_command_text(overrides=None):
 
 
 def _spawn_entity_args():
-    actions = _all_actions(_load_world_launch())
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
     spawns = [
         node for node in _nodes(actions)
         if getattr(node, "node_executable", "") == "spawn_entity.py"
     ]
     assert len(spawns) == 1
     return _text_list(spawns[0]._Node__arguments)
+
+
+def test_world_filename_mapper_supports_three_light_profiles_and_actor_switch():
+    _launch_description, module = _load_world_launch()
+    assert module._world_filename_from_profile("normal", False) == "lab.world"
+    assert module._world_filename_from_profile("normal", True) == "lab_actor.world"
+    assert module._world_filename_from_profile("dark", False) == "lab_dark.world"
+    assert module._world_filename_from_profile("dark", True) == "lab_dark_actor.world"
+    assert module._world_filename_from_profile("reflective", False) == "lab_reflective.world"
+    assert module._world_filename_from_profile("reflective", True) == "lab_reflective_actor.world"
+
+
+def test_world_launch_declares_new_environment_switches():
+    launch_description, _module = _load_world_launch()
+    defaults = _declared_defaults(launch_description)
+    assert defaults["lighting_profile"] == "normal"
+    assert defaults["enable_actor"] == "false"
 
 
 def test_spawn_entity_waits_for_slow_gazebo_factory_startup():
@@ -128,12 +151,17 @@ def test_spawn_entity_waits_for_slow_gazebo_factory_startup():
 
 def test_spawn_entity_restores_source_mecanum_ground_clearance():
     args = _spawn_entity_args()
+    assert "-x" in args
+    assert float(args[args.index("-x") + 1]) == 2.25
+    assert "-y" in args
+    assert float(args[args.index("-y") + 1]) == -2.10
     assert "-z" in args
     assert float(args[args.index("-z") + 1]) == 0.06
 
 
 def test_world_launch_spawns_wheel_velocity_controller():
-    actions = _all_actions(_load_world_launch())
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
     spawner_args = [
         _text_list(node._Node__arguments)
         for node in _nodes(actions)
@@ -143,7 +171,8 @@ def test_world_launch_spawns_wheel_velocity_controller():
 
 
 def test_world_launch_does_not_start_asynchronous_pose_service_driver():
-    actions = _all_actions(_load_world_launch())
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
     assert not any(
         getattr(node, "node_executable", "") == "mecanum_gazebo_kinematic_drive"
         for node in _nodes(actions)
@@ -151,11 +180,7 @@ def test_world_launch_does_not_start_asynchronous_pose_service_driver():
 
 
 def test_controller_chain_continues_only_after_success():
-    module = _load_world_launch.__globals__["importlib"].util.spec_from_file_location
-    launch_file = GAZEBO / "launch" / "world.launch.py"
-    spec = module("world_launch_guard_test", launch_file)
-    loaded = _load_world_launch.__globals__["importlib"].util.module_from_spec(spec)
-    spec.loader.exec_module(loaded)
+    _launch_description, loaded = _load_world_launch()
 
     sentinel = object()
     success = loaded._continue_on_success(
@@ -171,9 +196,8 @@ def test_controller_chain_continues_only_after_success():
 
 
 def test_world_launch_has_no_default_set_entity_state_calls():
-    """Default path must not contain SetEntityState pose interventions."""
-    # 原 12s 复位死代码已删(位姿驱动下一 tick 即被插件覆盖,自相矛盾)
-    actions = _all_actions(_load_world_launch())
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
     for action in actions:
         if isinstance(action, ExecuteProcess):
             cmd = " ".join(str(part) for part in _text_list(action.process_description.cmd))
@@ -181,11 +205,14 @@ def test_world_launch_has_no_default_set_entity_state_calls():
 
 
 def test_world_launch_gzclient_inherits_complete_model_path():
-    actions = _all_actions(_load_world_launch())
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
     gzclients = []
     for action in actions:
         if isinstance(action, ExecuteProcess):
-            cmd = _text_list(action.process_description.cmd)
+            cmd = _text_list(action.process_description.cmd, context)
             if any("gzclient" in str(part) for part in cmd):
                 gzclients.append((action, cmd))
     assert len(gzclients) == 1
@@ -201,23 +228,20 @@ def test_world_launch_gzclient_inherits_complete_model_path():
         if isinstance(key, str):
             env_keys.add(key)
         else:
-            env_keys.add(perform_substitutions(LaunchContext(), list(key)))
+            env_keys.add(perform_substitutions(context, list(key)))
     assert "GAZEBO_MODEL_PATH" not in env_keys
 
 
 def test_world_robot_description_disables_wrist_camera_by_default():
     command = _robot_description_command_text()
-
     assert "wrist_refine_camera:=false" in command
 
 
 def test_world_robot_description_enables_wrist_camera_from_shared_switch():
     command = _robot_description_command_text({"use_refine_detect": "true"})
-
     assert "wrist_refine_camera:=true" in command
 
 
 def test_world_robot_description_enables_wrist_camera_for_wrist_detect():
     command = _robot_description_command_text({"use_wrist_detect": "true"})
-
     assert "wrist_refine_camera:=true" in command

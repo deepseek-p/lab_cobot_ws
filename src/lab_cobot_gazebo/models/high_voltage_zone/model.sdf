@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="high_voltage_zone">
+    <static>true</static>
+    <link name="link">
+      <visual name="warning_rect_outer">
+        <pose>0 0 0.002 0 0 0</pose>
+        <geometry><box><size>2.36 2.04 0.002</size></box></geometry>
+        <material><ambient>0.95 0.82 0.08 0.35</ambient><diffuse>0.95 0.82 0.08 0.35</diffuse></material>
+      </visual>
+      <visual name="warning_rect_inner">
+        <pose>0 0 0.004 0 0 0</pose>
+        <geometry><box><size>2.16 1.84 0.001</size></box></geometry>
+        <material><ambient>0.88 0.88 0.88 0.0</ambient><diffuse>0.88 0.88 0.88 0.0</diffuse></material>
+      </visual>
+      <visual name="post_fl">
+        <pose>1.00 0.84 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.015</radius><length>0.90</length></cylinder></geometry>
+        <material><ambient>0.92 0.82 0.12 1</ambient><diffuse>0.98 0.86 0.12 1</diffuse></material>
+      </visual>
+      <visual name="post_fr">
+        <pose>1.00 -0.84 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.015</radius><length>0.90</length></cylinder></geometry>
+        <material><ambient>0.92 0.82 0.12 1</ambient><diffuse>0.98 0.86 0.12 1</diffuse></material>
+      </visual>
+      <visual name="post_rl">
+        <pose>-1.00 0.84 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.015</radius><length>0.90</length></cylinder></geometry>
+        <material><ambient>0.92 0.82 0.12 1</ambient><diffuse>0.98 0.86 0.12 1</diffuse></material>
+      </visual>
+      <visual name="post_rr">
+        <pose>-1.00 -0.84 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.015</radius><length>0.90</length></cylinder></geometry>
+        <material><ambient>0.92 0.82 0.12 1</ambient><diffuse>0.98 0.86 0.12 1</diffuse></material>
+      </visual>
+      <visual name="rail_front">
+        <pose>0 0.84 0.70 0 1.57079 0</pose>
+        <geometry><cylinder><radius>0.010</radius><length>2.0</length></cylinder></geometry>
+        <material><ambient>0.96 0.86 0.16 1</ambient><diffuse>0.96 0.86 0.16 1</diffuse></material>
+      </visual>
+      <visual name="rail_back">
+        <pose>0 -0.84 0.70 0 1.57079 0</pose>
+        <geometry><cylinder><radius>0.010</radius><length>2.0</length></cylinder></geometry>
+        <material><ambient>0.96 0.86 0.16 1</ambient><diffuse>0.96 0.86 0.16 1</diffuse></material>
+      </visual>
+      <visual name="rail_left">
+        <pose>-1.00 0 0.70 1.57079 0 0</pose>
+        <geometry><cylinder><radius>0.010</radius><length>1.68</length></cylinder></geometry>
+        <material><ambient>0.96 0.86 0.16 1</ambient><diffuse>0.96 0.86 0.16 1</diffuse></material>
+      </visual>
+      <visual name="rail_right">
+        <pose>1.00 0 0.70 1.57079 0 0</pose>
+        <geometry><cylinder><radius>0.010</radius><length>1.68</length></cylinder></geometry>
+        <material><ambient>0.96 0.86 0.16 1</ambient><diffuse>0.96 0.86 0.16 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

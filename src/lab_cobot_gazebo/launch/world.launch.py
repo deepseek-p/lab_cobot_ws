@@ -1,22 +1,23 @@
 """
 Launch the Gazebo Classic lab world and spawn the mobile manipulator.
 
-需 GUI/运行时(用户收尾验证):
+运行示例:
     ros2 launch lab_cobot_gazebo world.launch.py
-headless(仅 gzserver,验证物理/话题):
     ros2 launch lab_cobot_gazebo world.launch.py gui:=false
+    ros2 launch lab_cobot_gazebo world.launch.py lighting_profile:=dark enable_actor:=true
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
+    AppendEnvironmentVariable,
     DeclareLaunchArgument,
+    EmitEvent,
     ExecuteProcess,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
-    AppendEnvironmentVariable,
-    EmitEvent,
     SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
@@ -35,12 +36,42 @@ def _continue_on_success(event, next_actions, controller_name):
     ))]
 
 
+def _world_filename_from_profile(lighting_profile: str, enable_actor: bool) -> str:
+    profile = str(lighting_profile).strip().lower()
+    actor_suffix = "_actor" if enable_actor else ""
+    mapping = {
+        "normal": f"lab{actor_suffix}.world",
+        "dark": f"lab_dark{actor_suffix}.world",
+        "reflective": f"lab_reflective{actor_suffix}.world",
+    }
+    if profile not in mapping:
+        supported = ", ".join(sorted(mapping))
+        raise ValueError(f"unsupported lighting_profile={lighting_profile!r}; supported: {supported}")
+    return mapping[profile]
+
+
+def _gzserver_action(context, gazebo_ros, gz_pkg):
+    lighting_profile = LaunchConfiguration("lighting_profile").perform(context)
+    enable_actor = LaunchConfiguration("enable_actor").perform(context).lower() == "true"
+    world = os.path.join(
+        gz_pkg,
+        "worlds",
+        _world_filename_from_profile(lighting_profile, enable_actor),
+    )
+    gzserver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gazebo_ros, "launch", "gzserver.launch.py")
+        ),
+        launch_arguments={"world": world, "verbose": "true"}.items(),
+    )
+    return [gzserver]
+
+
 def generate_launch_description():
     desc_pkg = get_package_share_directory("lab_cobot_description")
     gz_pkg = get_package_share_directory("lab_cobot_gazebo")
     gazebo_ros = get_package_share_directory("gazebo_ros")
 
-    world = os.path.join(gz_pkg, "worlds", "lab.world")
     urdf_xacro = os.path.join(desc_pkg, "urdf", "lab_cobot.urdf.xacro")
     require_finger_contact = LaunchConfiguration("require_finger_contact")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
@@ -78,7 +109,6 @@ def generate_launch_description():
     )
     gazebo_offline = SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")
 
-    # 让 Gazebo 能解析 world 里的 model://aruco_sample
     model_path = AppendEnvironmentVariable(
         "GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")
     )
@@ -86,11 +116,8 @@ def generate_launch_description():
         "GAZEBO_PLUGIN_PATH", plugin_path
     )
 
-    gzserver = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(gazebo_ros, "launch", "gzserver.launch.py")
-        ),
-        launch_arguments={"world": world, "verbose": "true"}.items(),
+    gzserver = OpaqueFunction(
+        function=lambda context: _gzserver_action(context, gazebo_ros, gz_pkg)
     )
     gzclient = ExecuteProcess(
         cmd=["gzclient", "--gui-client-plugin=libgazebo_ros_eol_gui.so"],
@@ -115,10 +142,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "0.0", "-y", "0.0", "-z", "0.06",
-            # 注:Gazebo Classic 的 spawn_entity.py 不支持 -J 设初始关节;
-            # 臂初始姿态由 URDF ros2_control 的 initial_value(=home 收拢)
-            # 经 gazebo_ros2_control 设置,见 config/initial_positions.yaml
+            "-x", "2.25", "-y", "-2.10", "-z", "0.06",
         ],
         output="screen",
     )
@@ -158,7 +182,6 @@ def generate_launch_description():
         }],
     )
 
-    # spawn 完成后顺序激活控制器
     delay_jsb = RegisterEventHandler(
         OnProcessExit(target_action=spawn_entity, on_exit=[joint_state_broadcaster])
     )
@@ -199,7 +222,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
-        # 2026-07-10 T-5 翻默认:与 bringup 一致,单独起 world 调试时同样门控 attach。
+        DeclareLaunchArgument("lighting_profile", default_value="normal"),
+        DeclareLaunchArgument("enable_actor", default_value="false"),
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
         DeclareLaunchArgument("use_wrist_detect", default_value="false"),

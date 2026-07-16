@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="fixture_box_plain">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry><box><size>0.16 0.12 0.10</size></box></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry><box><size>0.16 0.12 0.10</size></box></geometry>
+        <material>
+          <ambient>0.32 0.26 0.08 1</ambient>
+          <diffuse>0.56 0.46 0.15 1</diffuse>
+          <specular>0.08 0.08 0.08 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
