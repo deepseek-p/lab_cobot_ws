@@ -15,8 +15,11 @@ from lab_cobot_bringup.mission_node import (
     DOCK_TOLERANCE_X,
     DOCK_TOLERANCE_Y,
     dock_velocity_for_object,
+    station_dock_velocity_for_base,
     transform_stamp_is_fresh,
+    worktable_clearance,
 )
+from lab_cobot_navigation.waypoints import get_waypoint
 
 
 def test_dock_velocity_moves_forward_when_object_is_too_far():
@@ -40,18 +43,16 @@ def test_pick_visual_dock_hands_off_at_chassis_safety_line():
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
     done, cmd = dock_velocity_for_object(
         [DOCK_TARGET_X + 0.12, DOCK_TARGET_Y, 0.63],
-        base_pose=(2.0, safe_y, math.pi / 2.0), station="station_a")
+        base_pose=(-2.15, safe_y, math.pi / 2.0), station="station_a")
     assert done
     assert cmd.linear.x == pytest.approx(0.0)
 
 
 def test_pick_visual_dock_accepts_scaled_chassis_safe_station_deadband():
-    # Real regression after enlarging the chassis: the actual map-dock result
-    # settles slightly inside the theoretical safety line, with the marker still
-    # at 0.811 m in base_link. That pose must be accepted instead of timing out.
+    safe_y = mission_node.station_safe_base_y(math.radians(87.8), "station_a")
     done, cmd = dock_velocity_for_object(
-        [0.811, 0.004, 0.728],
-        base_pose=(1.998, 0.575, math.radians(87.8)),
+        [0.705, 0.004, 0.728],
+        base_pose=(-2.15, safe_y, math.radians(87.8)),
         station="station_a",
     )
 
@@ -65,7 +66,7 @@ def test_pick_visual_dock_at_safety_line_only_corrects_lateral_error():
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
     done, cmd = dock_velocity_for_object(
         [DOCK_TARGET_X + 0.12, DOCK_TARGET_Y + 0.10, 0.63],
-        base_pose=(2.0, safe_y, math.pi / 2.0), station="station_a")
+        base_pose=(-2.15, safe_y, math.pi / 2.0), station="station_a")
     assert not done
     assert cmd.linear.x == pytest.approx(0.0, abs=1.0e-9)
     assert cmd.linear.y > 0.0
@@ -76,7 +77,7 @@ def test_pick_visual_dock_rejects_unreachable_safe_line_target():
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
     done, cmd = dock_velocity_for_object(
         [DOCK_SAFE_HANDOFF_MAX_X + 0.01, DOCK_TARGET_Y, 0.668],
-        base_pose=(2.0, safe_y, math.pi / 2.0),
+        base_pose=(-2.15, safe_y, math.pi / 2.0),
         station="station_a",
     )
 
@@ -155,3 +156,19 @@ def test_detection_stamp_accepts_recent_aruco_tf():
     recent = Time(sec=11, nanosec=600_000_000)
 
     assert transform_stamp_is_fresh(now, recent)
+
+
+@pytest.mark.parametrize("station", ["tooling_zone", "aging_zone"])
+def test_auxiliary_worktable_docking_preserves_front_clearance(station):
+    waypoint = get_waypoint(station)
+    safe_y = mission_node.station_safe_base_y(waypoint["yaw"], station)
+    base_pose = (waypoint["x"], safe_y, waypoint["yaw"])
+
+    done, cmd = station_dock_velocity_for_base(base_pose, station)
+
+    assert done
+    assert worktable_clearance(base_pose, station) == pytest.approx(
+        mission_node.WORKTABLE_CLEARANCE
+    )
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)

@@ -46,7 +46,10 @@ def _world_filename_from_profile(lighting_profile: str, enable_actor: bool) -> s
     }
     if profile not in mapping:
         supported = ", ".join(sorted(mapping))
-        raise ValueError(f"unsupported lighting_profile={lighting_profile!r}; supported: {supported}")
+        raise ValueError(
+            f"unsupported lighting_profile={lighting_profile!r}; "
+            f"supported: {supported}"
+        )
     return mapping[profile]
 
 
@@ -142,7 +145,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "2.25", "-y", "-2.10", "-z", "0.06",
+            "-x", "2.25", "-y", "-2.10", "-z", "0.0",
         ],
         output="screen",
     )
@@ -167,21 +170,6 @@ def generate_launch_description():
         executable="spawner",
         arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
     )
-    gazebo_odom_bridge = Node(
-        package="lab_cobot_gazebo",
-        executable="gazebo_odom_bridge",
-        output="screen",
-        parameters=[{
-            "use_sim_time": True,
-            "link_states_topic": "/gazebo/link_states",
-            "odom_topic": "/odom",
-            "target_link_name": "lab_cobot::base_footprint",
-            "fallback_link_name": "lab_cobot::base_link",
-            "odom_frame": "odom",
-            "base_frame": "base_footprint",
-        }],
-    )
-
     delay_jsb = RegisterEventHandler(
         OnProcessExit(target_action=spawn_entity, on_exit=[joint_state_broadcaster])
     )
@@ -209,17 +197,6 @@ def generate_launch_description():
             ),
         )
     )
-    delay_mecanum_runtime = RegisterEventHandler(
-        OnProcessExit(
-            target_action=wheel_velocity_controller,
-            on_exit=lambda event, _context: _continue_on_success(
-                event,
-                [gazebo_odom_bridge],
-                "wheel_velocity_controller",
-            ),
-        )
-    )
-
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
         DeclareLaunchArgument("lighting_profile", default_value="normal"),
@@ -241,5 +218,4 @@ def generate_launch_description():
         delay_jtc,
         delay_gripper,
         delay_wheel_velocity,
-        delay_mecanum_runtime,
     ])

@@ -3,7 +3,9 @@ import pytest
 
 from lab_cobot_bringup.task_state_machine import (
     CrossStationTask,
+    RouteState,
     SequentialTask,
+    StationRouteTask,
     TaskState,
     STEP_ORDER,
 )
@@ -136,3 +138,51 @@ def test_cross_station_task_is_default_sequential_plan():
     assert isinstance(t, SequentialTask)
     assert t.steps == STEP_ORDER
     assert t.max_retries == 2
+
+
+# ---- StationRouteTask: 单站与固定巡航路线 ----
+
+def test_station_route_task_visits_stations_in_order():
+    route = ["home", "station_a", "inspection_zone", "home"]
+    task = StationRouteTask(route, max_retries=1)
+
+    assert task.state == RouteState.IDLE
+    assert task.start() == "home"
+    visited = [task.current_station]
+    while not task.is_terminal():
+        task.on_result(True)
+        if task.current_station is not None:
+            visited.append(task.current_station)
+
+    assert visited == route
+    assert task.state == RouteState.DONE
+
+
+def test_station_route_task_retries_current_station_once():
+    task = StationRouteTask(["station_a", "station_b"], max_retries=1)
+    task.start()
+
+    task.on_result(False)
+    assert task.current_station == "station_a"
+    assert task.state == RouteState.RUNNING
+    assert task.has_next_station
+
+    task.on_result(True)
+    assert task.current_station == "station_b"
+    assert not task.has_next_station
+
+
+def test_station_route_task_fails_after_retry_exhaustion():
+    task = StationRouteTask(["tooling_zone"], max_retries=1)
+    task.start()
+
+    task.on_result(False)
+    task.on_result(False)
+
+    assert task.state == RouteState.FAILED
+    assert task.current_station == "tooling_zone"
+
+
+def test_station_route_task_rejects_empty_route():
+    with pytest.raises(ValueError, match="stations"):
+        StationRouteTask([])

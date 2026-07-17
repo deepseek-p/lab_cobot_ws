@@ -28,8 +28,18 @@ from lifecycle_msgs.srv import GetState
 
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
-from lab_cobot_bringup.task_planner import PlannerConfig, plan_actions
-from lab_cobot_bringup.task_state_machine import SequentialTask, TaskState
+from lab_cobot_bringup.task_planner import (
+    NavigationRequestError,
+    PlannerConfig,
+    parse_navigation_request,
+    plan_actions,
+)
+from lab_cobot_bringup.task_state_machine import (
+    RouteState,
+    SequentialTask,
+    StationRouteTask,
+    TaskState,
+)
 from lab_cobot_navigation.waypoints import get_waypoint, yaw_to_quat
 from lab_cobot_manipulation.pick_place_node import PickPlace
 from lab_cobot_manipulation.gripper_driver import DEFAULT_TARGET_OBJECT
@@ -47,7 +57,7 @@ RETREAT_STOP_SEC = 0.5
 # 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
 # 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
 DEFAULT_PLACE_POSE = [0.78, 0.20, 0.725]
-PLACE_BASE_TARGET_POSE = (-2.0, 0.625, math.pi / 2.0)
+PLACE_BASE_TARGET_POSE = (0.15, -1.725, math.pi / 2.0)
 # Leave reach margin for the vertical gripper pose.  At 0.78 m the detected
 # target plus TCP approach offset sits on the UR5e workspace boundary.
 DOCK_TARGET_X = 0.62
@@ -80,14 +90,14 @@ PICK_NAV_HANDOFF_MIN_X = 0.70
 PICK_NAV_HANDOFF_MAX_X = 0.90
 PICK_NAV_HANDOFF_MAX_ABS_Y = 0.12
 PICK_NAV_HANDOFF_MAX_STATION_DISTANCE = 0.35
-STATION_B_TABLE_MIN_X = -2.4
-STATION_B_TABLE_MAX_X = -1.6
-STATION_B_TABLE_FRONT_Y = 1.2
-STATION_B_TABLE_BACK_Y = 1.8
-STATION_B_SAFE_DROP_MIN_X = -2.335
-STATION_B_SAFE_DROP_MAX_X = -1.665
-STATION_B_SAFE_DROP_FRONT_Y = 1.265
-STATION_B_SAFE_DROP_BACK_Y = 1.735
+STATION_B_TABLE_MIN_X = -0.25
+STATION_B_TABLE_MAX_X = 0.55
+STATION_B_TABLE_FRONT_Y = -1.15
+STATION_B_TABLE_BACK_Y = -0.55
+STATION_B_SAFE_DROP_MIN_X = -0.185
+STATION_B_SAFE_DROP_MAX_X = 0.485
+STATION_B_SAFE_DROP_FRONT_Y = -1.085
+STATION_B_SAFE_DROP_BACK_Y = -0.615
 NAV_HANDOFF_STOP_SEC = 0.3
 STATION_DOCK_TOLERANCE_X = 0.06
 STATION_DOCK_TOLERANCE_Y = 0.06
@@ -118,10 +128,17 @@ PLACE_DOCK_PUBLISH_PERIOD_SEC = 0.05
 PLACE_DOCK_STOP_SEC = 0.3
 HOME_NAV_HANDOFF_MAX_DISTANCE = 0.25
 HOME_NAV_HANDOFF_MAX_ABS_YAW = 0.40
-WORKTABLE_STATIONS = frozenset(("station_a", "station_b"))
-WORKTABLE_FRONT_Y = 1.20
-CHASSIS_LENGTH = 0.63
-CHASSIS_WIDTH = 0.45
+WORKTABLE_STATIONS = frozenset(
+    ("station_a", "tooling_zone", "aging_zone", "station_b")
+)
+WORKTABLE_FRONT_Y = {
+    "station_a": 1.60,
+    "tooling_zone": -1.45,
+    "aging_zone": 1.80,
+    "station_b": -1.15,
+}
+CHASSIS_LENGTH = 0.55
+CHASSIS_WIDTH = 0.50
 WORKTABLE_CLEARANCE = 0.30
 WORKTABLE_MIN_EXIT_SPEED = 0.03
 AXIS_NAV_POSITION_TOLERANCE = 0.05
@@ -134,6 +151,8 @@ AXIS_NAV_MAX_ANGULAR = 0.55
 AXIS_NAV_TIMEOUT_SEC = 45.0
 AXIS_NAV_PUBLISH_PERIOD_SEC = 0.05
 AXIS_NAV_STOP_SEC = 0.2
+ROUTE_DEPARTURE_CLEARANCE = 0.65
+ROUTE_DEPARTURE_TIMEOUT_SEC = 8.0
 
 
 def wrist_detection_topic(marker_id: int) -> str:
@@ -170,14 +189,18 @@ def _chassis_map_y_half_extent(yaw: float) -> float:
 def station_safe_base_y(yaw: float, station: str) -> float:
     if station not in WORKTABLE_STATIONS:
         raise ValueError(f"{station} is not a worktable station")
-    return WORKTABLE_FRONT_Y - WORKTABLE_CLEARANCE - _chassis_map_y_half_extent(yaw)
+    return (
+        WORKTABLE_FRONT_Y[station]
+        - WORKTABLE_CLEARANCE
+        - _chassis_map_y_half_extent(yaw)
+    )
 
 
 def worktable_clearance(base_pose, station: str) -> float:
     if station not in WORKTABLE_STATIONS:
         return math.inf
     _x, y, yaw = [float(v) for v in base_pose]
-    return WORKTABLE_FRONT_Y - (y + _chassis_map_y_half_extent(yaw))
+    return WORKTABLE_FRONT_Y[station] - (y + _chassis_map_y_half_extent(yaw))
 
 
 def _limit_worktable_approach(cmd: Twist, base_pose, station: str) -> Twist:
@@ -355,13 +378,19 @@ def axis_aligned_velocity_for_goal(base_pose, target_pose, mode: str):
 
     cmd.angular.z = _clamp(AXIS_NAV_GAIN_YAW * error_yaw, AXIS_NAV_MAX_ANGULAR)
     if mode == "forward":
-        if abs(error_y_map) <= AXIS_NAV_POSITION_TOLERANCE and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE:
+        if (
+            abs(error_y_map) <= AXIS_NAV_POSITION_TOLERANCE
+            and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE
+        ):
             return True, cmd
         base_forward = math.sin(yaw) * error_y_map
         cmd.linear.x = _clamp(AXIS_NAV_GAIN_LINEAR * base_forward, AXIS_NAV_MAX_LINEAR)
         return False, cmd
     if mode == "strafe":
-        if abs(error_x_map) <= AXIS_NAV_POSITION_TOLERANCE and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE:
+        if (
+            abs(error_x_map) <= AXIS_NAV_POSITION_TOLERANCE
+            and abs(error_yaw) <= AXIS_NAV_YAW_TOLERANCE
+        ):
             return True, cmd
         base_lateral = -math.sin(yaw) * error_x_map
         cmd.linear.y = _clamp(AXIS_NAV_GAIN_LINEAR * base_lateral, AXIS_NAV_MAX_LINEAR)
@@ -486,9 +515,10 @@ def home_navigation_handoff_ready(base_pose) -> bool:
     if base_pose is None:
         return False
     x, y, yaw = [float(v) for v in base_pose]
+    home_x, home_y, home_yaw = _station_base_pose("home")
     return (
-        math.hypot(x, y) <= HOME_NAV_HANDOFF_MAX_DISTANCE
-        and abs(_angle_wrap(yaw)) <= HOME_NAV_HANDOFF_MAX_ABS_YAW
+        math.hypot(x - home_x, y - home_y) <= HOME_NAV_HANDOFF_MAX_DISTANCE
+        and abs(_angle_wrap(yaw - home_yaw)) <= HOME_NAV_HANDOFF_MAX_ABS_YAW
     )
 
 
@@ -624,19 +654,138 @@ class MissionNode(Node):
     def _on_wrist_detection_pose(self, msg: PoseStamped) -> None:
         self._latest_wrist_detection_pose = msg
 
+    def _publish_failure(self, reason: str, station: str | None = None) -> None:
+        detail = reason if station is None else f"{reason}:{station}"
+        self._publish_status(f"FAILED:{detail}")
+        self._publish(TaskState.FAILED)
+
+    def _route_stations(self, request) -> list[str]:
+        stations = list(request.stations)
+        if request.mode != "cruise" or not stations or stations[0] != "home":
+            return stations
+        pose = self._base_pose_in_map(timeout_sec=0.2)
+        if home_navigation_handoff_ready(pose):
+            return stations[1:]
+        return stations
+
+    def _execute_station_target(self, station: str):
+        if station == "home":
+            self._publish_status("RETURN_HOME")
+        else:
+            self._publish_status(f"NAV_TO_STATION:{station}")
+        if not self._navigate(station):
+            return False, "navigation_failed"
+        if not self._dock_to_station_pose(station):
+            return False, "docking_failed"
+        self._publish_status(f"ARRIVED:{station}")
+        return True, ""
+
+    def _station_route_cleanup(self) -> None:
+        try:
+            self.nav.cancelTask()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._stop_base(DOCK_STOP_SEC)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"路线失败停底盘异常: {exc}")
+        try:
+            if not self.pp.go_home():
+                self.get_logger().warn("路线失败后机械臂回 home 失败")
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"路线失败后机械臂回 home 异常: {exc}")
+
+    def _retreat_from_route_station(self, station: str) -> bool:
+        if station not in WORKTABLE_STATIONS:
+            return True
+        self.get_logger().info(f"巡航离开 {station} 前短退避")
+        start = self.get_clock().now()
+        last_clearance = None
+        cmd = Twist()
+        cmd.linear.x = RETREAT_LINEAR_X
+        while not self._duration_elapsed(start, ROUTE_DEPARTURE_TIMEOUT_SEC):
+            pose = self._base_pose_in_map(timeout_sec=0.05)
+            if pose is not None:
+                last_clearance = worktable_clearance(pose, station)
+                if last_clearance >= ROUTE_DEPARTURE_CLEARANCE:
+                    self._stop_base(STATION_DOCK_STOP_SEC)
+                    self.get_logger().info(
+                        f"巡航退避完成 {station}: clearance={last_clearance:.3f}m"
+                    )
+                    return True
+                self.retreat_pub.publish(cmd)
+            time.sleep(RETREAT_PUBLISH_PERIOD_SEC)
+
+        self._stop_base(STATION_DOCK_STOP_SEC)
+        detail = "pose unavailable" if last_clearance is None else (
+            f"clearance={last_clearance:.3f}m"
+        )
+        self.get_logger().warn(f"巡航退避超时 {station}: {detail}")
+        return False
+
+    def _run_navigation_request(self, request) -> bool:
+        try:
+            if not self.pp.go_home():
+                self._publish_failure("arm_not_stowed")
+                return False
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"导航任务收臂异常: {exc}")
+            self._publish_failure("arm_not_stowed")
+            return False
+
+        task = StationRouteTask(self._route_stations(request), max_retries=1)
+        task.start()
+        failure_reason = "unexpected_exception"
+        failure_station = task.current_station
+        while not task.is_terminal():
+            failure_station = task.current_station
+            ok, reason = self._execute_station_target(failure_station)
+            if (
+                ok
+                and task.has_next_station
+                and failure_station in WORKTABLE_STATIONS
+            ):
+                ok = self._retreat_from_route_station(failure_station)
+                if not ok:
+                    reason = "departure_failed"
+            if not ok:
+                failure_reason = reason
+            task.on_result(ok)
+
+        if task.state == RouteState.DONE:
+            self._publish_status("DONE")
+            return True
+
+        self._station_route_cleanup()
+        self._publish_failure(failure_reason, failure_station)
+        return False
+
     def _run_mission(self):
         try:
             self._latest_task_detection = None
             instruction = getattr(self, "_instruction", "")
             config = getattr(self, "_planner_config", None)
-            result = plan_actions(instruction, config)
-            self.get_logger().info(
-                f"任务拆解[{result.source}]: {[s.name for s in result.steps]}"
-            )
+            try:
+                navigation_request = parse_navigation_request(instruction)
+            except NavigationRequestError as exc:
+                self.get_logger().error(f"导航指令无效: {exc}")
+                self._publish_failure("unknown_station", exc.station)
+                return
+
+            result = None
+            if navigation_request is None:
+                result = plan_actions(instruction, config)
+                self.get_logger().info(
+                    f"任务拆解[{result.source}]: {[s.name for s in result.steps]}"
+                )
             # 冷启动时 Nav2 生命周期节点可能仍在 configure/activate。
             # 基础设施就绪不是业务步骤失败，不能消耗 NAV_TO_PICK 重试。
             if not self._wait_for_navigation_ready():
                 self.get_logger().error("Nav2 启动超时,任务尚未开始")
+                self._publish_failure("nav_not_ready")
+                return
+            if navigation_request is not None:
+                self._run_navigation_request(navigation_request)
                 return
             task = SequentialTask(result.steps, max_retries=1)
             task.start()
@@ -650,6 +799,11 @@ class MissionNode(Node):
             self.get_logger().info(f"任务结束: {task.state.name}")
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f"任务执行异常: {e}")
+            try:
+                self._station_route_cleanup()
+                self._publish_failure("unexpected_exception")
+            except Exception as cleanup_exc:  # noqa: BLE001
+                self.get_logger().error(f"任务异常清理失败: {cleanup_exc}")
         finally:
             self._busy = False
 
@@ -876,7 +1030,10 @@ class MissionNode(Node):
         self._publish_cmd_for_duration(stop, duration_sec)
 
     def _navigate(self, station: str) -> bool:
-        if getattr(self, "_axis_aligned_station_transfer", False) and station in WORKTABLE_STATIONS:
+        if (
+            getattr(self, "_axis_aligned_station_transfer", False)
+            and station in WORKTABLE_STATIONS
+        ):
             current_pose = self._base_pose_in_map(timeout_sec=0.05)
             if current_pose is not None:
                 return self._navigate_axis_aligned(station, current_pose)
@@ -904,7 +1061,9 @@ class MissionNode(Node):
                 if done:
                     self._stop_base(AXIS_NAV_STOP_SEC)
                     self.get_logger().info(
-                        f"axis goal done {goal_name}: base=({pose[0]:.3f},{pose[1]:.3f},{math.degrees(pose[2]):.1f}deg)"
+                        f"axis goal done {goal_name}: "
+                        f"base=({pose[0]:.3f},{pose[1]:.3f},"
+                        f"{math.degrees(pose[2]):.1f}deg)"
                     )
                     return True
                 self.retreat_pub.publish(cmd)
@@ -915,7 +1074,9 @@ class MissionNode(Node):
             self.get_logger().warn(f"axis goal failed {goal_name}: base pose unavailable")
         else:
             self.get_logger().warn(
-                f"axis goal timeout {goal_name}: base=({last_pose[0]:.3f},{last_pose[1]:.3f},{math.degrees(last_pose[2]):.1f}deg)"
+                f"axis goal timeout {goal_name}: "
+                f"base=({last_pose[0]:.3f},{last_pose[1]:.3f},"
+                f"{math.degrees(last_pose[2]):.1f}deg)"
             )
         return False
 
@@ -1163,10 +1324,13 @@ class MissionNode(Node):
 
         return wait_for_refined_position
 
-    def _publish(self, state: TaskState):
+    def _publish_status(self, status: str) -> None:
         m = String()
-        m.data = state.name
+        m.data = status
         self.status_pub.publish(m)
+
+    def _publish(self, state: TaskState):
+        self._publish_status(state.name)
 
 
 def main():

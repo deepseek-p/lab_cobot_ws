@@ -192,9 +192,9 @@
 
 
     <include>
-      <uri>model://igbt_module_aruco</uri>
+      <uri>model://aruco_sample</uri>
       <name>aruco_sample</name>
-      <pose>-2.08 1.73 0.78 0 0 0.10</pose>
+      <pose>-2.08 1.73 0.785 0 0 0.10</pose>
     </include>
     <include>
       <uri>model://igbt_module_plain</uri>
@@ -275,4 +275,3 @@
     </physics>
   </world>
 </sdf>
-

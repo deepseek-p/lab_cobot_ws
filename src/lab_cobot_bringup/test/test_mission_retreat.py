@@ -177,12 +177,15 @@ def test_mission_waits_for_navigation_readiness_before_starting_task():
     node._wait_for_navigation_ready = lambda: events.append("ready") or False
     node._execute = lambda state: events.append(("execute", state)) or False
     node._publish = lambda state: events.append(("publish", state))
+    node._publish_failure = (
+        lambda reason, station=None: events.append(("failure", reason, station))
+    )
     node._failsafe_cleanup = lambda: events.append("cleanup")
     node.get_logger = lambda: FakeLogger()
 
     MissionNode._run_mission(node)
 
-    assert events == ["ready"]
+    assert events == ["ready", ("failure", "nav_not_ready", None)]
     assert node._busy is False
 
 
@@ -452,6 +455,34 @@ def test_retreat_and_stop_base_use_ros_clock(monkeypatch):
     assert clock.now_calls > 0
     assert any(msg.linear.x == RETREAT_LINEAR_X for msg in publisher.messages)
     assert publisher.messages[-1].linear.x == 0.0
+
+
+def test_route_station_retreat_stops_after_reaching_map_clearance(monkeypatch):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    station = "tooling_zone"
+    yaw = mission_node.get_waypoint(station)["yaw"]
+    safe_y = mission_node.station_safe_base_y(yaw, station)
+    poses = [
+        [-2.05, safe_y, yaw],
+        [-2.05, safe_y - 0.20, yaw],
+        [-2.05, safe_y - 0.40, yaw],
+    ]
+    stops = []
+    monkeypatch.setattr(mission_node.time, "sleep", clock.advance)
+
+    node = MissionNode.__new__(MissionNode)
+    node.retreat_pub = publisher
+    node.get_clock = lambda: clock
+    node.get_logger = lambda: FakeLogger()
+    node._base_pose_in_map = lambda timeout_sec=2.0: poses.pop(0)
+    node._stop_base = lambda duration: stops.append(duration)
+
+    assert MissionNode._retreat_from_route_station(node, station)
+
+    assert publisher.messages
+    assert all(msg.linear.x == RETREAT_LINEAR_X for msg in publisher.messages)
+    assert stops == [mission_node.STATION_DOCK_STOP_SEC]
 
 
 def test_pick_docking_timeout_uses_ros_clock(monkeypatch):
