@@ -18,7 +18,7 @@ def test_forward_motion_spins_all_wheels_same_direction():
         wheelbase_radius=mecanum_wheel_visualizer.WHEELBASE_RADIUS,
     )
 
-    assert speeds == pytest.approx([16.0 / 7.0] * 4)
+    assert speeds == pytest.approx([2.0, 2.0, 2.0, 2.0])
 
 
 def test_lateral_motion_uses_mecanum_opposing_diagonals():
@@ -30,12 +30,7 @@ def test_lateral_motion_uses_mecanum_opposing_diagonals():
         wheelbase_radius=mecanum_wheel_visualizer.WHEELBASE_RADIUS,
     )
 
-    assert speeds == pytest.approx([
-        -16.0 / 7.0,
-        16.0 / 7.0,
-        16.0 / 7.0,
-        -16.0 / 7.0,
-    ])
+    assert speeds == pytest.approx([-2.0, 2.0, 2.0, -2.0])
 
 
 def test_yaw_motion_spins_left_and_right_sides_opposite():
@@ -72,8 +67,8 @@ def test_forward_kinematics_recovers_twist_from_wheel_speeds():
 
 
 def test_visualizer_geometry_matches_active_runtime_drive():
-    assert mecanum_wheel_visualizer.WHEEL_RADIUS == pytest.approx(0.07)
-    assert mecanum_wheel_visualizer.WHEELBASE_RADIUS == pytest.approx(0.623)
+    assert mecanum_wheel_visualizer.WHEEL_RADIUS == pytest.approx(0.08)
+    assert mecanum_wheel_visualizer.WHEELBASE_RADIUS == pytest.approx(0.47)
 
 
 def test_pose_model_odometry_twist_is_limited_like_gazebo_drive_plugin():

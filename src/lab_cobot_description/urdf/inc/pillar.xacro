@@ -6,7 +6,7 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="base_pillar" params="parent column_height:=0.40 column_size:=0.12 mass:=8.0 mount_offset:=0.0">
+  <xacro:macro name="base_pillar" params="parent column_height:=0.40 column_size:=0.12 mass:=8.0">
     <link name="pillar_link">
       <visual>
         <origin xyz="0 0 ${column_height/2.0}" rpy="0 0 0"/>
@@ -23,7 +23,7 @@
     <joint name="pillar_joint" type="fixed">
       <parent link="${parent}"/>
       <child link="pillar_link"/>
-      <origin xyz="0 0 ${mount_offset}" rpy="0 0 0"/>
+      <origin xyz="0 0 ${base_height/2.0}" rpy="0 0 0"/>
     </joint>
 
     <!-- UR 安装点:立柱顶 -->

@@ -176,7 +176,7 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
     assert _text(predicate[0].variable_name) == "launch_mission"
 
 
-def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
+def test_bringup_uses_main_mecanum_visualizer_and_world_plugin(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     executables = [node.node_executable for node in _nodes(launch_description)]
     includes = [
@@ -194,56 +194,80 @@ def test_bringup_owns_single_relay_and_delegates_drive_to_world(monkeypatch):
     ]
 
     assert len(worlds) == 1
-    assert "mecanum_wheel_visualizer" not in executables
+    assert list(executables).count("mecanum_wheel_visualizer") == 1
     assert "wheel_joint_state_publisher" not in executables
-    assert list(executables).count("rover_twist_relay") == 1
+    assert "rover_twist_relay" not in executables
+    assert "passive_mecanum_joint_states" not in executables
     assert "mecanum_gazebo_kinematic_drive" not in executables
     assert "gazebo_odom_bridge" not in executables
 
-    relay = _node("lab_cobot_bringup", "rover_twist_relay", launch_description)
-    assert _node_parameters(relay) == {
+    visualizer = _node(
+        "lab_cobot_bringup", "mecanum_wheel_visualizer", launch_description
+    )
+    assert _node_parameters(visualizer) == {
         "use_sim_time": True,
-        "rover": "mecanum3",
-        "mecanum3.wheel_radius": 0.07,
-        "mecanum3.wheel_separation_width": 0.36,
-        "mecanum3.wheel_separation_length": 0.263,
-        "max_vx": 0.5,
-        "max_vy": 0.3,
-        "max_wz": 1.2,
-        "max_accel_xy": 0.5,
-        "max_accel_wz": 1.5,
-        "command_timeout": 0.25,
+        "publish_odom": False,
     }
 
 
-def test_bringup_registers_worktables_in_existing_stage2(monkeypatch):
+def test_bringup_stages_runtime_load_after_navigation_bootstrap(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
-    stage2 = next(
+    timers = [
+        entity for entity in launch_description.entities
+        if isinstance(entity, TimerAction)
+    ]
+    navigation = next(
         entity
-        for entity in launch_description.entities
-        if isinstance(entity, TimerAction) and entity.period == 10.0
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+        and "params_file" in _include_arguments(entity)
+    )
+    move_group = next(
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+        and _text(getattr(
+            entity.launch_description_source,
+            "_LaunchDescriptionSource__location",
+        )).endswith("move_group.launch.py")
     )
     table_initializer = _node(
         "lab_cobot_moveit", "table_scene_initializer", launch_description
     )
+    object_detector = _node(
+        "lab_cobot_perception", "object_detector", launch_description
+    )
+    mission = _node("lab_cobot_bringup", "mission_node", launch_description)
 
-    assert table_initializer in stage2.actions
+    navigation_stage = next(timer for timer in timers if navigation in timer.actions)
+    moveit_stage = next(timer for timer in timers if move_group in timer.actions)
+    scene_stage = next(
+        timer for timer in timers if table_initializer in timer.actions
+    )
+    dl_stage = next(
+        timer for timer in timers if object_detector in timer.actions
+    )
+    mission_stage = next(timer for timer in timers if mission in timer.actions)
+
+    assert navigation_stage.period == 10.0
+    assert moveit_stage.period >= 15.0
+    assert scene_stage.period >= 25.0
+    assert dl_stage.period > scene_stage.period
+    assert mission_stage.period > dl_stage.period
     assert _node_parameters(table_initializer) == {
         "use_sim_time": True,
         "world_frame": "map",
     }
 
 
-def test_bringup_publishes_passive_mecanum_joint_states(monkeypatch):
+def test_bringup_has_no_passive_mecanum_joint_state_shim(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     nodes = [
         node for node in _nodes(launch_description)
         if node.node_executable == "passive_mecanum_joint_states"
     ]
 
-    assert len(nodes) == 1
-    assert nodes[0].node_package == "lab_cobot_bringup"
-    assert _node_parameters(nodes[0])["use_sim_time"] is True
+    assert nodes == []
 
 
 def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
@@ -255,14 +279,8 @@ def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
     assert isinstance(bridge.condition, IfCondition)
     predicate = getattr(bridge.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
-    assert predicate[0].__class__.__name__ == "PythonExpression"
-    names = [
-        _text(part.variable_name)
-        for part in predicate[0].expression
-        if isinstance(part, LaunchConfiguration)
-    ]
-    assert "use_sim_attach" in names
-    assert "use_tactile_grasp" in names
+    assert isinstance(predicate[0], LaunchConfiguration)
+    assert _text(predicate[0].variable_name) == "use_sim_attach"
 
 
 def test_bringup_defaults_to_truth_pose_for_environment_regression(monkeypatch):
@@ -274,7 +292,7 @@ def test_bringup_defaults_to_truth_pose_for_environment_regression(monkeypatch):
     gripper = _node("lab_cobot_bringup", "gripper_attach_bridge", launch_description)
     gripper_params = _node_parameters(gripper)
 
-    assert defaults["use_truth_pose"] == "true"
+    assert defaults["use_truth_pose"] == "false"
     assert isinstance(aruco_params["use_gazebo_model_pose"], LaunchConfiguration)
     assert _text(aruco_params["use_gazebo_model_pose"].variable_name) == "use_truth_pose"
     assert aruco_params["gazebo_model_name"] == "aruco_sample"

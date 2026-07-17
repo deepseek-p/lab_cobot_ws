@@ -50,7 +50,7 @@ gripper_position_controller:
 wheel_velocity_controller:
   ros__parameters:
     joints:
-      - front_left_joint
-      - front_right_joint
-      - back_left_joint
-      - back_right_joint
+      - wheel_fl_joint
+      - wheel_fr_joint
+      - wheel_rl_joint
+      - wheel_rr_joint

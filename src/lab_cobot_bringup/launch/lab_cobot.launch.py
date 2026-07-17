@@ -2,7 +2,7 @@
 Integrated launch for the cross-station pick-and-place stack.
 
     ros2 launch lab_cobot_bringup lab_cobot.launch.py
-启动顺序: Gazebo+机器人+控制器 -> (延迟) move_group + Nav2 + 感知 -> (再延迟) mission。
+启动顺序: Gazebo+控制器 -> Nav2 -> MoveIt+ArUco -> 场景+DL -> mission。
 含 WSLg 稳定渲染环境变量(源自 robot_lab_demo 经验)。
 发指令触发: ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
 """
@@ -168,29 +168,14 @@ def generate_launch_description():
             "' == 'true') else 'false'",
         ])),
     )
-    rover_twist_relay = Node(
+    mecanum_wheel_visualizer = Node(
         package="lab_cobot_bringup",
-        executable="rover_twist_relay",
+        executable="mecanum_wheel_visualizer",
         output="screen",
         parameters=[{
             "use_sim_time": True,
-            "rover": "mecanum3",
-            "mecanum3.wheel_radius": 0.07,
-            "mecanum3.wheel_separation_width": 0.36,
-            "mecanum3.wheel_separation_length": 0.263,
-            "max_vx": 0.5,
-            "max_vy": 0.3,
-            "max_wz": 1.2,
-            "max_accel_xy": 0.5,
-            "max_accel_wz": 1.5,
-            "command_timeout": 0.25,
+            "publish_odom": False,
         }],
-    )
-    passive_mecanum_joint_states = Node(
-        package="lab_cobot_bringup",
-        executable="passive_mecanum_joint_states",
-        output="screen",
-        parameters=[{"use_sim_time": True}],
     )
     gripper_attach_bridge = Node(
         package="lab_cobot_bringup",
@@ -200,13 +185,7 @@ def generate_launch_description():
             "use_sim_time": True,
             "tf_reference_frame": "odom",
         }],
-        condition=IfCondition(PythonExpression([
-            "'true' if ('",
-            use_sim_attach,
-            "' == 'true' or '",
-            use_tactile_grasp,
-            "' == 'true') else 'false'",
-        ])),
+        condition=IfCondition(use_sim_attach),
     )
     mission = Node(
         package="lab_cobot_bringup",
@@ -244,18 +223,16 @@ def generate_launch_description():
         condition=IfCondition(launch_voice),
     )
 
-    stage2 = TimerAction(
-        period=10.0,
-        actions=[
-            move_group,
-            table_scene_initializer,
-            navigation,
-            aruco,
-            wrist_aruco,
-            object_detector,
-        ],
+    # 生命周期 service 在 CPU 推理与 MoveIt 同时冷启动时会偶发丢响应。
+    # 先给 Nav2 定位链独占启动窗口,再逐级引入其余运行负载。
+    stage2 = TimerAction(period=10.0, actions=[navigation])
+    stage3 = TimerAction(
+        period=15.0,
+        actions=[move_group, aruco, wrist_aruco],
     )
-    stage3 = TimerAction(period=15.0, actions=[mission, voice])
+    stage4 = TimerAction(period=25.0, actions=[table_scene_initializer])
+    stage5 = TimerAction(period=30.0, actions=[object_detector])
+    stage6 = TimerAction(period=35.0, actions=[mission, voice])
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="Gazebo GUI"),
@@ -278,7 +255,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "use_truth_pose",
-            default_value="true",
+            default_value="false",
             description="true=stable Gazebo model pose fallback, false=RGB-D ArUco detection",
         ),
         DeclareLaunchArgument(
@@ -316,9 +293,11 @@ def generate_launch_description():
         SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
         SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         world,
-        rover_twist_relay,
-        passive_mecanum_joint_states,
+        mecanum_wheel_visualizer,
         gripper_attach_bridge,
         stage2,
         stage3,
+        stage4,
+        stage5,
+        stage6,
     ])

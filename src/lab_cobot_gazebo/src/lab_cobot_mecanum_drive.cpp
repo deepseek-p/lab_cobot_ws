@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -10,11 +11,13 @@
 #include <gazebo/common/Plugin.hh>
 #include <gazebo/physics/physics.hh>
 #include <gazebo_ros/node.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <ignition/math/Vector3.hh>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sdf/sdf.hh>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <tf2_ros/transform_broadcaster.h>
 
 #include "lab_cobot_gazebo/mecanum_kinematics.hpp"
 
@@ -96,6 +99,7 @@ public:
     max_angular_accel_ = SdfDouble(sdf, "max_angular_accel", 1.5);
     command_timeout_ = SdfDouble(sdf, "command_timeout", 0.25);
     publish_odom_ = SdfBool(sdf, "publish_odom", true);
+    publish_odom_tf_ = SdfBool(sdf, "publish_odom_tf", true);
     odom_topic_ = SdfString(sdf, "odom_topic", "/odom");
     odom_frame_ = SdfString(sdf, "odom_frame", "odom");
     base_frame_ = SdfString(sdf, "base_frame", "base_footprint");
@@ -120,11 +124,14 @@ public:
       wheel_joints_[index] = model_->GetJoint(wheel_joint_names_[index]);
     }
 
-    if (UsesWheelCommandWatchdog() || publish_odom_) {
+    if (UsesWheelCommandWatchdog() || publish_odom_ || publish_odom_tf_) {
       ros_node_ = gazebo_ros::Node::Get(sdf);
     }
     if (publish_odom_ && ros_node_) {
       odom_pub_ = ros_node_->create_publisher<nav_msgs::msg::Odometry>(odom_topic_, 10);
+    }
+    if (publish_odom_tf_ && ros_node_) {
+      tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*ros_node_);
     }
     if (UsesWheelCommandWatchdog()) {
       wheel_command_sub_ =
@@ -144,7 +151,8 @@ public:
           << ", " << wheel_joint_names_[3] << "]"
           << " to link " << base_link_name_
           << " using " << control_mode_
-          << " command_topic " << wheel_command_topic_ << std::endl;
+          << " command_topic " << wheel_command_topic_
+          << " odom_tf " << (publish_odom_tf_ ? "true" : "false") << std::endl;
   }
 
 private:
@@ -359,7 +367,10 @@ private:
     const ignition::math::Pose3d & pose,
     const std::array<double, 3> & twist)
   {
-    if (!publish_odom_ || !odom_pub_ || !model_) {
+    if (
+      !model_ ||
+      ((!publish_odom_ || !odom_pub_) && (!publish_odom_tf_ || !tf_broadcaster_)))
+    {
       return;
     }
 
@@ -370,28 +381,48 @@ private:
     }
     last_odom_publish_time_ = now;
 
-    nav_msgs::msg::Odometry msg;
-    msg.header.stamp.sec = static_cast<int32_t>(sim_time.sec);
-    msg.header.stamp.nanosec = static_cast<uint32_t>(sim_time.nsec);
-    msg.header.frame_id = odom_frame_;
-    msg.child_frame_id = base_frame_;
-    msg.pose.pose.position.x = pose.Pos().X();
-    msg.pose.pose.position.y = pose.Pos().Y();
-    msg.pose.pose.position.z = pose.Pos().Z();
-    msg.pose.pose.orientation.x = pose.Rot().X();
-    msg.pose.pose.orientation.y = pose.Rot().Y();
-    msg.pose.pose.orientation.z = pose.Rot().Z();
-    msg.pose.pose.orientation.w = pose.Rot().W();
-    msg.twist.twist.linear.x = twist[0];
-    msg.twist.twist.linear.y = twist[1];
-    msg.twist.twist.angular.z = twist[2];
-    msg.pose.covariance[0] = 0.02;
-    msg.pose.covariance[7] = 0.02;
-    msg.pose.covariance[35] = 0.05;
-    msg.twist.covariance[0] = 0.02;
-    msg.twist.covariance[7] = 0.02;
-    msg.twist.covariance[35] = 0.05;
-    odom_pub_->publish(msg);
+    builtin_interfaces::msg::Time stamp;
+    stamp.sec = static_cast<int32_t>(sim_time.sec);
+    stamp.nanosec = static_cast<uint32_t>(sim_time.nsec);
+
+    if (publish_odom_ && odom_pub_) {
+      nav_msgs::msg::Odometry msg;
+      msg.header.stamp = stamp;
+      msg.header.frame_id = odom_frame_;
+      msg.child_frame_id = base_frame_;
+      msg.pose.pose.position.x = pose.Pos().X();
+      msg.pose.pose.position.y = pose.Pos().Y();
+      msg.pose.pose.position.z = pose.Pos().Z();
+      msg.pose.pose.orientation.x = pose.Rot().X();
+      msg.pose.pose.orientation.y = pose.Rot().Y();
+      msg.pose.pose.orientation.z = pose.Rot().Z();
+      msg.pose.pose.orientation.w = pose.Rot().W();
+      msg.twist.twist.linear.x = twist[0];
+      msg.twist.twist.linear.y = twist[1];
+      msg.twist.twist.angular.z = twist[2];
+      msg.pose.covariance[0] = 0.02;
+      msg.pose.covariance[7] = 0.02;
+      msg.pose.covariance[35] = 0.05;
+      msg.twist.covariance[0] = 0.02;
+      msg.twist.covariance[7] = 0.02;
+      msg.twist.covariance[35] = 0.05;
+      odom_pub_->publish(msg);
+    }
+
+    if (publish_odom_tf_ && tf_broadcaster_) {
+      geometry_msgs::msg::TransformStamped transform;
+      transform.header.stamp = stamp;
+      transform.header.frame_id = odom_frame_;
+      transform.child_frame_id = base_frame_;
+      transform.transform.translation.x = pose.Pos().X();
+      transform.transform.translation.y = pose.Pos().Y();
+      transform.transform.translation.z = pose.Pos().Z();
+      transform.transform.rotation.x = pose.Rot().X();
+      transform.transform.rotation.y = pose.Rot().Y();
+      transform.transform.rotation.z = pose.Rot().Z();
+      transform.transform.rotation.w = pose.Rot().W();
+      tf_broadcaster_->sendTransform(transform);
+    }
   }
 
   void ApplyForceModel(const std::array<double, 3> & twist)
@@ -483,6 +514,7 @@ private:
   gazebo_ros::Node::SharedPtr ros_node_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr wheel_command_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   std::string base_link_name_{"base_link"};
   std::string control_mode_{"force_from_wheel_joints"};
   std::string wheel_command_topic_{"/wheel_velocity_controller/commands"};
@@ -518,6 +550,7 @@ private:
   std::array<double, 4> commanded_wheel_speeds_{0.0, 0.0, 0.0, 0.0};
   std::mutex command_mutex_;
   bool publish_odom_{true};
+  bool publish_odom_tf_{true};
   bool planar_pose_initialized_{false};
   bool reported_missing_dependencies_{false};
 };

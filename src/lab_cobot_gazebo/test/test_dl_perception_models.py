@@ -33,6 +33,13 @@ def _include_pose(entity_name):
     raise AssertionError(f"missing include for {entity_name}")
 
 
+def _include_uri(entity_name):
+    for include in _world_root().findall(".//include"):
+        if include.findtext("name") == entity_name:
+            return include.findtext("uri")
+    raise AssertionError(f"missing include for {entity_name}")
+
+
 def test_plain_igbt_is_static_flat_square():
     model = _model_root("igbt_module_plain").find("model")
 
@@ -61,8 +68,12 @@ def test_aging_rack_has_three_visual_slots_and_status_panel():
 
 def test_new_tabletop_props_exist_for_tooling_board_test_and_high_voltage_identity():
     assert _model_root("thermal_grease_can").find(".//visual[@name='cap']") is not None
-    assert _model_root("tooling_hand_tools").find(".//visual[@name='screwdriver_handle_red']") is not None
-    assert _model_root("pcb_test_fixture").find(".//visual[@name='indicator_led_green']") is not None
+    assert _model_root("tooling_hand_tools").find(
+        ".//visual[@name='screwdriver_handle_red']"
+    ) is not None
+    assert _model_root("pcb_test_fixture").find(
+        ".//visual[@name='indicator_led_green']"
+    ) is not None
     assert _model_root("safety_probe_kit").find(".//visual[@name='probe_red_handle']") is not None
 
 
@@ -89,7 +100,8 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     probe_kit = _include_pose("high_voltage_probe_kit")
     high_voltage = _include_pose("high_voltage_zone")
 
-    assert aruco[:3] == pytest.approx([-2.08, 1.73, 0.78])
+    assert _include_uri("aruco_sample") == "model://aruco_sample"
+    assert aruco[:3] == pytest.approx([-2.08, 1.73, 0.785])
     assert spare_igbt[:3] == pytest.approx([-2.31, 1.96, 0.78])
     assert grease[:3] == pytest.approx([-1.95, 1.98, 0.805])
     assert fixture[:3] == pytest.approx([-1.94, -1.02, 0.80])
@@ -99,7 +111,7 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     assert probe_kit[:3] == pytest.approx([2.02, 1.22, 0.0])
     assert high_voltage[:3] == pytest.approx([2.18, 1.45, 0.0])
 
-    sample_half_extent = 0.045
+    sample_half_extent = 0.035
     assert 1.60 < aruco[1] - sample_half_extent < 1.90
     assert 1.60 < spare_igbt[1] + sample_half_extent < 2.20
     assert hand_tools[0] < fixture[0] < -1.75

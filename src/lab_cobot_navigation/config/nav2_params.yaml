@@ -30,8 +30,9 @@ amcl:
     always_reset_initial_pose: False
     first_map_only: False
     initial_pose:
-      x: 0.0
-      y: 0.0
+      # 五功能区地图与 waypoint 使用 Gazebo world 坐标;出生点即 home。
+      x: 2.25
+      y: -2.10
       z: 0.0
       yaw: 0.0
 
@@ -185,13 +186,13 @@ local_costmap:
       width: 5
       height: 5
       resolution: 0.05
-      # 机器人轮廓(含麦轮外缘):底盘 0.83x0.75,半长0.42 半宽0.47
-      footprint: "[ [0.42, 0.47], [0.42, -0.47], [-0.42, -0.47], [-0.42, 0.47] ]"
+      # 机器人轮廓(含麦轮外缘):底盘 0.55x0.50,半长0.28 半宽0.31
+      footprint: "[ [0.28, 0.31], [0.28, -0.31], [-0.28, -0.31], [-0.28, 0.31] ]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.80
+        inflation_radius: 0.55
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -228,7 +229,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: "base_footprint"
       use_sim_time: True
-      robot_radius: 0.60   # 外接圆(含麦轮),底盘 0.83x0.75 对角半径约 0.60
+      robot_radius: 0.42   # 外接圆(含麦轮),底盘 0.55x0.50 对角半径约 0.42
       resolution: 0.05
       track_unknown_space: false
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -253,7 +254,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.80
+        inflation_radius: 0.55
       always_send_full_costmap: True
   global_costmap_client:
     ros__parameters:

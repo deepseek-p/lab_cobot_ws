@@ -4,9 +4,11 @@ import math
 import pytest
 
 from lab_cobot_navigation.waypoints import (
+    CRUISE_ROUTE,
     WAYPOINTS,
     get_waypoint,
     list_stations,
+    normalize_station_name,
     yaw_to_quat,
 )
 
@@ -104,3 +106,43 @@ def test_yaw_to_quat_90deg():
     x, y, z, w = yaw_to_quat(math.pi / 2.0)
     assert abs(z - math.sin(math.pi / 4)) < 1e-9
     assert abs(w - math.cos(math.pi / 4)) < 1e-9
+
+
+def test_cruise_route_matches_confirmed_order():
+    assert CRUISE_ROUTE == (
+        "home",
+        "station_a",
+        "inspection_zone",
+        "tooling_zone",
+        "aging_zone",
+        "station_b",
+        "home",
+    )
+
+
+def test_every_cruise_stop_has_a_waypoint():
+    for station in CRUISE_ROUTE:
+        assert get_waypoint(station)
+
+
+@pytest.mark.parametrize(
+    "alias,expected",
+    [
+        ("A工位", "station_a"),
+        ("工位 A", "station_a"),
+        ("检测区", "inspection_zone"),
+        ("工具区", "tooling_zone"),
+        ("工装区", "tooling_zone"),
+        ("老化区", "aging_zone"),
+        ("B工位", "station_b"),
+        ("HOME", "home"),
+        ("起始点", "home"),
+    ],
+)
+def test_station_aliases_normalize_to_canonical_names(alias, expected):
+    assert normalize_station_name(alias) == expected
+
+
+def test_unknown_station_alias_raises():
+    with pytest.raises(KeyError):
+        normalize_station_name("充电区")

@@ -7,6 +7,7 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose
 
@@ -110,9 +111,24 @@ class ObjectDetector(Node):
             self.objects_topic,
             10,
         )
-        self.create_subscription(CameraInfo, self.info_topic, self._info_cb, 10)
-        self.create_subscription(Image, self.rgb_topic, self._rgb_cb, 10)
-        self.create_subscription(Image, self.depth_topic, self._depth_cb, 10)
+        self.create_subscription(
+            CameraInfo,
+            self.info_topic,
+            self._info_cb,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            Image,
+            self.rgb_topic,
+            self._rgb_cb,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            Image,
+            self.depth_topic,
+            self._depth_cb,
+            qos_profile_sensor_data,
+        )
         self.create_subscription(
             PoseStamped,
             self.aruco_pose_topic,

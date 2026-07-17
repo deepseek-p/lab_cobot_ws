@@ -19,6 +19,34 @@ WAYPOINTS: Dict[str, Dict[str, float]] = {
     "home": {"x": 2.25, "y": -2.10, "yaw": 0.0},
 }
 
+CRUISE_ROUTE = (
+    "home",
+    "station_a",
+    "inspection_zone",
+    "tooling_zone",
+    "aging_zone",
+    "station_b",
+    "home",
+)
+
+_STATION_ALIASES = {
+    "station_a": "station_a",
+    "a工位": "station_a",
+    "工位a": "station_a",
+    "inspection_zone": "inspection_zone",
+    "检测区": "inspection_zone",
+    "tooling_zone": "tooling_zone",
+    "工具区": "tooling_zone",
+    "工装区": "tooling_zone",
+    "aging_zone": "aging_zone",
+    "老化区": "aging_zone",
+    "station_b": "station_b",
+    "b工位": "station_b",
+    "工位b": "station_b",
+    "home": "home",
+    "起始点": "home",
+}
+
 
 def get_waypoint(name: str) -> Dict[str, float]:
     if name not in WAYPOINTS:
@@ -28,6 +56,15 @@ def get_waypoint(name: str) -> Dict[str, float]:
 
 def list_stations() -> List[str]:
     return sorted(WAYPOINTS.keys())
+
+
+def normalize_station_name(name: str) -> str:
+    """Normalize a station alias to its canonical waypoint name."""
+    key = "".join(str(name).strip().lower().split())
+    station = _STATION_ALIASES.get(key)
+    if station is None:
+        raise KeyError(f"未知工位: {name}(可用: {list_stations()})")
+    return station
 
 
 def yaw_to_quat(yaw: float):
