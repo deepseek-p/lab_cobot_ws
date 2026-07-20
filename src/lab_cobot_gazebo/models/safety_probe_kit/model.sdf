@@ -3,12 +3,21 @@
   <model name="safety_probe_kit">
     <static>true</static>
     <link name="link">
+      <collision name="collision">
+        <pose>0 0 0.012 0 0 0</pose>
+        <geometry><box><size>0.15 0.09 0.040</size></box></geometry>
+        <surface>
+          <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+        </surface>
+      </collision>
       <visual name="case_base">
         <pose>0 0 0.012 0 0 0</pose>
         <geometry><box><size>0.15 0.09 0.024</size></box></geometry>
         <material>
           <ambient>0.10 0.10 0.12 1</ambient>
           <diffuse>0.18 0.18 0.22 1</diffuse>
+          <specular>0.06 0.06 0.06 1</specular>
+          <shininess>48</shininess>
         </material>
       </visual>
       <visual name="case_lid">
@@ -17,27 +26,28 @@
         <material>
           <ambient>0.78 0.78 0.80 1</ambient>
           <diffuse>0.88 0.88 0.90 1</diffuse>
+          <specular>0.10 0.10 0.10 1</specular>
         </material>
       </visual>
       <visual name="probe_red_handle">
         <pose>-0.025 0.018 0.030 0 1.57079 0.10</pose>
         <geometry><cylinder><radius>0.006</radius><length>0.090</length></cylinder></geometry>
-        <material><ambient>0.74 0.10 0.10 1</ambient><diffuse>0.90 0.16 0.16 1</diffuse></material>
+        <material><ambient>0.74 0.10 0.10 1</ambient><diffuse>0.90 0.16 0.16 1</diffuse><specular>0.06 0.06 0.06 1</specular></material>
       </visual>
       <visual name="probe_red_tip">
         <pose>0.020 0.022 0.030 0 1.57079 0.10</pose>
         <geometry><cylinder><radius>0.002</radius><length>0.040</length></cylinder></geometry>
-        <material><ambient>0.72 0.74 0.76 1</ambient><diffuse>0.84 0.84 0.86 1</diffuse></material>
+        <material><ambient>0.72 0.74 0.76 1</ambient><diffuse>0.84 0.84 0.86 1</diffuse><specular>0.20 0.20 0.20 1</specular></material>
       </visual>
       <visual name="probe_black_handle">
         <pose>-0.020 -0.018 0.030 0 1.57079 -0.08</pose>
         <geometry><cylinder><radius>0.006</radius><length>0.090</length></cylinder></geometry>
-        <material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.16 0.16 0.16 1</diffuse></material>
+        <material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.16 0.16 0.16 1</diffuse><specular>0.06 0.06 0.06 1</specular></material>
       </visual>
       <visual name="probe_black_tip">
         <pose>0.024 -0.021 0.030 0 1.57079 -0.08</pose>
         <geometry><cylinder><radius>0.002</radius><length>0.040</length></cylinder></geometry>
-        <material><ambient>0.72 0.74 0.76 1</ambient><diffuse>0.84 0.84 0.86 1</diffuse></material>
+        <material><ambient>0.72 0.74 0.76 1</ambient><diffuse>0.84 0.84 0.86 1</diffuse><specular>0.20 0.20 0.20 1</specular></material>
       </visual>
       <visual name="check_sheet">
         <pose>0.035 0.0 0.030 0 0 0.18</pose>
