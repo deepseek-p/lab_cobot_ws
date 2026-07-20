@@ -14,5 +14,6 @@ benchmarks/results/
 .worktrees/
 .agents/
 CLAUDE.md
+AGENTS.md
 .gitattributes
 docs/
