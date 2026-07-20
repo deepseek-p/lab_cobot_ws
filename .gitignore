@@ -10,7 +10,6 @@ __pycache__/
 屏幕截图*.png
 src/lab_cobot_navigation/maps/*_backup.pgm
 .codex/*
-!.codex/skills/
 benchmarks/results/
 .worktrees/
 .agents/
