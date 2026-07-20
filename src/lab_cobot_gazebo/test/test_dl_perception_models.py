@@ -40,19 +40,23 @@ def _include_uri(entity_name):
     raise AssertionError(f"missing include for {entity_name}")
 
 
-def test_plain_igbt_is_static_flat_square():
+def test_plain_igbt_is_graspable_with_physics():
     model = _model_root("igbt_module_plain").find("model")
 
-    assert model.findtext("static") == "true"
+    assert model.findtext("static") is None  # non-static, graspable
+    assert model.findtext(".//link/inertial/mass") is not None
     assert model.findtext(".//collision/geometry/box/size") == "0.09 0.09 0.06"
+    assert model.find(".//collision/surface/friction") is not None
     assert _diffuse("igbt_module_plain") == pytest.approx([0.28, 0.31, 0.34, 1.0])
 
 
-def test_fixture_box_is_static_unmarked_tooling_obstacle():
+def test_fixture_box_is_graspable_tooling_fixture():
     model = _model_root("fixture_box_plain").find("model")
 
-    assert model.findtext("static") == "true"
+    assert model.findtext("static") is None  # non-static, graspable
+    assert model.findtext(".//link/inertial/mass") is not None
     assert model.findtext(".//collision/geometry/box/size") == "0.16 0.12 0.10"
+    assert model.find(".//collision/surface/friction") is not None
     assert _diffuse("fixture_box_plain") == pytest.approx([0.56, 0.46, 0.15, 1.0])
 
 
@@ -103,11 +107,11 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     assert _include_uri("aruco_sample") == "model://aruco_sample"
     assert aruco[:3] == pytest.approx([-2.08, 1.73, 0.785])
     assert spare_igbt[:3] == pytest.approx([-2.31, 1.96, 0.78])
-    assert grease[:3] == pytest.approx([-1.95, 1.98, 0.805])
+    assert grease[:3] == pytest.approx([-1.95, 1.98, 0.75])
     assert fixture[:3] == pytest.approx([-1.94, -1.02, 0.80])
-    assert hand_tools[:3] == pytest.approx([-2.18, -0.98, 0.80])
+    assert hand_tools[:3] == pytest.approx([-2.18, -0.98, 0.75])
     assert rack[:3] == pytest.approx([0.10, 2.13, 0.80])
-    assert board_fixture[:3] == pytest.approx([0.01, -0.72, 0.781])
+    assert board_fixture[:3] == pytest.approx([0.01, -0.72, 0.75])
     assert probe_kit[:3] == pytest.approx([2.02, 1.22, 0.0])
     assert high_voltage[:3] == pytest.approx([2.18, 1.45, 0.0])
 
