@@ -9,7 +9,7 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="lab_cobot">
 
   <!-- ===== 全局尺寸(供各部件宏引用) ===== -->
-  <!-- 底盘加宽加长(0.55x0.50):增大支撑多边形,显著提高抗倾覆 -->
+  <!-- GitHub main 盒式麦轮底盘。 -->
   <xacro:property name="base_length"  value="0.55"/>
   <xacro:property name="base_width"   value="0.50"/>
   <xacro:property name="base_height"  value="0.15"/>
@@ -177,6 +177,7 @@
       <max_linear_accel>0.8</max_linear_accel>
       <max_angular_accel>1.5</max_angular_accel>
       <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
       <odom_topic>/odom</odom_topic>
       <odom_frame>odom</odom_frame>
       <base_frame>base_footprint</base_frame>
@@ -184,9 +185,13 @@
     </plugin>
   </gazebo>
 
+
   <gazebo>
     <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">
       <object_model>aruco_sample</object_model>
+      <object_model>igbt_module_plain</object_model>
+      <object_model>igbt_module_aruco</object_model>
+      <object_model>fixture_box_plain</object_model>
       <object_link>link</object_link>
       <tcp_link>gripper_tcp</tcp_link>
       <left_joint>gripper_left_finger_joint</left_joint>

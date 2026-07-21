@@ -1,0 +1,282 @@
+MATCH
+﻿<?xml version="1.0"?>
+<!--
+  Lab standard environment (Gazebo Classic): five functional zones.
+  Existing A->B chain is preserved at station_a / station_b while adding:
+  inspection_zone, tooling_zone, and aging_zone.
+-->
+<sdf version="1.6">
+  <world name="lab">
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+      <update_rate>30.0</update_rate>
+    </plugin>
+    <plugin name="gazebo_ros_properties" filename="libgazebo_ros_properties.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+    </plugin>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.82 0.82 0.82 1</diffuse>
+      <specular>0.25 0.25 0.25 1</specular>
+      <direction>-0.28 0.24 -0.93</direction>
+    </light>
+    <scene>
+      <ambient>0.52 0.52 0.52 1</ambient>
+      <background>0.85 0.87 0.90 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
+          <material>
+            <ambient>0.78 0.79 0.80 1</ambient>
+            <diffuse>0.88 0.89 0.90 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+            <shininess>80</shininess>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="walls">
+      <static>true</static>
+      <link name="link">
+        <collision name="c_n"><pose>0 7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry></collision>
+        <visual name="v_n"><pose>0 7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_s"><pose>0 -7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry></collision>
+        <visual name="v_s"><pose>0 -7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_e"><pose>7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry></collision>
+        <visual name="v_e"><pose>7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_w"><pose>-7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry></collision>
+        <visual name="v_w"><pose>-7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+      </link>
+    </model>
+
+
+        <model name="station_a_table">
+          <static>true</static>
+          <pose>-4.30 3.80 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.22 0.28 0.33 1</ambient>
+                <diffuse>0.34 0.44 0.50 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="tooling_zone_table">
+          <static>true</static>
+          <pose>-4.10 -2.30 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.36 0.24 0.10 1</ambient>
+                <diffuse>0.62 0.38 0.16 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="aging_zone_table">
+          <static>true</static>
+          <pose>0.20 4.20 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.33 0.16 0.12 1</ambient>
+                <diffuse>0.60 0.25 0.20 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="station_b_table">
+          <static>true</static>
+          <pose>0.30 -1.70 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.10 0.25 0.18 1</ambient>
+                <diffuse>0.16 0.48 0.30 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="home_zone_pad">
+          <static>true</static>
+          <pose>4.50 -4.20 0 0 0 0</pose>
+          <link name="link">
+            <visual name="pad_fill">
+              <pose>0 0 0.002 0 0 0</pose>
+              <geometry><box><size>1.00 0.90 0.004</size></box></geometry>
+              <material>
+                <ambient>0.09 0.18 0.25 0.95</ambient>
+                <diffuse>0.14 0.28 0.38 0.95</diffuse>
+                <specular>0.04 0.04 0.04 1</specular>
+              </material>
+            </visual>
+            <visual name="pad_border_n">
+              <pose>0 0.44 0.004 0 0 0</pose>
+              <geometry><box><size>1.00 0.02 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_border_s">
+              <pose>0 -0.44 0.004 0 0 0</pose>
+              <geometry><box><size>1.00 0.02 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_border_e">
+              <pose>0.49 0 0.004 0 0 0</pose>
+              <geometry><box><size>0.02 0.86 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_border_w">
+              <pose>-0.49 0 0.004 0 0 0</pose>
+              <geometry><box><size>0.02 0.86 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_centerline">
+              <pose>0 0 0.004 0 0 0</pose>
+              <geometry><box><size>0.14 0.56 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+          </link>
+        </model>
+
+
+    <include>
+      <uri>model://aruco_sample</uri>
+      <name>aruco_sample</name>
+      <pose>-4.16 3.46 0.785 0 0 0.10</pose>
+    </include>
+    <include>
+      <uri>model://igbt_module_plain</uri>
+      <name>material_spare_igbt</name>
+      <pose>-4.62 3.92 0.78 0 0 0.38</pose>
+    </include>
+    <include>
+      <uri>model://thermal_grease_can</uri>
+      <name>material_grease_can</name>
+      <pose>-3.90 3.96 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://fixture_box_plain</uri>
+      <name>tooling_fixture_box</name>
+      <pose>-3.88 -2.04 0.80 0 0 -0.28</pose>
+    </include>
+    <include>
+      <uri>model://tooling_hand_tools</uri>
+      <name>tooling_hand_tools</name>
+      <pose>-4.36 -1.96 0.75 0 0 0.12</pose>
+    </include>
+    <include>
+      <uri>model://aging_rack</uri>
+      <name>aging_rack</name>
+      <pose>0.20 4.26 0.80 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://pcb_test_fixture</uri>
+      <name>board_test_fixture</name>
+      <pose>0.02 -1.44 0.75 0 0 0.22</pose>
+    </include>
+    <include>
+      <uri>model://safety_probe_kit</uri>
+      <name>high_voltage_probe_kit</name>
+      <pose>4.04 2.44 0.0 0 0 -0.18</pose>
+    </include>
+    <include>
+      <uri>model://high_voltage_zone</uri>
+      <name>high_voltage_zone</name>
+      <pose>4.36 2.90 0 0 0 0.12</pose>
+    </include>
+    <actor name="test_engineer_actor">
+      <pose>-4.90 2.36 0 0 0 0</pose>
+      <skin>
+        <filename>file://media/models/walk.dae</filename>
+        <scale>1.0</scale>
+      </skin>
+      <animation name="walking">
+        <filename>file://media/models/walk.dae</filename>
+        <scale>1.0</scale>
+        <interpolate_x>true</interpolate_x>
+      </animation>
+      <script>
+        <loop>true</loop>
+        <delay_start>1.0</delay_start>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walking">
+          <waypoint><time>0.0</time><pose>-4.9 2.36 0 0 0 0</pose></waypoint>
+          <waypoint><time>12</time><pose>-3.1 2.16 0 0 0 -0.06</pose></waypoint>
+          <waypoint><time>24</time><pose>-1.1 1.84 0 0 0 -0.18</pose></waypoint>
+          <waypoint><time>36</time><pose>0.36 1.16 0 0 0 -0.62</pose></waypoint>
+          <waypoint><time>44</time><pose>0.4 2.4 0 0 0 1.57079</pose></waypoint>
+          <waypoint><time>52</time><pose>0.4 3.84 0 0 0 1.57079</pose></waypoint>
+          <waypoint><time>60</time><pose>0.4 2.4 0 0 0 -1.57079</pose></waypoint>
+          <waypoint><time>68</time><pose>0.36 1.16 0 0 0 2.52</pose></waypoint>
+          <waypoint><time>80</time><pose>-1.1 1.84 0 0 0 2.98</pose></waypoint>
+          <waypoint><time>92</time><pose>-3.1 2.16 0 0 0 3.14159</pose></waypoint>
+          <waypoint><time>104</time><pose>-4.9 2.36 0 0 0 3.14159</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+  </world>
+</sdf>

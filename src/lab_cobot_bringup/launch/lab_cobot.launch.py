@@ -2,9 +2,9 @@
 Integrated launch for the cross-station pick-and-place stack.
 
     ros2 launch lab_cobot_bringup lab_cobot.launch.py
-启动顺序:Gazebo+机器人+控制器 → (延迟)move_group + Nav2 + 感知 → (再延迟)mission。
+启动顺序: Gazebo+控制器 -> Nav2 -> MoveIt+ArUco -> 场景+DL -> mission。
 含 WSLg 稳定渲染环境变量(源自 robot_lab_demo 经验)。
-发指令触发:ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
+发指令触发: ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
 """
 import os
 
@@ -51,6 +51,11 @@ def generate_launch_description():
         use_wrist_detect,
         "' == 'true') else 'false'",
     ])
+    lighting_profile = LaunchConfiguration("lighting_profile")
+    enable_actor = LaunchConfiguration("enable_actor")
+    launch_navigation = LaunchConfiguration("launch_navigation")
+    launch_moveit = LaunchConfiguration("launch_moveit")
+    launch_perception = LaunchConfiguration("launch_perception")
     launch_voice = LaunchConfiguration("launch_voice")
     voice_audio_file = LaunchConfiguration("voice_audio_file")
 
@@ -58,6 +63,8 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(os.path.join(gz, "launch", "world.launch.py")),
         launch_arguments={
             "gui": gui,
+            "lighting_profile": lighting_profile,
+            "enable_actor": enable_actor,
             "require_finger_contact": require_finger_contact,
             "use_refine_detect": use_refine_detect,
             "use_wrist_detect": use_wrist_detect,
@@ -68,6 +75,17 @@ def generate_launch_description():
             os.path.join(moveit, "launch", "move_group.launch.py")
         ),
         launch_arguments={"use_sim_time": "true"}.items(),
+        condition=IfCondition(launch_moveit),
+    )
+    table_scene_initializer = Node(
+        package="lab_cobot_moveit",
+        executable="table_scene_initializer",
+        output="screen",
+        parameters=[{
+            "use_sim_time": True,
+            "world_frame": "map",
+        }],
+        condition=IfCondition(launch_moveit),
     )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -79,6 +97,7 @@ def generate_launch_description():
             "params_file": os.path.join(nav, "config", "nav2_params.yaml"),
             "use_rviz": use_rviz,
         }.items(),
+        condition=IfCondition(launch_navigation),
     )
     aruco = Node(
         package="lab_cobot_perception",
@@ -96,7 +115,9 @@ def generate_launch_description():
             "optical_frame": "camera_optical_frame",
             "target_frame": "base_link",
             "marker_size_m": 0.07 * (240.0 / 312.0),
+            "marker_to_object_center_m": 0.03,
         }],
+        condition=IfCondition(launch_perception),
     )
     wrist_aruco = Node(
         package="lab_cobot_perception",
@@ -113,9 +134,16 @@ def generate_launch_description():
             "optical_frame": "wrist_camera_optical_frame",
             "target_frame": "base_link",
             "marker_size_m": 0.07 * (240.0 / 312.0),
+            "marker_to_object_center_m": 0.03,
             "process_period_sec": 0.05,
         }],
-        condition=IfCondition(use_wrist_camera),
+        condition=IfCondition(PythonExpression([
+            "'true' if ('",
+            launch_perception,
+            "' == 'true' and '",
+            use_wrist_camera,
+            "' == 'true') else 'false'",
+        ])),
     )
     object_detector = Node(
         package="lab_cobot_perception",
@@ -132,7 +160,13 @@ def generate_launch_description():
             "optical_frame": "camera_optical_frame",
             "target_frame": "base_link",
         }],
-        condition=IfCondition(use_dl_perception),
+        condition=IfCondition(PythonExpression([
+            "'true' if ('",
+            launch_perception,
+            "' == 'true' and '",
+            use_dl_perception,
+            "' == 'true') else 'false'",
+        ])),
     )
     mecanum_wheel_visualizer = Node(
         package="lab_cobot_bringup",
@@ -159,8 +193,6 @@ def generate_launch_description():
         output="screen",
         parameters=[{
             "use_sim_time": True,
-            # LLM 任务拆解开关:默认 false 保证 E2E/CI 离线;
-            # 演示时 llm_enabled:=true 并 export LLM_API_KEY 打开
             "llm_enabled": ParameterValue(
                 LaunchConfiguration("llm_enabled"), value_type=bool
             ),
@@ -174,7 +206,6 @@ def generate_launch_description():
             "use_wrist_detect": ParameterValue(
                 use_wrist_detect, value_type=bool
             ),
-            # 规划场景障碍注入(台面盒+持物样件附着盒),默认开启。
             "use_planning_scene_obstacles": ParameterValue(
                 use_planning_scene_obstacles, value_type=bool
             ),
@@ -192,16 +223,24 @@ def generate_launch_description():
         condition=IfCondition(launch_voice),
     )
 
-    # 等 Gazebo + spawn + 控制器起来后再起规划/导航/感知
-    stage2 = TimerAction(
-        period=10.0,
-        actions=[move_group, navigation, aruco, wrist_aruco, object_detector],
+    # 生命周期 service 在 CPU 推理与 MoveIt 同时冷启动时会偶发丢响应。
+    # 先给 Nav2 定位链独占启动窗口,再逐级引入其余运行负载。
+    stage2 = TimerAction(period=10.0, actions=[navigation])
+    stage3 = TimerAction(
+        period=15.0,
+        actions=[move_group, aruco, wrist_aruco],
     )
-    # 再等编排依赖就绪
-    stage3 = TimerAction(period=15.0, actions=[mission, voice])
+    stage4 = TimerAction(period=25.0, actions=[table_scene_initializer])
+    stage5 = TimerAction(period=30.0, actions=[object_detector])
+    stage6 = TimerAction(period=35.0, actions=[mission, voice])
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="Gazebo GUI"),
+        DeclareLaunchArgument("lighting_profile", default_value="normal"),
+        DeclareLaunchArgument("enable_actor", default_value="false"),
+        DeclareLaunchArgument("launch_navigation", default_value="true"),
+        DeclareLaunchArgument("launch_moveit", default_value="true"),
+        DeclareLaunchArgument("launch_perception", default_value="true"),
         DeclareLaunchArgument("use_rviz", default_value="false", description="Nav2 RViz"),
         DeclareLaunchArgument("launch_mission", default_value="true"),
         DeclareLaunchArgument(
@@ -217,7 +256,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "use_truth_pose",
             default_value="false",
-            description="true=debug Gazebo model pose, false=RGB-D ArUco detection",
+            description="true=stable Gazebo model pose fallback, false=RGB-D ArUco detection",
         ),
         DeclareLaunchArgument(
             "use_sim_attach",
@@ -240,23 +279,15 @@ def generate_launch_description():
             description="YOLO-World inference image size",
         ),
         DeclareLaunchArgument("target_object", default_value="aruco_sample"),
-        # 2026-07-10 T-5 翻默认:触觉步进闭合+双指接触门控为默认抓取路径。
-        # 两开关必须一起翻:只开门控不开触觉时固定闭合 0.009 永不接触,正常抓取全失败。
-        # 回退路径(靠近即焊):require_finger_contact:=false use_tactile_grasp:=false
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
         DeclareLaunchArgument("use_tactile_grasp", default_value="true"),
-        # 两段式精修总开关:xacro 相机、检测节点、mission 三处同源。
-        # 2026-07-14 用户裁决:腕相机链为主路径默认常开,bench 为降级路径。
         DeclareLaunchArgument("use_refine_detect", default_value="true"),
-        # 标准 eye-in-hand DETECT 开关；相机/检测节点与精修开关做 OR。
         DeclareLaunchArgument("use_wrist_detect", default_value="true"),
-        # 机械臂规划场景障碍注入:台面盒+持物样件附着盒(mission 透传)。
         DeclareLaunchArgument(
             "use_planning_scene_obstacles", default_value="true"
         ),
         DeclareLaunchArgument("launch_voice", default_value="false"),
         DeclareLaunchArgument("voice_audio_file", default_value=""),
-        # WSLg 稳定渲染(源自 robot_lab_demo 验证经验)
         SetEnvironmentVariable("GALLIUM_DRIVER", "d3d12"),
         SetEnvironmentVariable("MESA_D3D12_DEFAULT_ADAPTER_NAME", "NVIDIA"),
         SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
@@ -266,4 +297,7 @@ def generate_launch_description():
         gripper_attach_bridge,
         stage2,
         stage3,
+        stage4,
+        stage5,
+        stage6,
     ])

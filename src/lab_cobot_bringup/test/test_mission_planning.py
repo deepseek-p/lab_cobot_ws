@@ -3,8 +3,13 @@ from std_msgs.msg import String
 
 from lab_cobot_bringup import mission_node
 from lab_cobot_bringup.mission_node import MissionNode
-from lab_cobot_bringup.task_planner import PlannerConfig, PlanResult
+from lab_cobot_bringup.task_planner import (
+    NavigationRequest,
+    PlannerConfig,
+    PlanResult,
+)
 from lab_cobot_bringup.task_state_machine import STEP_ORDER, TaskState
+from lab_cobot_navigation.waypoints import CRUISE_ROUTE, get_waypoint
 
 
 class FakeLogger:
@@ -21,6 +26,7 @@ class FakeLogger:
 def _make_node(executed, published):
     node = MissionNode.__new__(MissionNode)
     node._busy = True
+    node._wait_for_navigation_ready = lambda: True
     node._execute = lambda state: executed.append(state) or True
     node._publish = lambda state: published.append(state.name)
     node.get_logger = lambda: FakeLogger()
@@ -158,3 +164,196 @@ def test_pick_step_tuck_failure_degrades_without_failing_task():
 
     assert MissionNode._execute(node, TaskState.PICK)
     assert events == ["pick", "retreat", "tuck"]
+
+
+class FakeRoutePickPlace:
+    def __init__(self, events, go_home_ok=True):
+        self.events = events
+        self.go_home_ok = go_home_ok
+
+    def go_home(self):
+        self.events.append("arm_home")
+        return self.go_home_ok
+
+
+def _make_route_node(events, statuses):
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakeRoutePickPlace(events)
+    node._base_pose_in_map = lambda timeout_sec=2.0: [0.0, 0.0, 0.0]
+    node._navigate = lambda station: events.append(("navigate", station)) or True
+    node._dock_to_station_pose = (
+        lambda station: events.append(("dock", station)) or True
+    )
+    node._retreat_from_route_station = (
+        lambda station: events.append(("depart", station)) or True
+    )
+    node._publish_status = statuses.append
+    node._stop_base = lambda duration: events.append(("stop", duration))
+    node.get_logger = lambda: FakeLogger()
+    return node
+
+
+def test_single_station_navigation_stops_at_requested_station():
+    events, statuses = [], []
+    node = _make_route_node(events, statuses)
+    request = NavigationRequest(mode="single", stations=("inspection_zone",))
+
+    assert MissionNode._run_navigation_request(node, request)
+
+    assert events == [
+        "arm_home",
+        ("navigate", "inspection_zone"),
+        ("dock", "inspection_zone"),
+    ]
+    assert statuses == [
+        "NAV_TO_STATION:inspection_zone",
+        "ARRIVED:inspection_zone",
+        "DONE",
+    ]
+
+
+def test_cruise_from_non_home_returns_home_before_confirmed_route():
+    events, statuses = [], []
+    node = _make_route_node(events, statuses)
+    request = NavigationRequest(mode="cruise", stations=CRUISE_ROUTE)
+
+    assert MissionNode._run_navigation_request(node, request)
+
+    navigated = [
+        event[1]
+        for event in events
+        if isinstance(event, tuple) and event[0] == "navigate"
+    ]
+    assert navigated == list(CRUISE_ROUTE)
+    departed = [
+        event[1]
+        for event in events
+        if isinstance(event, tuple) and event[0] == "depart"
+    ]
+    assert departed == [
+        "station_a",
+        "tooling_zone",
+        "aging_zone",
+        "station_b",
+    ]
+    assert statuses[0:2] == ["RETURN_HOME", "ARRIVED:home"]
+    assert statuses[-3:] == ["RETURN_HOME", "ARRIVED:home", "DONE"]
+
+
+def test_cruise_at_home_skips_duplicate_initial_home_goal():
+    events, statuses = [], []
+    node = _make_route_node(events, statuses)
+    home = get_waypoint("home")
+    node._base_pose_in_map = lambda timeout_sec=2.0: [
+        home["x"],
+        home["y"],
+        home["yaw"],
+    ]
+    request = NavigationRequest(mode="cruise", stations=CRUISE_ROUTE)
+
+    assert MissionNode._run_navigation_request(node, request)
+
+    navigated = [
+        event[1]
+        for event in events
+        if isinstance(event, tuple) and event[0] == "navigate"
+    ]
+    assert navigated == list(CRUISE_ROUTE[1:])
+    assert statuses[0] == "NAV_TO_STATION:station_a"
+
+
+def test_route_failure_retries_then_stops_and_publishes_compatible_failed():
+    events, statuses = [], []
+    node = _make_route_node(events, statuses)
+    node._navigate = lambda station: events.append(("navigate", station)) or False
+    request = NavigationRequest(mode="single", stations=("tooling_zone",))
+
+    assert not MissionNode._run_navigation_request(node, request)
+
+    assert events.count(("navigate", "tooling_zone")) == 2
+    assert not any(event == ("dock", "tooling_zone") for event in events)
+    assert any(event[0] == "stop" for event in events if isinstance(event, tuple))
+    assert statuses[-2:] == [
+        "FAILED:navigation_failed:tooling_zone",
+        "FAILED",
+    ]
+
+
+def test_route_docking_failure_reports_station_and_stops():
+    events, statuses = [], []
+    node = _make_route_node(events, statuses)
+    node._dock_to_station_pose = (
+        lambda station: events.append(("dock", station)) or False
+    )
+    request = NavigationRequest(mode="single", stations=("aging_zone",))
+
+    assert not MissionNode._run_navigation_request(node, request)
+
+    assert events.count(("navigate", "aging_zone")) == 2
+    assert events.count(("dock", "aging_zone")) == 2
+    assert statuses[-2:] == [
+        "FAILED:docking_failed:aging_zone",
+        "FAILED",
+    ]
+
+
+def test_route_arm_stow_failure_sends_no_navigation_goal():
+    events, statuses = [], []
+    node = _make_route_node(events, statuses)
+    node.pp = FakeRoutePickPlace(events, go_home_ok=False)
+    request = NavigationRequest(mode="single", stations=("station_a",))
+
+    assert not MissionNode._run_navigation_request(node, request)
+
+    assert not any(
+        isinstance(event, tuple) and event[0] == "navigate"
+        for event in events
+    )
+    assert statuses[-2:] == ["FAILED:arm_not_stowed", "FAILED"]
+
+
+def test_run_mission_dispatches_navigation_before_legacy_planner(monkeypatch):
+    request = NavigationRequest(mode="single", stations=("station_b",))
+    monkeypatch.setattr(
+        mission_node,
+        "parse_navigation_request",
+        lambda _instruction: request,
+    )
+
+    def fail_if_legacy_planner_runs(*_args, **_kwargs):
+        raise AssertionError("legacy planner must not run")
+
+    monkeypatch.setattr(mission_node, "plan_actions", fail_if_legacy_planner_runs)
+    events = []
+    node = MissionNode.__new__(MissionNode)
+    node._instruction = "去B工位"
+    node._planner_config = None
+    node._busy = True
+    node._wait_for_navigation_ready = lambda: events.append("ready") or True
+    node._run_navigation_request = (
+        lambda actual: events.append(("route", actual)) or True
+    )
+    node.get_logger = lambda: FakeLogger()
+
+    MissionNode._run_mission(node)
+
+    assert events == ["ready", ("route", request)]
+    assert node._busy is False
+
+
+def test_invalid_station_fails_before_waiting_for_nav2():
+    events = []
+    node = MissionNode.__new__(MissionNode)
+    node._instruction = "导航到充电区"
+    node._planner_config = None
+    node._busy = True
+    node._wait_for_navigation_ready = lambda: events.append("ready") or True
+    node._publish_failure = (
+        lambda reason, station=None: events.append(("failure", reason, station))
+    )
+    node.get_logger = lambda: FakeLogger()
+
+    MissionNode._run_mission(node)
+
+    assert events == [("failure", "unknown_station", "充电区")]
+    assert node._busy is False

@@ -1,8 +1,8 @@
 """
 工位 waypoint 表与查询(纯逻辑,可单元测试).
 
-坐标为 map 系下的机器人停靠位姿:停在工作台前、朝向工作台(+y)。
-工作台位置见 lab_cobot_gazebo/worlds/lab.world(工位A 2.0,1.5;工位B -2.0,1.5)。
+坐标为 map 系下的机器人停靠位姿:停在工作台前、朝向工作台(+y).
+五功能区沿北侧共享走廊排布,其中 station_a / station_b 保持原有任务语义。
 """
 from __future__ import annotations
 
@@ -11,9 +11,40 @@ from typing import Dict, List
 
 # name -> {x, y, yaw(rad)}
 WAYPOINTS: Dict[str, Dict[str, float]] = {
-    "station_a": {"x": 2.0, "y": 0.62, "yaw": math.pi / 2.0},   # 工位A前,朝 +y
-    "station_b": {"x": -2.0, "y": 0.45, "yaw": math.pi / 2.0},  # 工位B前,朝 +y
-    "home": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    "station_a": {"x": -4.30, "y": 2.48, "yaw": math.pi / 2.0},
+    "inspection_zone": {"x": 4.10, "y": 1.10, "yaw": math.pi / 2.0},
+    "tooling_zone": {"x": -4.10, "y": -3.30, "yaw": math.pi / 2.0},
+    "aging_zone": {"x": 0.20, "y": 3.20, "yaw": math.pi / 2.0},
+    "station_b": {"x": 0.30, "y": -3.01, "yaw": math.pi / 2.0},
+    "home": {"x": 4.50, "y": -4.20, "yaw": 0.0},
+}
+
+CRUISE_ROUTE = (
+    "home",
+    "station_a",
+    "inspection_zone",
+    "tooling_zone",
+    "aging_zone",
+    "station_b",
+    "home",
+)
+
+_STATION_ALIASES = {
+    "station_a": "station_a",
+    "a工位": "station_a",
+    "工位a": "station_a",
+    "inspection_zone": "inspection_zone",
+    "检测区": "inspection_zone",
+    "tooling_zone": "tooling_zone",
+    "工具区": "tooling_zone",
+    "工装区": "tooling_zone",
+    "aging_zone": "aging_zone",
+    "老化区": "aging_zone",
+    "station_b": "station_b",
+    "b工位": "station_b",
+    "工位b": "station_b",
+    "home": "home",
+    "起始点": "home",
 }
 
 
@@ -25,6 +56,15 @@ def get_waypoint(name: str) -> Dict[str, float]:
 
 def list_stations() -> List[str]:
     return sorted(WAYPOINTS.keys())
+
+
+def normalize_station_name(name: str) -> str:
+    """Normalize a station alias to its canonical waypoint name."""
+    key = "".join(str(name).strip().lower().split())
+    station = _STATION_ALIASES.get(key)
+    if station is None:
+        raise KeyError(f"未知工位: {name}(可用: {list_stations()})")
+    return station
 
 
 def yaw_to_quat(yaw: float):

@@ -28,6 +28,18 @@ joint_trajectory_controller:
     state_publish_rate: 100.0
     action_monitor_rate: 20.0
     allow_partial_joints_goal: false
+    # Humble joint_trajectory_controller goal tolerances.  The controller must
+    # not report SUCCEEDED while Gazebo joints are still following the final
+    # waypoint; MoveIt validates the next trajectory against that real state.
+    constraints:
+      goal_time: 5.0
+      stopped_velocity_tolerance: 0.02
+      ur_shoulder_pan_joint: {trajectory: 0.10, goal: 0.005}
+      ur_shoulder_lift_joint: {trajectory: 0.10, goal: 0.005}
+      ur_elbow_joint: {trajectory: 0.10, goal: 0.005}
+      ur_wrist_1_joint: {trajectory: 0.10, goal: 0.005}
+      ur_wrist_2_joint: {trajectory: 0.10, goal: 0.005}
+      ur_wrist_3_joint: {trajectory: 0.12, goal: 0.005}
 
 gripper_position_controller:
   ros__parameters:

@@ -112,6 +112,7 @@ class PickPlace(Node):
         self.declare_parameter("gripper_backend", CONTACT_BACKEND)
         self.declare_parameter("target_object", str(target_object))
         self.declare_parameter("use_tactile_grasp", bool(use_tactile_grasp))
+        self.declare_parameter("enable_attach_fallback", bool(use_tactile_grasp))
         self.declare_parameter(
             "use_planning_scene_obstacles", bool(use_planning_scene_obstacles)
         )
@@ -120,6 +121,9 @@ class PickPlace(Node):
         self.target_object = str(self.get_parameter("target_object").value)
         self.use_tactile_grasp = bool(
             self.get_parameter("use_tactile_grasp").value
+        )
+        self.enable_attach_fallback = bool(
+            self.get_parameter("enable_attach_fallback").value
         )
         self.use_planning_scene_obstacles = bool(
             self.get_parameter("use_planning_scene_obstacles").value
@@ -144,6 +148,7 @@ class PickPlace(Node):
             command_settle_sec=GRIPPER_CLOSE_SETTLE_SEC,
             target_object=self.target_object,
             use_tactile_grasp=self.use_tactile_grasp,
+            enable_attach_fallback=self.enable_attach_fallback,
         )
         # 规划场景障碍注入客户端;禁用时为 None,全部调用点走降级路径。
         self.scene_client = (

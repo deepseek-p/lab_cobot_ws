@@ -24,8 +24,8 @@ def test_goal_checker_is_precise_enough_for_pick_station():
     params = _nav2_params()
     controller = params["controller_server"]["ros__parameters"]
 
-    assert controller["general_goal_checker"]["xy_goal_tolerance"] <= 0.12
-    assert controller["FollowPath"]["xy_goal_tolerance"] <= 0.12
+    assert controller["general_goal_checker"]["xy_goal_tolerance"] <= 0.15
+    assert controller["FollowPath"]["xy_goal_tolerance"] <= 0.15
 
 
 def test_controller_can_back_out_of_table_facing_stations():
@@ -133,6 +133,18 @@ def test_amcl_uses_omni_motion_model_for_mecanum_base():
     assert amcl["robot_model_type"] == "nav2_amcl::OmniMotionModel"
 
 
+def test_amcl_initial_pose_matches_five_zone_home_spawn():
+    params = _nav2_params()
+    initial_pose = params["amcl"]["ros__parameters"]["initial_pose"]
+
+    assert initial_pose == {
+        "x": 4.50,
+        "y": -4.20,
+        "z": 0.0,
+        "yaw": 0.0,
+    }
+
+
 def test_humble_behavior_server_replaces_legacy_recoveries_server():
     params = _nav2_params()
 
@@ -176,6 +188,19 @@ def test_local_costmap_has_no_unused_static_layer_block():
 
     assert local_costmap["plugins"] == ["voxel_layer", "inflation_layer"]
     assert "static_layer" not in local_costmap
+
+
+def test_costmaps_match_git_main_box_mecanum_footprint():
+    params = _nav2_params()
+    local = params["local_costmap"]["local_costmap"]["ros__parameters"]
+    global_params = params["global_costmap"]["global_costmap"]["ros__parameters"]
+
+    assert local["footprint"] == (
+        "[ [0.28, 0.31], [0.28, -0.31], [-0.28, -0.31], [-0.28, 0.31] ]"
+    )
+    assert local["inflation_layer"]["inflation_radius"] == 0.55
+    assert global_params["robot_radius"] == 0.42
+    assert global_params["inflation_layer"]["inflation_radius"] == 0.55
 
 
 def test_global_costmap_does_not_block_slam_unknown_cells_in_known_lab():

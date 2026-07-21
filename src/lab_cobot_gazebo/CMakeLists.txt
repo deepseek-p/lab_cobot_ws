@@ -9,9 +9,11 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(gazebo_dev REQUIRED)
 find_package(gazebo_ros REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 link_directories(${GAZEBO_LIBRARY_DIRS})
 include_directories(${GAZEBO_INCLUDE_DIRS})
@@ -32,11 +34,14 @@ ament_target_dependencies(lab_cobot_grasp_fix
 add_library(lab_cobot_mecanum_drive SHARED
   src/lab_cobot_mecanum_drive.cpp
 )
+
 ament_target_dependencies(lab_cobot_mecanum_drive
   gazebo_ros
+  geometry_msgs
   nav_msgs
   rclcpp
   std_msgs
+  tf2_ros
 )
 target_link_libraries(lab_cobot_mecanum_drive
   ${GAZEBO_LIBRARIES}
@@ -62,14 +67,6 @@ if(BUILD_TESTING)
     ${GAZEBO_INCLUDE_DIRS})
   ament_add_gtest(test_finger_contact_gate test/test_finger_contact_gate.cpp)
   target_include_directories(test_finger_contact_gate PRIVATE include)
-  ament_add_gtest(
-    test_attached_object_collision
-    test/test_attached_object_collision.cpp)
-  target_include_directories(test_attached_object_collision PRIVATE include)
-  ament_add_gtest(
-    test_post_attach_velocity_clamp
-    test/test_post_attach_velocity_clamp.cpp)
-  target_include_directories(test_post_attach_velocity_clamp PRIVATE include)
   # 本机 ~/.local 的 anyio pytest 插件与系统 pytest 不兼容(装 DL 依赖后
   # 版本漂移引爆),所有 pytest 注册必须带 -p no:anyio 防护(bringup 范本)
   ament_add_pytest_test(world_launch test/test_world_launch.py

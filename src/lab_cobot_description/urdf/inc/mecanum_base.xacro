@@ -54,7 +54,6 @@
           <origin xyz="0 0 0" rpy="${pi/2.0} 0 0"/>
           <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
         </collision>
-        <!-- Side-face roller strips make the wheels read as mecanum in Gazebo/RViz. -->
         <visual name="${name}_roller_outer_0">
           <origin xyz="0 ${wheel_width/2.0 + 0.003} ${-wheel_radius*0.46}" rpy="0 ${roller_slant*pi/4.0} 0"/>
           <geometry><box size="${wheel_radius*1.45} 0.006 0.012"/></geometry>

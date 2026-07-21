@@ -176,20 +176,98 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
     assert _text(predicate[0].variable_name) == "launch_mission"
 
 
-def test_bringup_drives_mecanum_wheel_visuals_from_cmd_vel(monkeypatch):
+def test_bringup_uses_main_mecanum_visualizer_and_world_plugin(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
-    executables = {node.node_executable for node in _nodes(launch_description)}
+    executables = [node.node_executable for node in _nodes(launch_description)]
+    includes = [
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+    ]
+    worlds = [
+        include
+        for include in includes
+        if _text(getattr(
+            include.launch_description_source,
+            "_LaunchDescriptionSource__location",
+        )).endswith("world.launch.py")
+    ]
 
-    assert "mecanum_wheel_visualizer" in executables
+    assert len(worlds) == 1
+    assert list(executables).count("mecanum_wheel_visualizer") == 1
     assert "wheel_joint_state_publisher" not in executables
+    assert "rover_twist_relay" not in executables
+    assert "passive_mecanum_joint_states" not in executables
+    assert "mecanum_gazebo_kinematic_drive" not in executables
+    assert "gazebo_odom_bridge" not in executables
+
+    visualizer = _node(
+        "lab_cobot_bringup", "mecanum_wheel_visualizer", launch_description
+    )
+    assert _node_parameters(visualizer) == {
+        "use_sim_time": True,
+        "publish_odom": False,
+    }
 
 
-def test_bringup_uses_gazebo_drive_plugin_as_only_odom_source(monkeypatch):
+def test_bringup_stages_runtime_load_after_navigation_bootstrap(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
-    mecanum = _node("lab_cobot_bringup", "mecanum_wheel_visualizer", launch_description)
-    params = _node_parameters(mecanum)
+    timers = [
+        entity for entity in launch_description.entities
+        if isinstance(entity, TimerAction)
+    ]
+    navigation = next(
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+        and "params_file" in _include_arguments(entity)
+    )
+    move_group = next(
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+        and _text(getattr(
+            entity.launch_description_source,
+            "_LaunchDescriptionSource__location",
+        )).endswith("move_group.launch.py")
+    )
+    table_initializer = _node(
+        "lab_cobot_moveit", "table_scene_initializer", launch_description
+    )
+    object_detector = _node(
+        "lab_cobot_perception", "object_detector", launch_description
+    )
+    mission = _node("lab_cobot_bringup", "mission_node", launch_description)
 
-    assert params["publish_odom"] is False
+    navigation_stage = next(timer for timer in timers if navigation in timer.actions)
+    moveit_stage = next(timer for timer in timers if move_group in timer.actions)
+    scene_stage = next(
+        timer for timer in timers if table_initializer in timer.actions
+    )
+    dl_stage = next(
+        timer for timer in timers if object_detector in timer.actions
+    )
+    mission_stage = next(timer for timer in timers if mission in timer.actions)
+
+    assert navigation_stage.period == 10.0
+    assert moveit_stage.period >= 15.0
+    assert scene_stage.period >= 25.0
+    assert dl_stage.period > scene_stage.period
+    assert mission_stage.period > dl_stage.period
+    assert _node_parameters(table_initializer) == {
+        "use_sim_time": True,
+        "world_frame": "map",
+    }
+
+
+def test_bringup_has_no_passive_mecanum_joint_state_shim(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    nodes = [
+        node for node in _nodes(launch_description)
+        if node.node_executable == "passive_mecanum_joint_states"
+    ]
+
+    assert nodes == []
 
 
 def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
@@ -205,7 +283,7 @@ def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
     assert _text(predicate[0].variable_name) == "use_sim_attach"
 
 
-def test_bringup_defaults_to_camera_aruco_with_truth_as_debug_option(monkeypatch):
+def test_bringup_defaults_to_truth_pose_for_environment_regression(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)
 
@@ -241,8 +319,14 @@ def test_bringup_launches_dl_object_detector_by_default(monkeypatch):
     assert isinstance(detector.condition, IfCondition)
     predicate = getattr(detector.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
-    assert isinstance(predicate[0], LaunchConfiguration)
-    assert _text(predicate[0].variable_name) == "use_dl_perception"
+    assert predicate[0].__class__.__name__ == "PythonExpression"
+    names = [
+        _text(part.variable_name)
+        for part in predicate[0].expression
+        if isinstance(part, LaunchConfiguration)
+    ]
+    assert "use_dl_perception" in names
+    assert "launch_perception" in names
     assert isinstance(params["device"], LaunchConfiguration)
     assert _text(params["device"].variable_name) == "dl_device"
     assert isinstance(params["imgsz"], LaunchConfiguration)
@@ -385,9 +469,12 @@ def test_bringup_disables_voice_entry_by_default(monkeypatch):
 
 def test_bringup_disables_gazebo_remote_model_database_for_gui_runs(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+    context = LaunchContext()
+    context.launch_configurations.update(defaults)
     env = {
         _text(getattr(entity, "_SetEnvironmentVariable__name")):
-        _text(getattr(entity, "_SetEnvironmentVariable__value"))
+        perform_substitutions(context, getattr(entity, "_SetEnvironmentVariable__value"))
         for entity in launch_description.entities
         if isinstance(entity, SetEnvironmentVariable)
     }

@@ -23,6 +23,13 @@ class TaskState(Enum):
     FAILED = auto()            # 失败终态
 
 
+class RouteState(Enum):
+    IDLE = auto()
+    RUNNING = auto()
+    DONE = auto()
+    FAILED = auto()
+
+
 # 正常执行顺序(不含终态)
 STEP_ORDER = [
     TaskState.NAV_TO_PICK,
@@ -96,3 +103,53 @@ class CrossStationTask(SequentialTask):
 
     def __init__(self, max_retries: int = 1):
         super().__init__(list(STEP_ORDER), max_retries)
+
+
+class StationRouteTask:
+    """Execute an ordered list of station names with bounded retries."""
+
+    def __init__(self, stations: list[str], max_retries: int = 1):
+        if max_retries < 0:
+            raise ValueError("max_retries cannot be negative")
+        if not stations:
+            raise ValueError("stations cannot be empty")
+        if any(not isinstance(station, str) or not station for station in stations):
+            raise ValueError("stations must contain non-empty names")
+        self.stations = list(stations)
+        self.max_retries = max_retries
+        self.state = RouteState.IDLE
+        self._idx = -1
+        self.attempts = 0
+
+    @property
+    def current_station(self):
+        if self._idx < 0 or self._idx >= len(self.stations):
+            return None
+        return self.stations[self._idx]
+
+    @property
+    def has_next_station(self) -> bool:
+        return 0 <= self._idx < len(self.stations) - 1
+
+    def start(self):
+        self._idx = 0
+        self.attempts = 0
+        self.state = RouteState.RUNNING
+        return self.current_station
+
+    def is_terminal(self) -> bool:
+        return self.state in (RouteState.DONE, RouteState.FAILED)
+
+    def on_result(self, success: bool) -> RouteState:
+        if self.state != RouteState.RUNNING:
+            return self.state
+        if success:
+            self._idx += 1
+            self.attempts = 0
+            if self._idx >= len(self.stations):
+                self.state = RouteState.DONE
+        else:
+            self.attempts += 1
+            if self.attempts > self.max_retries:
+                self.state = RouteState.FAILED
+        return self.state
