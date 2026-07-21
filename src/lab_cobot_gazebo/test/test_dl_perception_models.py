@@ -105,20 +105,20 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     high_voltage = _include_pose("high_voltage_zone")
 
     assert _include_uri("aruco_sample") == "model://aruco_sample"
-    assert aruco[:3] == pytest.approx([-2.08, 1.73, 0.785])
-    assert spare_igbt[:3] == pytest.approx([-2.31, 1.96, 0.78])
-    assert grease[:3] == pytest.approx([-1.95, 1.98, 0.75])
-    assert fixture[:3] == pytest.approx([-1.94, -1.02, 0.80])
-    assert hand_tools[:3] == pytest.approx([-2.18, -0.98, 0.75])
-    assert rack[:3] == pytest.approx([0.10, 2.13, 0.80])
-    assert board_fixture[:3] == pytest.approx([0.01, -0.72, 0.75])
-    assert probe_kit[:3] == pytest.approx([2.02, 1.22, 0.0])
-    assert high_voltage[:3] == pytest.approx([2.18, 1.45, 0.0])
+    assert aruco[:3] == pytest.approx([-4.16, 3.46, 0.785])
+    assert spare_igbt[:3] == pytest.approx([-4.62, 3.92, 0.78])
+    assert grease[:3] == pytest.approx([-3.90, 3.96, 0.75])
+    assert fixture[:3] == pytest.approx([-3.88, -2.04, 0.80])
+    assert hand_tools[:3] == pytest.approx([-4.36, -1.96, 0.75])
+    assert rack[:3] == pytest.approx([0.20, 4.26, 0.80])
+    assert board_fixture[:3] == pytest.approx([0.02, -1.44, 0.75])
+    assert probe_kit[:3] == pytest.approx([4.04, 2.44, 0.0])
+    assert high_voltage[:3] == pytest.approx([4.36, 2.90, 0.0])
 
     sample_half_extent = 0.035
-    assert 1.60 < aruco[1] - sample_half_extent < 1.90
-    assert 1.60 < spare_igbt[1] + sample_half_extent < 2.20
-    assert hand_tools[0] < fixture[0] < -1.75
+    assert 3.20 < aruco[1] - sample_half_extent < 3.80
+    assert 3.20 < spare_igbt[1] + sample_half_extent < 4.40
+    assert hand_tools[0] < fixture[0] < -3.50
     assert rack[1] > aruco[1]
     assert probe_kit[0] < high_voltage[0]
     assert math.dist(aruco[:2], rack[:2]) > 1.8

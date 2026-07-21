@@ -189,6 +189,9 @@
   <gazebo>
     <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">
       <object_model>aruco_sample</object_model>
+      <object_model>igbt_module_plain</object_model>
+      <object_model>igbt_module_aruco</object_model>
+      <object_model>fixture_box_plain</object_model>
       <object_link>link</object_link>
       <tcp_link>gripper_tcp</tcp_link>
       <left_joint>gripper_left_finger_joint</left_joint>

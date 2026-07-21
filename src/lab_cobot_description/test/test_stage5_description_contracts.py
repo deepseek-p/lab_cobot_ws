@@ -486,9 +486,9 @@ def test_station_a_sample_projects_into_camera_image():
     assert abs(arm_y) <= base_width / 2.0
 
     station_a = waypoints.get_waypoint("station_a")
-    sample_map_x = -2.08
-    sample_map_y = 1.73
-    station_table_front_y = 1.60
+    sample_map_x = -4.16
+    sample_map_y = 3.46
+    station_table_front_y = 3.20
     inflation_radius = 0.55
     sample_top_world_z = 0.81
 

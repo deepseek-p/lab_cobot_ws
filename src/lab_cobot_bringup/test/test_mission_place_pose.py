@@ -41,21 +41,21 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
     vision_z_error_band = 0.015
     table_top_world_z = 0.75
     sample_half_height = 0.035
-    table_min_x = -0.25
-    table_max_x = 0.55
-    table_mid_y = -0.85
+    table_min_x = -0.50
+    table_max_x = 1.10
+    table_mid_y = -1.70
     max_reachable_forward = 0.82
     minimum_nominal_front_margin = 0.05
 
     map_x, map_y = _base_to_map(DEFAULT_PLACE_POSE[:2], station_b)
 
     assert DEFAULT_PLACE_POSE[0] == pytest.approx(0.78)
-    assert map_y == pytest.approx(-0.945)
+    assert map_y == pytest.approx(-2.095)
     carried_offset_y = 0.0455
-    assert map_y - carried_offset_y - 0.035 >= -1.15 + 0.03
+    assert map_y - carried_offset_y - 0.035 >= -2.30 + 0.03
     sample_half_extent = 0.035
-    assert map_y - sample_half_extent > -1.15
-    assert map_y + sample_half_extent < -0.55
+    assert map_y - sample_half_extent > -2.30
+    assert map_y + sample_half_extent < -1.10
     assert DEFAULT_PLACE_POSE[0] <= max_reachable_forward
     assert table_min_x <= map_x <= table_max_x
     assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= table_mid_y
@@ -87,7 +87,7 @@ def test_place_base_target_projects_drop_point_into_safe_table_band():
     assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y
     sample_half_extent = 0.035
     required_edge_margin = 0.03
-    assert map_x - sample_half_extent >= -0.25 + required_edge_margin
-    assert map_x + sample_half_extent <= 0.55 - required_edge_margin
-    assert map_y - sample_half_extent >= -1.15 + required_edge_margin
-    assert map_y + sample_half_extent <= -0.55 - required_edge_margin
+    assert map_x - sample_half_extent >= -0.50 + required_edge_margin
+    assert map_x + sample_half_extent <= 1.10 - required_edge_margin
+    assert map_y - sample_half_extent >= -2.30 + required_edge_margin
+    assert map_y + sample_half_extent <= -1.10 - required_edge_margin

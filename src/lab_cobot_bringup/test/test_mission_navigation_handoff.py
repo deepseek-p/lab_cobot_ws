@@ -345,7 +345,7 @@ def test_pick_navigation_keeps_nav2_when_object_is_too_lateral_for_docking():
 
 def test_pick_map_navigation_can_handoff_near_station_without_marker():
     pick_map_handoff_ready = _policy("pick_map_handoff_ready")
-    base_pose = (-2.00, 0.90, math.radians(16.0))
+    base_pose = (-4.15, 2.50, math.radians(16.0))
 
     assert pick_map_handoff_ready(base_pose)
 
@@ -417,8 +417,8 @@ def test_axis_aligned_navigation_goals_rotate_align_and_traverse_for_station_b()
 
     assert goals == [
         ("station_b_rotate", {"x": 1.80, "y": -0.20, "yaw": math.pi / 2.0}, "rotate"),
-        ("station_b_corridor_align", {"x": 1.80, "y": -1.96, "yaw": math.pi / 2.0}, "forward"),
-        ("station_b_corridor_traverse", {"x": 0.15, "y": -1.96, "yaw": math.pi / 2.0}, "strafe"),
+        ("station_b_corridor_align", {"x": 1.80, "y": -3.01, "yaw": math.pi / 2.0}, "forward"),
+        ("station_b_corridor_traverse", {"x": 0.30, "y": -3.01, "yaw": math.pi / 2.0}, "strafe"),
     ]
 
 
@@ -522,7 +522,7 @@ def test_station_dock_velocity_stops_when_station_a_aligned():
 
 
 @pytest.mark.parametrize(
-    "station,x", [("station_a", -2.15), ("station_b", 0.15)]
+    "station,x", [("station_a", -4.30), ("station_b", 0.30)]
 )
 def test_station_dock_stops_on_worktable_safety_line(station, x):
     safe_y = mission_node.station_safe_base_y(math.pi / 2.0, station)
@@ -533,7 +533,7 @@ def test_station_dock_stops_on_worktable_safety_line(station, x):
     clearance = mission_node.worktable_clearance(
         (x, safe_y, math.pi / 2.0), station
     )
-    assert clearance == pytest.approx(0.30)
+    assert clearance == pytest.approx(mission_node.WORKTABLE_CLEARANCE)
     assert cmd.linear.x == pytest.approx(0.0)
 
 
@@ -624,7 +624,7 @@ def test_pick_visual_handoff_accepts_graspable_lateral_error_at_safety_line():
 
 def test_home_station_docking_keeps_original_waypoint_behavior():
     done, cmd = mission_node.station_dock_velocity_for_base(
-        (2.0, -2.30, 0.0), "home"
+        (4.25, -4.40, 0.0), "home"
     )
     assert not done
     assert cmd.linear.x > 0.0
@@ -633,14 +633,14 @@ def test_home_station_docking_keeps_original_waypoint_behavior():
 
 def test_place_navigation_can_handoff_when_tcp_target_is_on_station_b_table():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
-    base_pose = (0.15, -1.725, math.radians(90.0))
+    base_pose = (0.15, -2.50, math.radians(90.0))
 
     assert place_navigation_handoff_ready(base_pose, mission_node.DEFAULT_PLACE_POSE)
 
 
 def test_place_navigation_can_handoff_when_projected_drop_point_is_on_table():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
-    base_pose = (0.45, -1.80, math.radians(90.0))
+    base_pose = (0.65, -2.95, math.radians(90.0))
     station_b = mission_node._station_base_pose("station_b")
     distance_to_station = math.hypot(
         base_pose[0] - station_b[0],
@@ -658,7 +658,7 @@ def test_place_navigation_can_handoff_when_projected_drop_point_is_on_table():
 
 def test_place_navigation_keeps_nav2_when_projected_drop_point_misses_table():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
-    base_pose = (0.90, -1.80, math.radians(90.0))
+    base_pose = (0.90, -1.50, math.radians(90.0))
     station_b = mission_node._station_base_pose("station_b")
     distance_to_station = math.hypot(
         base_pose[0] - station_b[0],
@@ -679,7 +679,7 @@ def test_place_navigation_keeps_nav2_when_projected_drop_point_misses_table():
 
 def test_place_navigation_can_handoff_when_base_is_close_enough_for_local_docking():
     place_navigation_handoff_ready = _policy("place_navigation_handoff_ready")
-    base_pose = (0.15, -1.75, math.radians(147.0))
+    base_pose = (0.30, -2.95, math.radians(147.0))
 
     assert place_navigation_handoff_ready(base_pose, mission_node.DEFAULT_PLACE_POSE)
 
@@ -694,7 +694,7 @@ def test_place_navigation_keeps_nav2_until_place_target_reaches_table_front():
 def test_place_dock_velocity_drives_forward_and_rotates_toward_station_b_pose():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
 
-    done, cmd = place_dock_velocity_for_base((0.55, -2.05, math.radians(106.0)))
+    done, cmd = place_dock_velocity_for_base((0.55, -3.20, math.radians(106.0)))
 
     assert not done
     assert cmd.linear.x > 0.0
@@ -716,7 +716,7 @@ def test_place_dock_velocity_stops_when_base_is_aligned_for_table_place():
 def test_place_dock_velocity_keeps_docking_when_drop_point_is_near_front_edge():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
 
-    done, cmd = place_dock_velocity_for_base((0.15, -1.88, math.radians(90.0)))
+    done, cmd = place_dock_velocity_for_base((0.15, -3.03, math.radians(90.0)))
 
     assert not done
     assert cmd.linear.x > 0.0
@@ -737,7 +737,7 @@ def test_place_dock_velocity_accepts_gui_verified_table_pose():
 def test_place_dock_velocity_keeps_moving_when_drop_point_is_before_table():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
 
-    done, cmd = place_dock_velocity_for_base((0.15, -1.95, math.radians(100.0)))
+    done, cmd = place_dock_velocity_for_base((0.15, -3.10, math.radians(100.0)))
 
     assert not done
     assert cmd.linear.x > 0.0
@@ -746,13 +746,13 @@ def test_place_dock_velocity_keeps_moving_when_drop_point_is_before_table():
 def test_home_navigation_can_handoff_when_map_pose_is_close_enough():
     home_navigation_handoff_ready = _policy("home_navigation_handoff_ready")
 
-    assert home_navigation_handoff_ready((2.23, -1.94, math.radians(17.6)))
+    assert home_navigation_handoff_ready((4.48, -4.04, math.radians(17.6)))
 
 
 def test_home_navigation_keeps_nav2_when_pose_is_still_far_from_home():
     home_navigation_handoff_ready = _policy("home_navigation_handoff_ready")
 
-    assert not home_navigation_handoff_ready((2.34, -1.72, math.radians(23.0)))
+    assert not home_navigation_handoff_ready((4.59, -3.82, math.radians(23.0)))
 
 
 class _FakeStateFuture:

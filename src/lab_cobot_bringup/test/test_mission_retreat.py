@@ -467,6 +467,7 @@ def test_route_station_retreat_stops_after_reaching_map_clearance(monkeypatch):
         [-2.05, safe_y, yaw],
         [-2.05, safe_y - 0.20, yaw],
         [-2.05, safe_y - 0.40, yaw],
+        [-2.05, safe_y - 0.55, yaw],
     ]
     stops = []
     monkeypatch.setattr(mission_node.time, "sleep", clock.advance)

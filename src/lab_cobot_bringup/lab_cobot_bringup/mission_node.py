@@ -57,7 +57,7 @@ RETREAT_STOP_SEC = 0.5
 # 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
 # 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
 DEFAULT_PLACE_POSE = [0.78, 0.20, 0.725]
-PLACE_BASE_TARGET_POSE = (0.15, -1.725, math.pi / 2.0)
+PLACE_BASE_TARGET_POSE = (0.15, -2.875, math.pi / 2.0)
 # Leave reach margin for the vertical gripper pose.  At 0.78 m the detected
 # target plus TCP approach offset sits on the UR5e workspace boundary.
 DOCK_TARGET_X = 0.62
@@ -90,23 +90,23 @@ PICK_NAV_HANDOFF_MIN_X = 0.70
 PICK_NAV_HANDOFF_MAX_X = 0.90
 PICK_NAV_HANDOFF_MAX_ABS_Y = 0.12
 PICK_NAV_HANDOFF_MAX_STATION_DISTANCE = 0.35
-STATION_B_TABLE_MIN_X = -0.25
-STATION_B_TABLE_MAX_X = 0.55
-STATION_B_TABLE_FRONT_Y = -1.15
-STATION_B_TABLE_BACK_Y = -0.55
-STATION_B_SAFE_DROP_MIN_X = -0.185
-STATION_B_SAFE_DROP_MAX_X = 0.485
-STATION_B_SAFE_DROP_FRONT_Y = -1.085
-STATION_B_SAFE_DROP_BACK_Y = -0.615
+STATION_B_TABLE_MIN_X = -0.50
+STATION_B_TABLE_MAX_X = 1.10
+STATION_B_TABLE_FRONT_Y = -2.30
+STATION_B_TABLE_BACK_Y = -1.10
+STATION_B_SAFE_DROP_MIN_X = -0.435
+STATION_B_SAFE_DROP_MAX_X = 1.035
+STATION_B_SAFE_DROP_FRONT_Y = -2.235
+STATION_B_SAFE_DROP_BACK_Y = -1.165
 NAV_HANDOFF_STOP_SEC = 0.3
-STATION_DOCK_TOLERANCE_X = 0.06
-STATION_DOCK_TOLERANCE_Y = 0.06
+STATION_DOCK_TOLERANCE_X = 0.08
+STATION_DOCK_TOLERANCE_Y = 0.08
 STATION_DOCK_TOLERANCE_YAW = 0.15
-STATION_DOCK_GAIN_X = 0.8
-STATION_DOCK_GAIN_Y = 0.8
+STATION_DOCK_GAIN_X = 1.0
+STATION_DOCK_GAIN_Y = 1.0
 STATION_DOCK_GAIN_YAW = 1.4
-STATION_DOCK_MAX_LINEAR_X = 0.16
-STATION_DOCK_MAX_LINEAR_Y = 0.16
+STATION_DOCK_MAX_LINEAR_X = 0.20
+STATION_DOCK_MAX_LINEAR_Y = 0.20
 STATION_DOCK_MAX_ANGULAR = 0.45
 STATION_DOCK_YAW_FIRST_THRESHOLD = 0.35
 STATION_DOCK_YAW_FIRST_LINEAR_SCALE = 0.35
@@ -132,14 +132,14 @@ WORKTABLE_STATIONS = frozenset(
     ("station_a", "tooling_zone", "aging_zone", "station_b")
 )
 WORKTABLE_FRONT_Y = {
-    "station_a": 1.60,
-    "tooling_zone": -1.45,
-    "aging_zone": 1.80,
-    "station_b": -1.15,
+    "station_a": 3.20,
+    "tooling_zone": -2.90,
+    "aging_zone": 3.60,
+    "station_b": -2.30,
 }
 CHASSIS_LENGTH = 0.55
 CHASSIS_WIDTH = 0.50
-WORKTABLE_CLEARANCE = 0.30
+WORKTABLE_CLEARANCE = 0.18
 WORKTABLE_MIN_EXIT_SPEED = 0.03
 AXIS_NAV_POSITION_TOLERANCE = 0.05
 AXIS_NAV_YAW_TOLERANCE = 0.08
@@ -586,6 +586,10 @@ class MissionNode(Node):
         self.wrist_marker_id = int(self.get_parameter("wrist_marker_id").value)
         self.place_pose = list(self.get_parameter("place_pose").value)
         # LLM 任务拆解:默认关闭,E2E/CI 离线;演示时 llm_enabled:=true 打开
+        self.declare_parameter("skip_visual_dock", False)
+        self._skip_visual_dock = bool(
+            self.get_parameter("skip_visual_dock").value
+        )
         self.declare_parameter("llm_enabled", False)
         self.declare_parameter("llm_api_base", "https://api.deepseek.com")
         self.declare_parameter("llm_model", "deepseek-chat")
@@ -927,6 +931,9 @@ class MissionNode(Node):
         return True
 
     def _dock_to_pick_target(self) -> bool:
+        if getattr(self, "_skip_visual_dock", False):
+            self.get_logger().warn("视觉停靠已跳过 (skip_visual_dock:=true)")
+            return True
         self.get_logger().info("视觉停靠到样件")
         start = self.get_clock().now()
         last_pose = None
@@ -989,6 +996,9 @@ class MissionNode(Node):
         return False
 
     def _dock_to_place_target(self) -> bool:
+        if getattr(self, "_skip_visual_dock", False):
+            self.get_logger().warn("放置停靠已跳过 (skip_visual_dock:=true)")
+            return True
         self.get_logger().info("放置停靠到B工位")
         start = self.get_clock().now()
         last_pose = None

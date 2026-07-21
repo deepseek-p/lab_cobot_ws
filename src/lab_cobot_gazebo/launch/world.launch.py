@@ -145,7 +145,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "2.25", "-y", "-2.10", "-z", "0.0",
+            "-x", "4.50", "-y", "-4.20", "-z", "0.0",
         ],
         output="screen",
     )

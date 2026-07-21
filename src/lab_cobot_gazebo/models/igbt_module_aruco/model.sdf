@@ -5,12 +5,12 @@
       <inertial>
         <mass>0.08</mass>
         <inertia>
-          <ixx>6.0e-5</ixx><ixy>0</ixy><ixz>0</ixz>
-          <iyy>6.0e-5</iyy><iyz>0</iyz><izz>8.0e-5</izz>
+          <ixx>4.8e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>7.8e-5</iyy><iyz>0</iyz><izz>7.8e-5</izz>
         </inertia>
       </inertial>
       <collision name="collision">
-        <geometry><box><size>0.09 0.09 0.06</size></box></geometry>
+        <geometry><box><size>0.09 0.06 0.06</size></box></geometry>
         <surface>
           <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
           <contact>
@@ -24,7 +24,7 @@
         </surface>
       </collision>
       <visual name="body_visual">
-        <geometry><box><size>0.09 0.09 0.06</size></box></geometry>
+        <geometry><box><size>0.09 0.06 0.06</size></box></geometry>
         <material>
           <ambient>0.22 0.22 0.24 1</ambient>
           <diffuse>0.35 0.35 0.38 1</diffuse>
@@ -32,7 +32,7 @@
         </material>
       </visual>
       <visual name="aruco_marker_front">
-        <pose>0 -0.0455 0 0 0 0</pose>
+        <pose>0 -0.0305 0 0 0 0</pose>
         <geometry>
           <box><size>0.07 0.001 0.07</size></box>
         </geometry>

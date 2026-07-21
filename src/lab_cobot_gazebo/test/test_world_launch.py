@@ -152,9 +152,9 @@ def test_spawn_entity_waits_for_slow_gazebo_factory_startup():
 def test_spawn_entity_places_main_base_footprint_on_ground():
     args = _spawn_entity_args()
     assert "-x" in args
-    assert float(args[args.index("-x") + 1]) == 2.25
+    assert float(args[args.index("-x") + 1]) == 4.50
     assert "-y" in args
-    assert float(args[args.index("-y") + 1]) == -2.10
+    assert float(args[args.index("-y") + 1]) == -4.20
     assert "-z" in args
     assert float(args[args.index("-z") + 1]) == 0.0
 

@@ -31,8 +31,8 @@ amcl:
     first_map_only: False
     initial_pose:
       # 五功能区地图与 waypoint 使用 Gazebo world 坐标;出生点即 home。
-      x: 2.25
-      y: -2.10
+      x: 4.50
+      y: -4.20
       z: 0.0
       yaw: 0.0
 
@@ -118,7 +118,7 @@ controller_server:
     general_goal_checker:
       stateful: False
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.12
+      xy_goal_tolerance: 0.15
       yaw_goal_tolerance: 0.25
     # DWB parameters
     FollowPath:
@@ -148,8 +148,8 @@ controller_server:
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.12
-      trans_stopped_velocity: 0.02
+      xy_goal_tolerance: 0.15
+      trans_stopped_velocity: 0.05
       short_circuit_trajectory_evaluation: True
       stateful: False
 

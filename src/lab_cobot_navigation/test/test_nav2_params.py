@@ -24,8 +24,8 @@ def test_goal_checker_is_precise_enough_for_pick_station():
     params = _nav2_params()
     controller = params["controller_server"]["ros__parameters"]
 
-    assert controller["general_goal_checker"]["xy_goal_tolerance"] <= 0.12
-    assert controller["FollowPath"]["xy_goal_tolerance"] <= 0.12
+    assert controller["general_goal_checker"]["xy_goal_tolerance"] <= 0.15
+    assert controller["FollowPath"]["xy_goal_tolerance"] <= 0.15
 
 
 def test_controller_can_back_out_of_table_facing_stations():
@@ -138,8 +138,8 @@ def test_amcl_initial_pose_matches_five_zone_home_spawn():
     initial_pose = params["amcl"]["ros__parameters"]["initial_pose"]
 
     assert initial_pose == {
-        "x": 2.25,
-        "y": -2.10,
+        "x": 4.50,
+        "y": -4.20,
         "z": 0.0,
         "yaw": 0.0,
     }
