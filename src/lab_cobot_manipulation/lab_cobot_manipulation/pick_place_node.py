@@ -14,6 +14,7 @@ import time
 from threading import Thread
 
 import rclpy
+from action_msgs.msg import GoalStatus
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 
@@ -56,21 +57,26 @@ DEFAULT_APPROACH_TOLERANCE_ORIENTATION = 0.2
 DEFAULT_GRASP_TOLERANCE_POSITION = 0.005
 DEFAULT_GRASP_TOLERANCE_ORIENTATION = 0.2
 TACTILE_GRASP_TOLERANCE_ORIENTATION = DEFAULT_GRASP_TOLERANCE_ORIENTATION
-DEFAULT_MOVE_TIMEOUT_SEC = 45.0
-MOVE_RESULT_GRACE_SEC = 2.0
+# Gazebo 在低实时因子（深度相机、MoveIt、接触传感器同时运行）下，首条
+# approach 轨迹实测可到 166 秒墙钟。若此时取消 action，后续重试会与旧目标竞争。
+# 240 秒仍为有界等待，并为 WSL 调度抖动保留充足余量。
+DEFAULT_MOVE_TIMEOUT_SEC = 240.0
+MOVE_RESULT_GRACE_SEC = 5.0
 PICK_TCP_Z_CLEARANCE = 0.06
 TACTILE_PICK_TCP_Z_CLEARANCE = 0.0125
 TACTILE_PICK_TCP_VISUAL_Y_LIMIT = 0.018
+TACTILE_PICK_LATERAL_BIAS = 0.006
 TACTILE_PICK_LATERAL_RETRY_STEP = 0.006
 TACTILE_PICK_RETRY_Y_LIMIT = 0.036
-TACTILE_APPROACH_HEIGHT = 0.130
+TACTILE_APPROACH_HEIGHT = 0.060
 # 悬空释放余量:place 下降只到名义放置点上方该高度即松爪,物块自由落到台面。
 # 根因回归:带焊物块被压向台面时固定关节与接触约束冲突,求解器会给物块
 # 注入巨大速度(实测弹飞 181 m/s);悬空释放从机制上避免该约束冲突。
 PLACE_RELEASE_CLEARANCE = 0.02
 TACTILE_PLACE_RELEASE_CLEARANCE = 0.025
-# 2026-07-12 DG-2 双次实测持有偏移约 -15.5mm,相对旧标定 -65mm 抬高约 50mm。
-TACTILE_PLACE_TCP_Z_COMPENSATION = 0.05
+# G4 A->B 放置使用 base_link 坐标时，额外下压补偿会把释放 TCP 拉到
+# 目标点下方，容易触发 MoveIt 下降段执行失败；触觉放置仍采用上方悬空释放。
+TACTILE_PLACE_TCP_Z_COMPENSATION = 0.0
 TACTILE_PLACE_DROP_SETTLE_SEC = 0.3
 GRIPPER_CLOSE_SETTLE_SEC = 0.8
 ARM_MAX_VELOCITY_SCALING = 0.75
@@ -83,6 +89,7 @@ GO_HOME_MAX_ATTEMPTS = 2
 GO_HOME_RETRY_DELAY_SEC = 0.2
 APPROACH_MOVE_MAX_ATTEMPTS = 2
 GRASP_DESCENT_MAX_ATTEMPTS = 2
+HOLD_MONITOR_PERIOD_SEC = 0.1
 
 
 def configure_moveit_for_pick_place(moveit2, use_tactile_grasp=False) -> None:
@@ -98,6 +105,79 @@ def configure_moveit_for_pick_place(moveit2, use_tactile_grasp=False) -> None:
 
 def _format_pose_target(pos) -> str:
     return "(%.3f, %.3f, %.3f)" % (float(pos[0]), float(pos[1]), float(pos[2]))
+
+
+def _wait_for_moveit_result(
+    moveit2,
+    timeout_sec: float,
+    previous_send_future=None,
+    previous_result_future=None,
+) -> bool:
+    """Wait for MoveIt's action future without depending on a ROS-time Rate.
+
+    pymoveit2.wait_until_executed() sleeps on a Rate created from the node's
+    clock.  In a throttled Gazebo simulation that sleep can mask a completed
+    action result until the caller's wall-clock timeout.  Recent pymoveit2
+    versions retain the result future internally, so poll that future using
+    wall time.  Keep the public method as a compatibility fallback for test
+    doubles and older pymoveit2 releases.
+    """
+    send_name = "_MoveIt2__send_goal_future_move_action"
+    result_name = "_MoveIt2__get_result_future_move_action"
+    state_name = "_MoveIt2__last_execution_succeeded"
+    if not hasattr(moveit2, send_name):
+        return bool(moveit2.wait_until_executed(timeout_sec=timeout_sec))
+
+    deadline = time.monotonic() + max(float(timeout_sec), 0.0)
+    seen_current_goal = previous_send_future is None
+    while time.monotonic() < deadline:
+        send_future = getattr(moveit2, send_name, None)
+        if send_future is not None and send_future is not previous_send_future:
+            seen_current_goal = True
+
+        result_future = getattr(moveit2, result_name, None)
+        if (
+            seen_current_goal
+            and result_future is not None
+            and result_future is not previous_result_future
+            and result_future.done()
+        ):
+            try:
+                return result_future.result().status == GoalStatus.STATUS_SUCCEEDED
+            except Exception:  # noqa: BLE001
+                return False
+
+        if (
+            seen_current_goal
+            and send_future is not None
+            and hasattr(send_future, "done")
+            and send_future.done()
+        ):
+            # A rejected goal does not have a result future.  The pymoveit2
+            # response callback has already recorded the final status.
+            if getattr(moveit2, result_name, None) is None and not getattr(
+                moveit2, "_MoveIt2__is_motion_requested", False
+            ):
+                return bool(getattr(moveit2, state_name, False))
+        if (
+            seen_current_goal
+            and not getattr(moveit2, "_MoveIt2__is_motion_requested", False)
+            and not getattr(moveit2, "_MoveIt2__is_executing", False)
+            and (
+                previous_send_future is None
+                or getattr(moveit2, result_name, None) is not previous_result_future
+            )
+        ):
+            return bool(getattr(moveit2, state_name, False))
+        time.sleep(0.01)
+
+    goal_handle = getattr(moveit2, "_MoveIt2__move_goal_handle", None)
+    if goal_handle is not None:
+        goal_handle.cancel_goal_async()
+    reset = getattr(moveit2, "force_reset_executing_state", None)
+    if reset is not None:
+        reset()
+    return False
 
 
 class PickPlace(Node):
@@ -151,6 +231,11 @@ class PickPlace(Node):
             if self.use_planning_scene_obstacles
             else None
         )
+        self._hold_monitor_active = False
+        self._hold_monitor_fault = False
+        self._hold_monitor_timer = self.create_timer(
+            HOLD_MONITOR_PERIOD_SEC, self._monitor_held_object
+        )
         self.get_logger().info("PickPlace 初始化完成")
 
     # ---- 规划场景障碍(台面盒/持物样件附着盒) ----
@@ -186,6 +271,58 @@ class PickPlace(Node):
         if self._apply_scene_diff(scene, "sample detach"):
             self.get_logger().info("planning scene carried sample detached")
 
+    # ---- 持有监控(抓取插件 heartbeat) ----
+    def _gripper_confirms_holding(self) -> bool:
+        checker = getattr(self.gripper, "is_holding_object", None)
+        # 兼容第三方/旧调试后端；正式 contact 后端必须实现实时确认。
+        if checker is None:
+            return True
+        try:
+            return bool(checker())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _start_hold_monitor(self) -> None:
+        refresh = getattr(self.gripper, "refresh_holding_watchdog", None)
+        if refresh is not None:
+            refresh()
+        self._hold_monitor_active = True
+        self._hold_monitor_fault = False
+        self._monitor_held_object()
+
+    def _stop_hold_monitor(self) -> None:
+        self._hold_monitor_active = False
+
+    def _monitor_held_object(self) -> None:
+        """Run while carrying; the callback executor keeps this alive during moves."""
+        if not getattr(self, "_hold_monitor_active", False):
+            return
+        if self._gripper_confirms_holding():
+            return
+        if not self._hold_monitor_fault:
+            self._hold_monitor_fault = True
+            self.get_logger().error(
+                "持有监控失败：抓取插件未确认物块仍附着，终止后续抓放步骤"
+            )
+
+    def _holding_is_healthy(self) -> bool:
+        # place() 的单独单元测试/旧调试入口可能没有先执行 pick()；只有
+        # 已进入持物段时才要求心跳，正式 mission 路径会在 pick 后激活它。
+        if not getattr(self, "_hold_monitor_active", False):
+            return True
+        self._monitor_held_object()
+        return (
+            not getattr(self, "_hold_monitor_fault", False)
+        )
+
+    def _handle_hold_lost(self) -> None:
+        """Remove the planning-scene carried box after an externally detected loss."""
+        if not getattr(self, "_hold_monitor_fault", False):
+            return
+        self._stop_hold_monitor()
+        self._detach_carried_sample()
+        self.get_logger().error("抓放任务失败：物块在搬运期间不再被持有")
+
     # ---- 基础动作 ----
     def _move(
         self,
@@ -205,6 +342,10 @@ class PickPlace(Node):
             "MoveIt target link=%s frame=%s pos=%s"
             % (target_link, frame_id, _format_pose_target(pos))
         )
+        send_name = "_MoveIt2__send_goal_future_move_action"
+        result_name = "_MoveIt2__get_result_future_move_action"
+        previous_send_future = getattr(self.moveit2, send_name, None)
+        previous_result_future = getattr(self.moveit2, result_name, None)
         self.moveit2.move_to_pose(
             position=list(pos),
             quat_xyzw=quat,
@@ -214,17 +355,28 @@ class PickPlace(Node):
             tolerance_orientation=tolerance_orientation,
             cartesian=cartesian,
         )
-        executed = bool(self.moveit2.wait_until_executed(timeout_sec=timeout_sec))
+        executed = _wait_for_moveit_result(
+            self.moveit2,
+            timeout_sec,
+            previous_send_future=previous_send_future,
+            previous_result_future=previous_result_future,
+        )
         if not executed and MOVE_RESULT_GRACE_SEC > 0.0:
             time.sleep(MOVE_RESULT_GRACE_SEC)
-            executed = bool(
-                self.moveit2.wait_until_executed(timeout_sec=MOVE_RESULT_GRACE_SEC)
+            executed = _wait_for_moveit_result(
+                self.moveit2,
+                MOVE_RESULT_GRACE_SEC,
+                previous_send_future=previous_send_future,
+                previous_result_future=previous_result_future,
             )
         if not executed:
             self.get_logger().warn(
                 "MoveIt target failed link=%s frame=%s pos=%s"
                 % (target_link, frame_id, _format_pose_target(pos))
             )
+        if getattr(self, "_hold_monitor_active", False) and not self._holding_is_healthy():
+            self._handle_hold_lost()
+            return False
         return executed
 
     def _pick_tcp_target(self, pos):
@@ -233,7 +385,7 @@ class PickPlace(Node):
         if self.use_tactile_grasp:
             clearance = TACTILE_PICK_TCP_Z_CLEARANCE
             limit = TACTILE_PICK_TCP_VISUAL_Y_LIMIT
-            y_target = min(max(pos[1], -limit), limit)
+            y_target = min(max(pos[1] + TACTILE_PICK_LATERAL_BIAS, -limit), limit)
         return [pos[0], y_target, pos[2] + clearance]
 
     def _offset_tactile_pick_target(self, target, lateral_offset):
@@ -296,6 +448,16 @@ class PickPlace(Node):
 
     def _move_approach(self, pos, cartesian=False) -> bool:
         for attempt in range(APPROACH_MOVE_MAX_ATTEMPTS):
+            restore_scaling = None
+            if self.use_tactile_grasp and hasattr(self, "moveit2"):
+                restore_scaling = (
+                    self.moveit2.max_velocity,
+                    self.moveit2.max_acceleration,
+                )
+                # 触觉抓取只要求接触/下降段慢速。approach/lift/transfer 离物体和
+                # 台面有安全高度，使用普通速度可避免 G4 专项被高空移动拖成超时。
+                self.moveit2.max_velocity = ARM_MAX_VELOCITY_SCALING
+                self.moveit2.max_acceleration = ARM_MAX_ACCELERATION_SCALING
             if self._move(
                 pos,
                 target_link=GRIPPER_TCP_LINK,
@@ -304,7 +466,17 @@ class PickPlace(Node):
                 timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
                 cartesian=cartesian,
             ):
+                if restore_scaling is not None:
+                    (
+                        self.moveit2.max_velocity,
+                        self.moveit2.max_acceleration,
+                    ) = restore_scaling
                 return True
+            if restore_scaling is not None:
+                (
+                    self.moveit2.max_velocity,
+                    self.moveit2.max_acceleration,
+                ) = restore_scaling
             if attempt + 1 < APPROACH_MOVE_MAX_ATTEMPTS:
                 self.get_logger().warn(
                     "MoveIt approach transient failure, retrying"
@@ -425,12 +597,19 @@ class PickPlace(Node):
             return "acquire_failed"
         # 持物段规划护航:样件附着盒随 acquire 成功立即挂上。
         self._attach_carried_sample()
+        self._start_hold_monitor()
+        if not self._holding_is_healthy():
+            self._handle_hold_lost()
+            self.get_logger().warn("Pick failed: hold monitor rejected attachment")
+            return "failed"
         if not self.use_tactile_grasp and not self.gripper.close():
+            self._stop_hold_monitor()
             self.gripper.release_object()
             self._detach_carried_sample()
             self.get_logger().warn("Pick failed: gripper close rejected")
             return "failed"
         if not self._move_approach(lift, cartesian=True):
+            self._stop_hold_monitor()
             self.gripper.release_object()
             self._detach_carried_sample()
             self.get_logger().warn("Pick failed: lift move failed")
@@ -443,6 +622,10 @@ class PickPlace(Node):
         # 下降只到 pos.z + PLACE_RELEASE_CLEARANCE 即释放(悬空释放),
         # 物块自由落到台面,避免带焊下压引发固定关节 vs 接触约束冲突。
         target = list(pos)
+        if not self._holding_is_healthy():
+            self._handle_hold_lost()
+            self.get_logger().warn("Place failed: carried object is no longer held")
+            return False
         # B 台盒同样先于 approach 注入(place_pose 只取 xy,z 为常量台顶)。
         self._inject_station_surface(pos)
         release_clearance = PLACE_RELEASE_CLEARANCE
@@ -465,6 +648,7 @@ class PickPlace(Node):
             )
         )
         if not self._move_approach(above, cartesian=self.use_tactile_grasp):
+            self._handle_hold_lost()
             self.get_logger().warn("Place failed: approach move failed")
             return False
         # 持物下降段笛卡尔直线:横向弧会带着焊接物块扫掠台面(同 pick 根因)
@@ -476,9 +660,15 @@ class PickPlace(Node):
             timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
             cartesian=True,
         ):
+            self._handle_hold_lost()
             self.get_logger().warn("Place failed: descent move failed")
             return False
+        # 已到达释放位后，release_object() 会等待 Gazebo 插件确认“解除持有”。
+        # 这段等待期间 hold_status 从 holding 切到 released 是正常语义；
+        # 若继续运行持有定时器，会把正常释放边界误报成“搬运中丢失”。
+        self._stop_hold_monitor()
         if not self.gripper.release_object():
+            self._start_hold_monitor()
             self.get_logger().warn("Place failed: release rejected")
             return False
         self._detach_carried_sample()

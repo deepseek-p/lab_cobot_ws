@@ -23,6 +23,7 @@ CONTACT_RELEASE_TOPIC = "/gripper/contact/release"
 FINGERS_STATUS_TOPIC = "/gripper/contact/fingers"
 LEFT_FINGER_CONTACTS_TOPIC = "/gripper/left_finger_contacts"
 RIGHT_FINGER_CONTACTS_TOPIC = "/gripper/right_finger_contacts"
+HOLD_STATUS_TOPIC = "/gripper/contact/hold_status"
 
 
 def test_closed_sample_positions_do_not_penetrate_70mm_sample():
@@ -67,6 +68,7 @@ class FakeNode:
         self._contact_status_callback = None
         self._left_contact_callback = None
         self._right_contact_callback = None
+        self._hold_status_callback = None
 
     def create_publisher(self, msg_type, topic, _qos):
         if msg_type.__name__ == "Float64MultiArray":
@@ -83,6 +85,9 @@ class FakeNode:
         elif topic == FINGERS_STATUS_TOPIC:
             assert msg_type.__name__ == "String"
             self._fingers_status_callback = callback
+        elif topic == HOLD_STATUS_TOPIC:
+            assert msg_type.__name__ == "String"
+            self._hold_status_callback = callback
         elif topic == LEFT_FINGER_CONTACTS_TOPIC:
             assert msg_type.__name__ == "ContactsState"
             self._left_contact_callback = callback
@@ -243,6 +248,21 @@ def test_contact_gripper_close_after_acquire_is_idempotent():
     assert driver.acquire_object()
     assert driver.close()
     assert fake_node.float_arrays == [CLOSED_ON_SAMPLE_POSITIONS]
+
+
+def test_contact_gripper_refreshes_holding_watchdog():
+    fake_node = FakeNode(contact_status_on_close="attached aruco_sample")
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+
+    assert driver.acquire_object()
+    driver._last_hold_status_time = time.monotonic() - (
+        gripper_driver.HOLD_STATUS_FRESH_SEC + 1.0
+    )
+    assert not driver.is_holding_object()
+
+    driver.refresh_holding_watchdog()
+
+    assert driver.is_holding_object()
 
 
 def test_contact_gripper_acquire_fails_without_plugin_attached_status():

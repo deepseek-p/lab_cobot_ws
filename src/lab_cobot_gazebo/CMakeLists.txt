@@ -88,6 +88,12 @@ install(DIRECTORY worlds launch models
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/controller_bootstrap.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME controller_bootstrap
+)
+
 install(TARGETS
   lab_cobot_grasp_fix
   lab_cobot_mecanum_drive

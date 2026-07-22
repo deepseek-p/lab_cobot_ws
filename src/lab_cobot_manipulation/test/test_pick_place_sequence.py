@@ -19,6 +19,7 @@ class FakeGripper:
         acquire_ok=True,
         release_ok=True,
         contact_sides=(False, False),
+        holding_ok=True,
     ):
         self._events = events
         self._open_ok = open_ok
@@ -31,6 +32,7 @@ class FakeGripper:
             self._acquire_ok = acquire_ok
         self._release_ok = release_ok
         self._contact_sides = contact_sides
+        self._holding_ok = holding_ok
 
     def open(self):
         self._events.append("open")
@@ -53,6 +55,9 @@ class FakeGripper:
     def last_tactile_contact_sides(self):
         return self._contact_sides
 
+    def is_holding_object(self):
+        return self._holding_ok
+
 
 class FakeLogger:
     def __init__(self, events):
@@ -63,6 +68,9 @@ class FakeLogger:
 
     def warn(self, message):
         self._events.append(f"log_warn:{message}")
+
+    def error(self, message):
+        self._events.append(f"log_error:{message}")
 
 
 class FakeSceneClient:
@@ -93,6 +101,7 @@ def make_pick_place_without_ros(
     release_ok=True,
     use_tactile_grasp=False,
     contact_sides=(False, False),
+    holding_ok=True,
     move_names=None,
 ):
     pick_place = PickPlace.__new__(PickPlace)
@@ -111,6 +120,7 @@ def make_pick_place_without_ros(
         acquire_ok=acquire_ok,
         release_ok=release_ok,
         contact_sides=contact_sides,
+        holding_ok=holding_ok,
     )
     move_results = iter(fake_moves)
     if move_names is None:
@@ -165,6 +175,21 @@ def test_pick_sequence_validates_attachment_before_closing_and_lifting():
         [0.8, 0.0, 0.84],
         [0.8, 0.0, 0.88],
     ])
+
+
+def test_pick_stops_when_plugin_does_not_confirm_held_object():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True], holding_ok=False
+    )
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "open",
+        "move_above",
+        "move_grasp",
+        "acquire",
+    ]
+    assert any("持有监控失败" in event for event in pick_place.events)
 
 
 def test_pick_targets_gripper_tcp_directly_to_avoid_tool0_tilt_offsets():
@@ -268,9 +293,9 @@ def test_tactile_pick_keeps_visual_lateral_target_inside_safe_band():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.9225],
-        [0.8, 0.0, 0.7925],
-        [0.8, 0.0, 0.9225],
+        [0.8, 0.006, 0.8525],
+        [0.8, 0.006, 0.7925],
+        [0.8, 0.006, 0.8525],
     ])
 
 
@@ -282,9 +307,9 @@ def test_tactile_pick_preserves_negative_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, -0.006, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.006, 0.9225],
-        [0.8, -0.006, 0.7925],
-        [0.8, -0.006, 0.9225],
+        [0.8, 0.0, 0.8525],
+        [0.8, 0.0, 0.7925],
+        [0.8, 0.0, 0.8525],
     ])
 
 
@@ -296,9 +321,9 @@ def test_tactile_pick_preserves_positive_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, 0.012, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.012, 0.9225],
-        [0.8, 0.012, 0.7925],
-        [0.8, 0.012, 0.9225],
+        [0.8, 0.018, 0.8525],
+        [0.8, 0.018, 0.7925],
+        [0.8, 0.018, 0.8525],
     ])
 
 
@@ -310,9 +335,9 @@ def test_tactile_pick_clamps_large_visual_lateral_residuals_on_first_attempt():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.8525],
         [0.8, 0.018, 0.7925],
-        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.8525],
     ])
 
 
@@ -343,12 +368,12 @@ def test_tactile_pick_retries_laterally_after_left_only_contact_failure():
         "acquire",
     ]
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.9225],
+        [0.8, 0.006, 0.8525],
+        [0.8, 0.006, 0.7925],
+        [0.8, 0.006, 0.8525],
+        [0.8, 0.0, 0.8525],
         [0.8, 0.0, 0.7925],
-        [0.8, 0.0, 0.9225],
-        [0.8, -0.006, 0.9225],
-        [0.8, -0.006, 0.7925],
-        [0.8, -0.006, 0.9225],
+        [0.8, 0.0, 0.8525],
     ])
 
 
@@ -362,12 +387,12 @@ def test_tactile_pick_retries_laterally_after_right_only_contact_failure():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.9225],
-        [0.8, 0.0, 0.7925],
-        [0.8, 0.0, 0.9225],
-        [0.8, 0.006, 0.9225],
+        [0.8, 0.006, 0.8525],
         [0.8, 0.006, 0.7925],
-        [0.8, 0.006, 0.9225],
+        [0.8, 0.006, 0.8525],
+        [0.8, 0.012, 0.8525],
+        [0.8, 0.012, 0.7925],
+        [0.8, 0.012, 0.8525],
     ])
 
 
@@ -381,15 +406,15 @@ def test_tactile_pick_continues_retries_away_from_left_only_contact():
 
     assert pick_place.pick([0.8, -0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.018, 0.9225],
+        [0.8, -0.018, 0.8525],
         [0.8, -0.018, 0.7925],
-        [0.8, -0.018, 0.9225],
-        [0.8, -0.024, 0.9225],
+        [0.8, -0.018, 0.8525],
+        [0.8, -0.024, 0.8525],
         [0.8, -0.024, 0.7925],
-        [0.8, -0.024, 0.9225],
-        [0.8, -0.030, 0.9225],
+        [0.8, -0.024, 0.8525],
+        [0.8, -0.030, 0.8525],
         [0.8, -0.030, 0.7925],
-        [0.8, -0.030, 0.9225],
+        [0.8, -0.030, 0.8525],
     ])
 
 
@@ -403,12 +428,12 @@ def test_tactile_pick_retries_away_from_right_only_contact():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.9225],
+        [0.8, 0.018, 0.8525],
         [0.8, 0.018, 0.7925],
-        [0.8, 0.018, 0.9225],
-        [0.8, 0.024, 0.9225],
+        [0.8, 0.018, 0.8525],
+        [0.8, 0.024, 0.8525],
         [0.8, 0.024, 0.7925],
-        [0.8, 0.024, 0.9225],
+        [0.8, 0.024, 0.8525],
     ])
 
 
@@ -449,6 +474,7 @@ def test_pick_relaxes_approach_but_keeps_grasp_orientation_tight():
 
 def test_pick_moves_use_bounded_moveit_waits():
     assert hasattr(pick_place_node, "DEFAULT_MOVE_TIMEOUT_SEC")
+    assert pick_place_node.DEFAULT_MOVE_TIMEOUT_SEC >= 240.0
     pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
 
     assert pick_place.pick([0.8, 0.0, 0.78])
@@ -493,7 +519,7 @@ def test_place_releases_in_midair_above_target_to_avoid_constraint_fight():
     assert 0.02 <= pick_place_node.PLACE_RELEASE_CLEARANCE <= 0.04
 
 
-def test_tactile_place_compensates_tcp_height_for_deep_grasp():
+def test_tactile_place_releases_above_target_without_extra_downward_compensation():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
@@ -506,7 +532,7 @@ def test_tactile_place_compensates_tcp_height_for_deep_grasp():
         - pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION
     )
     assert pick_place_node.TACTILE_PLACE_RELEASE_CLEARANCE == pytest.approx(0.025)
-    assert pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION == pytest.approx(0.05)
+    assert pick_place_node.TACTILE_PLACE_TCP_Z_COMPENSATION == pytest.approx(0.0)
 
 
 def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
@@ -720,6 +746,60 @@ def test_move_treats_late_moveit_success_as_success(monkeypatch):
     assert len(fake_moveit.moves) == 1
 
 
+def test_moveit_wait_accepts_completed_private_state():
+    class FakeMoveIt:
+        _MoveIt2__send_goal_future_move_action = object()
+        _MoveIt2__get_result_future_move_action = None
+        _MoveIt2__last_execution_succeeded = True
+        _MoveIt2__is_motion_requested = False
+        _MoveIt2__is_executing = False
+
+    assert pick_place_node._wait_for_moveit_result(FakeMoveIt(), 0.1)
+
+
+def test_moveit_wait_ignores_stale_completed_result_future(monkeypatch):
+    class FakeResult:
+        status = pick_place_node.GoalStatus.STATUS_SUCCEEDED
+
+    class FakeFuture:
+        def __init__(self, done=True):
+            self._done = done
+
+        def done(self):
+            return self._done
+
+        def result(self):
+            return FakeResult()
+
+    class FakeMoveIt:
+        _MoveIt2__last_execution_succeeded = True
+        _MoveIt2__is_motion_requested = True
+        _MoveIt2__is_executing = True
+
+    fake = FakeMoveIt()
+    old_send = FakeFuture()
+    old_result = FakeFuture()
+    new_send = FakeFuture()
+    new_result = FakeFuture()
+    fake._MoveIt2__send_goal_future_move_action = old_send
+    fake._MoveIt2__get_result_future_move_action = old_result
+
+    def finish_current_goal(_seconds):
+        fake._MoveIt2__send_goal_future_move_action = new_send
+        fake._MoveIt2__get_result_future_move_action = new_result
+        fake._MoveIt2__is_motion_requested = False
+        fake._MoveIt2__is_executing = False
+
+    monkeypatch.setattr(pick_place_node.time, "sleep", finish_current_goal)
+
+    assert pick_place_node._wait_for_moveit_result(
+        fake,
+        0.1,
+        previous_send_future=old_send,
+        previous_result_future=old_result,
+    )
+
+
 def test_moveit_settings_are_tuned_for_fast_reliable_pick_place():
     assert hasattr(pick_place_node, "configure_moveit_for_pick_place")
     assert hasattr(pick_place_node, "ARM_ALLOWED_PLANNING_TIME_SEC")
@@ -918,6 +998,30 @@ def test_place_injects_surface_and_detaches_after_release():
         "open",
         "move_above",
     ]
+
+
+def test_place_stops_hold_monitor_before_waiting_for_release_ack():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place._hold_monitor_active = True
+    pick_place._hold_monitor_fault = False
+    holding = {"ok": True}
+
+    def confirms_holding():
+        return holding["ok"]
+
+    def release_then_plugin_reports_not_holding():
+        pick_place.events.append("release")
+        holding["ok"] = False
+        pick_place._monitor_held_object()
+        return True
+
+    pick_place.gripper.is_holding_object = confirms_holding
+    pick_place.gripper.release_object = release_then_plugin_reports_not_holding
+
+    assert pick_place.place([0.8, 0.0, 0.78])
+    assert "release" in action_events(pick_place.events)
+    assert not any("持有监控失败" in event for event in pick_place.events)
+    assert not pick_place._hold_monitor_active
 
 
 def test_scene_apply_failure_degrades_to_legacy_behavior():

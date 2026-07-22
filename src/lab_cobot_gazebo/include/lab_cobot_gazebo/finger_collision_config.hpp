@@ -56,8 +56,14 @@ inline PrimaryFingerCollisionSettings PrimaryFingerCollisionConfig()
   return {0u, 0u};
 }
 
-inline TactileProbeSurfaceSettings TactileProbeSurfaceConfig()
+inline TactileProbeSurfaceSettings TactileProbeSurfaceConfig(
+  const bool enable_contact_force = false)
 {
+  // 默认仅做接触判定，避免双 probe 的接触响应破坏稳定抓取。G4 采集时
+  // 显式打开低时长的物理接触响应，使 Gazebo bumper 的 wrench 非零。
+  if (enable_contact_force) {
+    return {false, 0u, 0xffffu, 10u};
+  }
   return {true, 0xffffu, 0xffffu, 10u};
 }
 

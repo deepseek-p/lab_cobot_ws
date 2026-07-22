@@ -308,8 +308,8 @@ def test_generated_urdf_loads_grasp_fix_for_contact_based_holding():
     assert plugin.findtext("grip_count_threshold") == "1"
     assert plugin.findtext("grasp_center_offset") == "-0.037 0.0 0.030"
     assert float(plugin.findtext("max_center_distance")) >= 0.090
-    assert plugin.findtext("max_abs_x") == "0.065"
-    assert plugin.findtext("max_abs_y") == "0.055"
+    assert plugin.findtext("max_abs_x") == "0.125"
+    assert plugin.findtext("max_abs_y") == "0.105"
     assert float(plugin.findtext("max_z")) >= 0.075
 
 
@@ -515,6 +515,22 @@ def test_station_a_sample_projects_into_camera_image():
     assert optical_z > 0.05
     assert abs(optical_x / optical_z) < math.tan(1.047 / 2.0)
     assert abs(optical_y / optical_z) < math.tan(1.047 / 2.0) * (480 / 640)
+
+
+def test_lab_sensors_can_be_disabled_for_fast_fixed_pose_grasp_runs():
+    urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
+    urdf = subprocess.run(
+        ["xacro", str(urdf_file), "enable_lab_sensors:=false"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    root = ET.fromstring(urdf)
+
+    assert root.find("./link[@name='laser']") is None
+    assert root.find("./link[@name='imu_link']") is None
+    assert root.find("./link[@name='camera_link']") is None
+    assert root.find(".//sensor[@name='rgbd_camera']") is None
 
 
 def test_wrist_refine_camera_is_absent_by_default():

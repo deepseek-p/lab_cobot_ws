@@ -117,14 +117,15 @@ def test_spawn_entity_places_base_footprint_on_ground():
     assert float(args[args.index("-z") + 1]) == 0.0
 
 
-def test_world_launch_spawns_wheel_velocity_controller():
+def test_world_launch_starts_serial_controller_bootstrap():
     actions = _all_actions(_load_world_launch())
-    spawner_args = [
-        _text_list(node._Node__arguments)
+    bootstraps = [
+        node
         for node in _nodes(actions)
-        if getattr(node, "node_executable", "") == "spawner"
+        if getattr(node, "node_executable", "") == "controller_bootstrap"
     ]
-    assert any("wheel_velocity_controller" in args for args in spawner_args)
+    assert len(bootstraps) == 1
+    assert getattr(bootstraps[0], "node_package", "") == "lab_cobot_gazebo"
 
 
 def test_world_launch_has_no_default_set_entity_state_calls():
@@ -166,6 +167,13 @@ def test_world_robot_description_disables_wrist_camera_by_default():
     command = _robot_description_command_text()
 
     assert "wrist_refine_camera:=false" in command
+    assert "enable_lab_sensors:=true" in command
+
+
+def test_world_robot_description_can_disable_lab_sensors_for_fast_grasp_runs():
+    command = _robot_description_command_text({"enable_lab_sensors": "false"})
+
+    assert "enable_lab_sensors:=false" in command
 
 
 def test_world_robot_description_enables_wrist_camera_from_shared_switch():

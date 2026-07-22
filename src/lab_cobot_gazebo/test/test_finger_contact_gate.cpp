@@ -138,6 +138,15 @@ TEST(FingerCollisionConfig, TactileProbeSurfaceDisablesContactForces)
   EXPECT_EQ(config.max_contacts, 10u);
 }
 
+TEST(FingerCollisionConfig, ForceRecordingModeEnablesProbeContactResponse)
+{
+  const auto config = TactileProbeSurfaceConfig(true);
+
+  EXPECT_FALSE(config.collide_without_contact);
+  EXPECT_EQ(config.collide_without_contact_bitmask, 0u);
+  EXPECT_EQ(config.collide_bits, 0xffffu);
+}
+
 TEST(FingerCollisionConfig, DefaultAttachLinkStaysOnFingerLink)
 {
   EXPECT_EQ(

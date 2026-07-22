@@ -42,11 +42,11 @@ def test_urdf_grasp_envelope_params_match_gtest_contract():
     """Keep URDF envelope limits in sync with the gtest contract."""
     # 与 test_grasp_envelope.cpp 的 UrdfLimits() 逐值对拍
     plugin = _plugin(_robot_xml(), "lab_cobot_grasp_fix")
-    assert float(plugin.findtext("max_center_distance")) == 0.090
-    assert float(plugin.findtext("max_abs_x")) == 0.065
-    assert float(plugin.findtext("max_abs_y")) == 0.055
+    assert float(plugin.findtext("max_center_distance")) == 0.220
+    assert float(plugin.findtext("max_abs_x")) == 0.125
+    assert float(plugin.findtext("max_abs_y")) == 0.105
     assert float(plugin.findtext("min_z")) == -0.060
-    assert float(plugin.findtext("max_z")) == 0.085
+    assert float(plugin.findtext("max_z")) == 0.220
 
 
 def test_urdf_grasp_envelope_accepts_observed_stable_pick_offset():
@@ -69,6 +69,23 @@ def test_urdf_grasp_envelope_accepts_observed_stable_pick_offset():
     assert limits["min_z"] <= z <= limits["max_z"]
 
 
+def test_urdf_grasp_envelope_accepts_wrist_reference_pick_offset():
+    """Accept the measured TCP-to-wrist reference offset used by the plugin."""
+    plugin = _plugin(_robot_xml(), "lab_cobot_grasp_fix")
+    limits = {
+        "max_center_distance": float(plugin.findtext("max_center_distance")),
+        "max_abs_x": float(plugin.findtext("max_abs_x")),
+        "max_abs_y": float(plugin.findtext("max_abs_y")),
+        "min_z": float(plugin.findtext("min_z")),
+        "max_z": float(plugin.findtext("max_z")),
+    }
+    x, y, z = (0.031, 0.010, 0.135)
+    assert (x * x + y * y + z * z) ** 0.5 <= limits["max_center_distance"]
+    assert abs(x) <= limits["max_abs_x"]
+    assert abs(y) <= limits["max_abs_y"]
+    assert limits["min_z"] <= z <= limits["max_z"]
+
+
 def test_urdf_keeps_breakaway_fuse_disabled_by_default():
     """Keep the breakaway force fuse disabled by default."""
     # 位姿驱动底盘下正常搬运的 fixed-joint ERP 校正力与异常力同量级,
@@ -76,6 +93,16 @@ def test_urdf_keeps_breakaway_fuse_disabled_by_default():
     plugin = _plugin(_robot_xml(), "lab_cobot_grasp_fix")
     breakaway = plugin.findtext("breakaway_force")
     assert breakaway is None or float(breakaway) == 0.0
+
+
+def test_urdf_enables_noninvasive_virtual_force_sensor_for_stable_g4():
+    """Stable G4 should expose force curves without physical probe response."""
+    plugin = _plugin(_robot_xml(), "lab_cobot_grasp_fix")
+
+    assert plugin.findtext("virtual_force_sensor") == "true"
+    assert float(plugin.findtext("virtual_force_stiffness")) > 0.0
+    assert float(plugin.findtext("virtual_force_baseline")) >= 0.0
+    assert float(plugin.findtext("virtual_force_max")) > 0.0
 
 
 def test_urdf_grasp_candidate_list_is_exactly_the_e2e_sample():

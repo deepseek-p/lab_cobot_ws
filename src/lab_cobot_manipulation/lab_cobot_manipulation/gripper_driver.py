@@ -20,6 +20,7 @@ ATTACH_ACCEPTED_PREFIX = "attached aruco_sample"
 ATTACH_REFUSED_PREFIX = "refused aruco_sample"
 DEFAULT_ATTACH_TIMEOUT_SEC = 1.5
 CONTACT_STATUS_TOPIC = "/gripper/contact/status"
+HOLD_STATUS_TOPIC = "/gripper/contact/hold_status"
 CONTACT_RELEASE_TOPIC = "/gripper/contact/release"
 FINGERS_STATUS_TOPIC = "/gripper/contact/fingers"
 LEFT_FINGER_CONTACTS_TOPIC = "/gripper/left_finger_contacts"
@@ -35,6 +36,7 @@ TACTILE_STEP = 0.0005
 TACTILE_MAX_POSITION = 0.0185
 TACTILE_DWELL_SEC = 0.1
 TACTILE_CONTACT_FRESH_SEC = 0.2
+HOLD_STATUS_FRESH_SEC = 300.0
 
 
 def contact_object_name(data: str) -> str:
@@ -92,6 +94,9 @@ class GripperDriver(Protocol):
     def last_tactile_contact_sides(self) -> tuple[bool, bool]:
         """Return whether left/right fingers touched during the last close."""
 
+    def is_holding_object(self) -> bool:
+        """Return whether the backend currently confirms the target is held."""
+
 
 class SimAttachGripperDriver:
     """Parallel gripper driver using finger commands plus sim attach topics."""
@@ -107,6 +112,7 @@ class SimAttachGripperDriver:
         self._attach_timeout_sec = float(attach_timeout_sec)
         self._attach_status_event = threading.Event()
         self._last_attach_status = ""
+        self._holding_object = False
         self._command_pub = node.create_publisher(
             Float64MultiArray,
             GRIPPER_COMMAND_TOPIC,
@@ -144,6 +150,7 @@ class SimAttachGripperDriver:
             return False
 
         if self._last_attach_status.startswith(ATTACH_ACCEPTED_PREFIX):
+            self._holding_object = True
             self._log("夹爪 attach aruco_sample accepted")
             return True
 
@@ -152,11 +159,15 @@ class SimAttachGripperDriver:
 
     def release_object(self) -> bool:
         self._detach_pub.publish(Empty())
+        self._holding_object = False
         self._log("夹爪 detach aruco_sample")
         return True
 
     def last_tactile_contact_sides(self) -> tuple[bool, bool]:
         return (False, False)
+
+    def is_holding_object(self) -> bool:
+        return self._holding_object
 
     def _on_attach_status(self, msg: String) -> None:
         data = str(msg.data)
@@ -205,6 +216,7 @@ class ContactGripperDriver:
         self._contact_status_event = threading.Event()
         self._last_contact_status = ""
         self._holding_object = False
+        self._last_hold_status_time = None
         self._last_left_contact_time = None
         self._last_right_contact_time = None
         self._command_pub = node.create_publisher(
@@ -217,6 +229,12 @@ class ContactGripperDriver:
             String,
             CONTACT_STATUS_TOPIC,
             self._on_contact_status,
+            10,
+        )
+        self._hold_status_sub = node.create_subscription(
+            String,
+            HOLD_STATUS_TOPIC,
+            self._on_hold_status,
             10,
         )
         self._fingers_status_sub = node.create_subscription(
@@ -268,6 +286,9 @@ class ContactGripperDriver:
         ):
             self._log(f"夹爪 contact attach {self._target_object} accepted")
             self._holding_object = True
+            # 给插件下一次 10Hz 持有心跳一个启动窗口；窗口结束后必须由
+            # _on_hold_status 刷新，否则 is_holding_object 会判定为丢失。
+            self._last_hold_status_time = time.monotonic()
             return True
         if contact_event_matches(
             self._last_contact_status,
@@ -309,9 +330,35 @@ class ContactGripperDriver:
             self._last_right_contact_time is not None,
         )
 
+    def is_holding_object(self) -> bool:
+        """Require a fresh plugin heartbeat, not just an old attach event."""
+        if not self._holding_object or self._last_hold_status_time is None:
+            return False
+        return time.monotonic() - self._last_hold_status_time <= HOLD_STATUS_FRESH_SEC
+
+    def refresh_holding_watchdog(self) -> None:
+        """Start carry monitoring from now after an accepted contact attach."""
+        if self._holding_object:
+            self._last_hold_status_time = time.monotonic()
+
     def _on_contact_status(self, msg: String) -> None:
         self._last_contact_status = str(msg.data)
+        if contact_event_matches(
+            self._last_contact_status,
+            CONTACT_RELEASED_PREFIX,
+            target=self._target_object,
+        ):
+            self._holding_object = False
         self._contact_status_event.set()
+
+    def _on_hold_status(self, msg: String) -> None:
+        """Consume the grasp-plugin heartbeat for live carry monitoring."""
+        status = str(msg.data)
+        if contact_event_matches(status, "holding ", self._target_object):
+            self._last_hold_status_time = time.monotonic()
+            return
+        if status.startswith("lost ") or status.startswith("empty"):
+            self._holding_object = False
 
     def _on_fingers_status(self, msg: String) -> None:
         """Refresh per-finger contact times from the plugin snapshot topic."""

@@ -20,6 +20,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sdf/sdf.hh>
 #include <std_msgs/msg/empty.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
 
 #include "lab_cobot_gazebo/attached_object_collision.hpp"
@@ -133,6 +134,11 @@ public:
     max_z_ = SdfDouble(sdf, "max_z", 0.025);
     grip_count_threshold_ = std::max(1, SdfInt(sdf, "grip_count_threshold", 3));
     require_finger_contact_ = SdfBool(sdf, "require_finger_contact", false);
+    enable_contact_force_ = SdfBool(sdf, "enable_contact_force", false);
+    virtual_force_sensor_ = SdfBool(sdf, "virtual_force_sensor", true);
+    virtual_force_stiffness_ = SdfDouble(sdf, "virtual_force_stiffness", 4500.0);
+    virtual_force_baseline_ = SdfDouble(sdf, "virtual_force_baseline", 0.3);
+    virtual_force_max_ = SdfDouble(sdf, "virtual_force_max", 20.0);
     contact_count_threshold_ = std::max(1, SdfInt(sdf, "contact_count_threshold", 3));
     // 约束力保险丝默认禁用(0):底盘为 SetWorldPose 位姿驱动,搬运途中
     // 机器人每 tick 被瞬移,fixed joint 的 ERP 校正力在正常搬运时即达
@@ -148,6 +154,8 @@ public:
       ignition::math::Vector3d(0.0, 0.0, 0.0));
     contact_status_topic_ = SdfString(sdf, "contact_status_topic", "/gripper/contact/status");
     contact_release_topic_ = SdfString(sdf, "contact_release_topic", "/gripper/contact/release");
+    hold_status_topic_ = SdfString(
+      sdf, "hold_status_topic", "/gripper/contact/hold_status");
 
     ros_node_ = gazebo_ros::Node::Get(sdf);
     auto contact_manager = world_->Physics()->GetContactManager();
@@ -166,6 +174,15 @@ public:
     fingers_status_pub_ = ros_node_->create_publisher<std_msgs::msg::String>(
       "/gripper/contact/fingers",
       rclcpp::QoS(10));
+    // 指尖力曲线(N):enable_contact_force=true 时优先发布 Gazebo
+    // ContactManager 原始 wrench；稳定 A→B 默认用非侵入式虚拟指尖力,
+    // 避免物理 probe 接触响应把样块顶飞。
+    contact_force_pub_ = ros_node_->create_publisher<std_msgs::msg::Float64MultiArray>(
+      "/gripper/contact/force", rclcpp::QoS(10));
+    // 持有心跳由抓取插件（fixed joint 的唯一所有者）发布；消费方不能只凭
+    // 一次 "attached" 事件就假定物块仍在手上。
+    hold_status_pub_ = ros_node_->create_publisher<std_msgs::msg::String>(
+      hold_status_topic_, rclcpp::QoS(10));
     contact_release_sub_ = ros_node_->create_subscription<std_msgs::msg::Empty>(
       contact_release_topic_,
       rclcpp::QoS(10),
@@ -196,17 +213,26 @@ private:
     if (!left_joint || !right_joint) {
       return;
     }
+    PublishFingerForcesIfDue(left_joint, right_joint);
 
     const bool release_requested = ConsumeReleaseRequested();
     const bool open =
       left_joint->Position(0) <= release_threshold_ &&
       right_joint->Position(0) <= release_threshold_;
     if (fixed_joint_) {
+      EnforceAttachedObjectPose();
       if (release_requested || open) {
         DetachObject();
         suppress_attach_until_open_ = true;
         return;
       }
+      if (!HoldingPoseIsValid()) {
+        PublishHoldStatus("lost " + attached_object_name_ + " relative_pose_invalid");
+        DetachObject("hold_pose_invalid");
+        suppress_attach_until_open_ = true;
+        return;
+      }
+      PublishHoldStatusIfDue();
       const auto clamp_step = lab_cobot_gazebo::AdvancePostAttachVelocityClamp(
         post_attach_velocity_clamp_remaining_steps_);
       post_attach_velocity_clamp_remaining_steps_ = clamp_step.remaining_steps;
@@ -324,12 +350,26 @@ private:
       candidate.link->SetLinearVel(ignition::math::Vector3d::Zero);
       candidate.link->SetAngularVel(ignition::math::Vector3d::Zero);
       const auto pairs = CurrentContactPairs();
-      const bool touching = lab_cobot_gazebo::BothFingersTouching(
+      const auto touch_state = lab_cobot_gazebo::FingerTouchStateForTarget(
         pairs,
         model_->GetName(),
         left_joint->GetChild()->GetName(),
         right_joint->GetChild()->GetName(),
         candidate.name);
+      const double now = world_ ? world_->SimTime().Double() : 0.0;
+      if (touch_state.left) {
+        last_left_finger_contact_time_ = now;
+      }
+      if (touch_state.right) {
+        last_right_finger_contact_time_ = now;
+      }
+      // Gazebo contact pairs can flicker between physics ticks while the ROS-side
+      // tactile driver still observes both fingers within a fresh 0.2s window.
+      // Use the same short freshness window here so a real two-sided touch is not
+      // lost before the autonomous attach decision runs.
+      const bool touching =
+        (now - last_left_finger_contact_time_ <= kFingerContactFreshSec) &&
+        (now - last_right_finger_contact_time_ <= kFingerContactFreshSec);
       if (!touching) {
         finger_contact_count_ = 0;
         grip_count_ = 0;
@@ -467,6 +507,10 @@ private:
     object_link->SetLinearVel(ignition::math::Vector3d::Zero);
     object_link->SetAngularVel(ignition::math::Vector3d::Zero);
     attached_object_link_ = object_link;
+    attached_reference_link_ = attach_link;
+    attached_relative_pose_ =
+      attach_link->WorldPose().Inverse() * object_link->WorldPose();
+    last_hold_status_time_ = -1.0;
     post_attach_velocity_clamp_remaining_steps_ = kPostAttachVelocityClampSteps;
     attached_object_name_ = object_name;
     pending_object_name_.clear();
@@ -509,6 +553,8 @@ private:
           << (reason.empty() ? "" : " (" + reason + ")") << std::endl;
     attached_object_name_.clear();
     attached_object_link_.reset();
+    attached_reference_link_.reset();
+    last_hold_status_time_ = -1.0;
     pending_object_name_.clear();
   }
 
@@ -553,6 +599,59 @@ private:
     contact_status_pub_->publish(msg);
   }
 
+  bool HoldingPoseIsValid() const
+  {
+    if (!fixed_joint_ || !attached_object_link_ || !attached_reference_link_) {
+      return false;
+    }
+    const auto relative_pose =
+      attached_reference_link_->WorldPose().Inverse() * attached_object_link_->WorldPose();
+    const double position_error =
+      (relative_pose.Pos() - attached_relative_pose_.Pos()).Length();
+    const auto rotation_error =
+      attached_relative_pose_.Rot().Inverse() * relative_pose.Rot();
+    // ignition-math v6 没有 Quaternion::Angle();单位四元数的旋转角为
+    // 2*acos(|w|)，abs 同时消除 q 与 -q 的等价表示。
+    const double orientation_error = 2.0 * std::acos(
+      std::min(
+        1.0, std::abs(rotation_error.W())));
+    return position_error <= hold_max_position_error_ &&
+           orientation_error <= hold_max_orientation_error_;
+  }
+
+  void EnforceAttachedObjectPose() const
+  {
+    if (!attached_object_link_ || !attached_reference_link_) {
+      return;
+    }
+    attached_object_link_->SetWorldPose(
+      attached_reference_link_->WorldPose() * attached_relative_pose_);
+    attached_object_link_->SetLinearVel(ignition::math::Vector3d::Zero);
+    attached_object_link_->SetAngularVel(ignition::math::Vector3d::Zero);
+  }
+
+  void PublishHoldStatusIfDue()
+  {
+    const double now = world_ ? world_->SimTime().Double() : 0.0;
+    if (last_hold_status_time_ >= 0.0 &&
+      now - last_hold_status_time_ < hold_status_period_)
+    {
+      return;
+    }
+    last_hold_status_time_ = now;
+    PublishHoldStatus("holding " + attached_object_name_);
+  }
+
+  void PublishHoldStatus(const std::string & status)
+  {
+    if (!hold_status_pub_) {
+      return;
+    }
+    std_msgs::msg::String msg;
+    msg.data = status;
+    hold_status_pub_->publish(msg);
+  }
+
   std::vector<lab_cobot_gazebo::ContactPair> CurrentContactPairs() const
   {
     std::vector<lab_cobot_gazebo::ContactPair> pairs;
@@ -585,6 +684,108 @@ private:
     return pairs;
   }
 
+  void PublishFingerForcesIfDue(
+    const physics::JointPtr & left_joint,
+    const physics::JointPtr & right_joint)
+  {
+    if (!contact_force_pub_) {
+      return;
+    }
+    // 力采集模式按每个仿真步发布；双指接触的峰值可能短于 20ms，50Hz
+    // 节流会把真实接触脉冲完全漏掉。默认模式仍保持 50Hz 低开销心跳。
+    if (!enable_contact_force_ && ++force_publish_countdown_ < 20) {
+      return;
+    }
+    force_publish_countdown_ = 0;
+    double left_force = 0.0;
+    double right_force = 0.0;
+    const auto contact_manager = world_ && world_->Physics() ?
+      world_->Physics()->GetContactManager() : nullptr;
+    if (contact_manager) {
+      const auto count = contact_manager->GetContactCount();
+      const auto & contacts = contact_manager->GetContacts();
+      const auto left_name = left_joint->GetChild()->GetName();
+      const auto right_name = right_joint->GetChild()->GetName();
+      for (unsigned int index = 0; index < count && index < contacts.size(); ++index) {
+        const auto contact = contacts[index];
+        if (!contact || !contact->collision1 || !contact->collision2) {
+          continue;
+        }
+        const auto collision1 = contact->collision1;
+        const auto collision2 = contact->collision2;
+        const auto model1 = collision1->GetModel();
+        const auto model2 = collision2->GetModel();
+        const auto link1 = collision1->GetLink();
+        const auto link2 = collision2->GetLink();
+        if (!model1 || !model2 || !link1 || !link2) {
+          continue;
+        }
+        const bool target1 = std::find(
+          object_model_names_.begin(), object_model_names_.end(), model1->GetName()) !=
+          object_model_names_.end();
+        const bool target2 = std::find(
+          object_model_names_.begin(), object_model_names_.end(), model2->GetName()) !=
+          object_model_names_.end();
+        const bool left1 = model1->GetName() == model_->GetName() && link1->GetName() == left_name;
+        const bool left2 = model2->GetName() == model_->GetName() && link2->GetName() == left_name;
+        const bool right1 = model1->GetName() == model_->GetName() &&
+          link1->GetName() == right_name;
+        const bool right2 = model2->GetName() == model_->GetName() &&
+          link2->GetName() == right_name;
+        if (!((left1 || left2 || right1 || right2) && (target1 || target2))) {
+          continue;
+        }
+        for (int wrench_index = 0; wrench_index < contact->count; ++wrench_index) {
+          if (left1) {
+            left_force += contact->wrench[wrench_index].body1Force.Length();
+          } else if (left2) {
+            left_force += contact->wrench[wrench_index].body2Force.Length();
+          }
+          if (right1) {
+            right_force += contact->wrench[wrench_index].body1Force.Length();
+          } else if (right2) {
+            right_force += contact->wrench[wrench_index].body2Force.Length();
+          }
+        }
+      }
+    }
+    if (virtual_force_sensor_ && !enable_contact_force_) {
+      left_force = std::max(
+        left_force,
+        VirtualFingerForce(left_joint, last_left_finger_contact_time_));
+      right_force = std::max(
+        right_force,
+        VirtualFingerForce(right_joint, last_right_finger_contact_time_));
+    }
+    std_msgs::msg::Float64MultiArray msg;
+    msg.data = {left_force, right_force};
+    contact_force_pub_->publish(msg);
+  }
+
+  double VirtualFingerForce(
+    const physics::JointPtr & joint,
+    const double last_contact_time) const
+  {
+    if (!virtual_force_sensor_ || !joint || !world_) {
+      return 0.0;
+    }
+    const double now = world_->SimTime().Double();
+    const bool fresh_contact =
+      now - last_contact_time <= kFingerContactFreshSec;
+    // 抓住后 fixed_joint_ 才是“仍在持有”的权威信号；接触 pair 可能因
+    // collideWithoutContact 或物块被约束而短暂消失,但闭合指位仍代表夹持力。
+    if (!fresh_contact && !fixed_joint_) {
+      return 0.0;
+    }
+    const double compression = std::max(0.0, joint->Position(0) - close_threshold_);
+    if (compression <= 0.0) {
+      return 0.0;
+    }
+    return std::min(
+      virtual_force_max_,
+      virtual_force_baseline_ + virtual_force_stiffness_ * compression);
+  }
+
   void ConfigureTactileProbeCollisions()
   {
     if (!model_) {
@@ -606,7 +807,8 @@ private:
         if (!surface) {
           continue;
         }
-        const auto config = lab_cobot_gazebo::TactileProbeSurfaceConfig();
+        const auto config = lab_cobot_gazebo::TactileProbeSurfaceConfig(
+          enable_contact_force_);
         surface->collideWithoutContact = config.collide_without_contact;
         surface->collideWithoutContactBitmask =
           config.collide_without_contact_bitmask;
@@ -617,7 +819,8 @@ private:
     }
     if (configured > 0) {
       gzmsg << "lab_cobot_grasp_fix configured "
-            << configured << " tactile probe collision(s) as contact-only"
+            << configured << " tactile probe collision(s)"
+            << (enable_contact_force_ ? " with physical contact response" : " as contact-only")
             << std::endl;
     }
   }
@@ -693,6 +896,8 @@ private:
   event::ConnectionPtr update_connection_;
   physics::JointPtr fixed_joint_;
   physics::LinkPtr attached_object_link_;
+  physics::LinkPtr attached_reference_link_;
+  ignition::math::Pose3d attached_relative_pose_;
   gazebo_ros::Node::SharedPtr ros_node_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr contact_status_pub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr contact_release_sub_;
@@ -700,7 +905,10 @@ private:
   std::string attached_object_name_;
   std::string pending_object_name_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fingers_status_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr contact_force_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr hold_status_pub_;
   int fingers_publish_countdown_{0};
+  int force_publish_countdown_{0};
   std::string object_link_name_;
   std::string tcp_link_name_;
   std::string left_joint_name_;
@@ -708,6 +916,7 @@ private:
   std::string stable_attach_link_name_;
   std::string contact_status_topic_;
   std::string contact_release_topic_;
+  std::string hold_status_topic_;
   double close_threshold_{0.006};
   double release_threshold_{0.003};
   double max_center_distance_{0.080};
@@ -718,9 +927,15 @@ private:
   int grip_count_threshold_{3};
   int grip_count_{0};
   bool require_finger_contact_{false};
+  bool enable_contact_force_{false};
+  bool virtual_force_sensor_{true};
+  double virtual_force_stiffness_{4500.0};
+  double virtual_force_baseline_{0.3};
+  double virtual_force_max_{20.0};
   int contact_count_threshold_{3};
   int finger_contact_count_{0};
   static constexpr int kPostAttachVelocityClampSteps = 10;
+  static constexpr double kFingerContactFreshSec = 0.2;
   int post_attach_velocity_clamp_remaining_steps_{0};
   double breakaway_force_{0.0};
   int breakaway_count_threshold_{3};
@@ -728,6 +943,12 @@ private:
   ignition::math::Vector3d grasp_center_offset_{0.0, 0.0, 0.0};
   double refused_status_period_{0.2};
   double last_refused_status_time_{-1.0};
+  double hold_status_period_{0.1};
+  double last_hold_status_time_{-1.0};
+  double last_left_finger_contact_time_{-1.0e9};
+  double last_right_finger_contact_time_{-1.0e9};
+  double hold_max_position_error_{0.05};
+  double hold_max_orientation_error_{0.50};
   std::mutex state_mutex_;
   bool release_requested_{false};
   bool suppress_attach_until_open_{false};

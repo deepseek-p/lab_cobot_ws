@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!-- 固定双工位抓放验证场景：禁止运行中移动动态样件或台面。 -->
+<sdf version="1.6">
+  <world name="grasp_place">
+    <!-- 高对比度展示：避免 Gazebo Classic 默认光照令机器人和工位发灰。 -->
+    <scene>
+      <ambient>0.55 0.55 0.55 1</ambient>
+      <background>0.08 0.11 0.16 1</background>
+      <shadows>true</shadows>
+    </scene>
+    <light name="key_light" type="directional">
+      <pose>0 0 8 0.35 -0.45 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <diffuse>1 0.96 0.88 1</diffuse>
+      <specular>0.25 0.25 0.25 1</specular>
+      <attenuation><range>100</range><constant>0.9</constant><linear>0.01</linear><quadratic>0.001</quadratic></attenuation>
+      <direction>-0.4 0.3 -1</direction>
+    </light>
+    <light name="fill_light" type="directional">
+      <pose>0 -4 4 0 0 0</pose>
+      <cast_shadows>false</cast_shadows>
+      <diffuse>0.38 0.52 0.80 1</diffuse>
+      <specular>0.05 0.05 0.05 1</specular>
+      <direction>0 0.6 -1</direction>
+    </light>
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros><namespace>/gazebo</namespace></ros>
+      <update_rate>30.0</update_rate>
+    </plugin>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></collision>
+        <visual name="visual"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></visual>
+      </link>
+    </model>
+    <model name="station_a_table">
+      <static>true</static><pose>0.80 0.00 0 0 0 0</pose>
+      <link name="link">
+        <!-- 两台中心仅相距 0.2m，缩小为独立台面，便于清晰区分 A/B。 -->
+        <collision name="collision"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.45 0.16 0.75</size></box></geometry></collision>
+        <visual name="visual"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.45 0.16 0.75</size></box></geometry><material><ambient>0.50 0.20 0.02 1</ambient><diffuse>0.95 0.42 0.04 1</diffuse><specular>0.20 0.12 0.02 1</specular></material></visual>
+        <!-- A 台：白色顶面识别条。 -->
+        <visual name="station_a_identifier"><pose>0 0 0.753 0 0 0</pose><geometry><box><size>0.35 0.025 0.006</size></box></geometry><material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material></visual>
+      </link>
+    </model>
+    <!-- B 放置中心采用正式任务的局部放置坐标。 -->
+    <model name="station_b_table">
+      <static>true</static><pose>0.82 0.20 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.45 0.16 0.75</size></box></geometry></collision>
+        <visual name="visual"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.45 0.16 0.75</size></box></geometry><material><ambient>0.02 0.20 0.52 1</ambient><diffuse>0.04 0.42 0.95 1</diffuse><specular>0.04 0.12 0.24 1</specular></material></visual>
+        <!-- B 台：黄色顶面识别条。 -->
+        <visual name="station_b_identifier"><pose>0 0 0.753 0 0 0</pose><geometry><box><size>0.35 0.025 0.006</size></box></geometry><material><ambient>1 0.92 0.02 1</ambient><diffuse>1 0.92 0.02 1</diffuse></material></visual>
+      </link>
+    </model>
+    <include>
+      <uri>model://aruco_sample</uri><name>aruco_sample</name>
+      <pose>0.80 0.00 0.785 0 0 0</pose>
+    </include>
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size><real_time_factor>1.0</real_time_factor><real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+  </world>
+</sdf>
