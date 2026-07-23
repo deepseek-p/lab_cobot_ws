@@ -1,0 +1,57 @@
+yolo_world_detection:
+  ros__parameters:
+    use_sim_time: true
+    image_topic: /bench_camera/image_raw
+    detection_topic: /yolo/detections
+    model_path: yolov8s-worldv2.pt
+    # 仅识别建图中带箭头标注的模型；五个区域名称和 home 不作为物品类别。
+    target_classes: [aruco_sample, igbt_module_plain, thermal_grease_can, fixture_box_plain, tooling_hand_tools, aging_rack, pcb_test_fixture, safety_probe_kit]
+    # YOLO-World 的开放词表提示词；检测输出会映射回 target_classes 中的模型名。
+    target_prompts: [aruco marker, IGBT module, thermal grease can, fixture box, hand tool tray, aging rack, PCB test fixture, high voltage probe kit]
+    prompt_label_aliases: [aruco marker=aruco_sample, IGBT module=igbt_module_plain, thermal grease can=thermal_grease_can, fixture box=fixture_box_plain, hand tool tray=tooling_hand_tools, aging rack=aging_rack, PCB test fixture=pcb_test_fixture, high voltage probe kit=safety_probe_kit]
+    confidence_threshold: 0.05
+    nms_iou_threshold: 0.45
+    # Gazebo GUI 已占用显卡；评测时固定 CPU 可避免 CUDA 进程被终止。
+    device: cpu
+    inference_imgsz: 640
+    publish_annotated_image: true
+yolo_pointcloud_pose:
+  ros__parameters:
+    use_sim_time: true
+    # Must be an organized RGB-D cloud registered to image_topic. Gazebo truth
+    # is only written into evaluation_log_path and never sent to grasp topics.
+    pointcloud_topic: /image_pkg/camera_points
+    detection_topic: /yolo/detections
+    target_frame: base_link
+    objects_topic: /perception/objects
+    pose_topic: /perception/yolo/pose
+    json_pose_topic: /yolo/poses
+    evaluation_topic: /perception/yolo/evaluation
+    selected_pose_topic: /perception/target_pose
+    pose_source: yolo  # set aruco to relay aruco_pose_topic instead
+    aruco_pose_topic: /perception/aruco_0/pose
+    grasp_status_topic: /gripper/status
+    gazebo_truth_topic: /gazebo/model_states
+    # Gazebo 模型名与视觉语义类别一一对应，仅用于评估记录。
+    gazebo_model_names: [aruco_sample, material_spare_igbt, material_grease_can, tooling_fixture_box, tooling_hand_tools, aging_rack, board_test_fixture, high_voltage_probe_kit]
+    gazebo_model_labels: [aruco_sample, igbt_module_plain, thermal_grease_can, fixture_box_plain, tooling_hand_tools, aging_rack, pcb_test_fixture, safety_probe_kit]
+    gazebo_truth_frame: odom
+    # ModelStates 内机器人模型的世界位姿用于 world -> base_link 真值换算。
+    gazebo_robot_model_name: lab_cobot
+    # 仅允许经人工确认的同物异名映射。颜色框不能自动对应到某个
+    # Gazebo 模型，否则会产生看似有数值、实则错误的评估误差。
+    detection_label_aliases: [""]
+    evaluation_log_path: ~/.ros/yolo_pose_evaluation.jsonl
+    min_points: 20
+    # CPU YOLO 在 GUI 仿真中存在约数秒推理延迟；桌面目标静止时允许
+    # 使用随后到达的注册点云完成框-点云关联。
+    max_detection_age_sec: 5.0
+rgbd_pointcloud:
+  ros__parameters:
+    use_sim_time: true
+    rgb_topic: /bench_camera/image_raw
+    depth_topic: /bench_camera/depth/image_raw
+    camera_info_topic: /bench_camera/camera_info
+    pointcloud_topic: /image_pkg/camera_points
+    min_depth: 0.05
+    max_depth: 3.0

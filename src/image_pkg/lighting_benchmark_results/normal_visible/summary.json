@@ -1,0 +1,17 @@
+{
+  "condition": "normal_visible",
+  "frames": 100,
+  "aruco_rate": 0.0,
+  "yolo_rate": 0.0,
+  "label_rates": {
+    "aruco marker": 0.0,
+    "thermal_grease_can": 0.0,
+    "tooling_hand_tools": 0.0,
+    "pcb_test_fixture": 0.0,
+    "safety_probe_kit": 0.0
+  },
+  "failure_images": {
+    "aruco": 3,
+    "yolo": 3
+  }
+}
