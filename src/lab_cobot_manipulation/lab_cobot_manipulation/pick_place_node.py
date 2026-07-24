@@ -26,10 +26,13 @@ from lab_cobot_manipulation.gripper_driver import (
 from lab_cobot_manipulation.refine_select import select_refined_position
 from lab_cobot_manipulation.scene_obstacles import (
     CARRIED_SAMPLE_BOX_ID,
+    DYNAMIC_ARM_OBSTACLE_BOX_ID,
     PlanningSceneClient,
     STATION_SURFACE_BOX_ID,
     make_attach_scene,
     make_detach_scene,
+    make_dynamic_obstacle_scene,
+    make_remove_dynamic_obstacle_scene,
     make_world_box_scene,
     station_surface_box,
 )
@@ -270,6 +273,45 @@ class PickPlace(Node):
         scene = make_detach_scene(CARRIED_SAMPLE_BOX_ID)
         if self._apply_scene_diff(scene, "sample detach"):
             self.get_logger().info("planning scene carried sample detached")
+
+    def update_dynamic_arm_obstacle(
+        self,
+        center,
+        size,
+        frame_id="base_link",
+        object_id=DYNAMIC_ARM_OBSTACLE_BOX_ID,
+    ) -> bool:
+        """Add or update one dynamic obstacle used by arm planning."""
+        if self.scene_client is None:
+            return False
+        scene = make_dynamic_obstacle_scene(
+            center,
+            size,
+            frame_id=frame_id,
+            object_id=object_id,
+        )
+        ok = self._apply_scene_diff(scene, "dynamic obstacle update")
+        if ok:
+            self.get_logger().info(
+                "planning scene dynamic obstacle updated id=%s frame=%s"
+                % (object_id, frame_id)
+            )
+        return ok
+
+    def clear_dynamic_arm_obstacle(
+        self,
+        object_id=DYNAMIC_ARM_OBSTACLE_BOX_ID,
+    ) -> bool:
+        """Remove the dynamic obstacle used by arm planning."""
+        if self.scene_client is None:
+            return False
+        scene = make_remove_dynamic_obstacle_scene(object_id)
+        ok = self._apply_scene_diff(scene, "dynamic obstacle remove")
+        if ok:
+            self.get_logger().info(
+                "planning scene dynamic obstacle removed id=%s" % object_id
+            )
+        return ok
 
     # ---- 持有监控(抓取插件 heartbeat) ----
     def _gripper_confirms_holding(self) -> bool:

@@ -41,6 +41,7 @@ HELD_SAMPLE_CENTER_FROM_TCP_Z = -0.015481
 
 STATION_SURFACE_BOX_ID = "station_surface"
 CARRIED_SAMPLE_BOX_ID = "carried_sample"
+DYNAMIC_ARM_OBSTACLE_BOX_ID = "g5_dynamic_arm_obstacle"
 GRIPPER_ATTACH_LINK = "gripper_tcp"
 # 与持物样件允许接触的机器人 link(URDF parallel_gripper.xacro 事实)。
 GRIPPER_TOUCH_LINKS = (
@@ -71,6 +72,21 @@ def carried_sample_box() -> dict:
     return {
         "center": [0.0, 0.0, center_z],
         "size": [2.0 * SAMPLE_HALF_HEIGHT, 2.0 * SAMPLE_HALF_HEIGHT, size_z],
+    }
+
+
+def dynamic_obstacle_box(center, size) -> dict:
+    """Return a dynamic arm obstacle box in a planning frame."""
+    if len(center) != 3:
+        raise ValueError("dynamic obstacle center must have 3 values")
+    if len(size) != 3:
+        raise ValueError("dynamic obstacle size must have 3 values")
+    box_size = [float(value) for value in size]
+    if any(value <= 0.0 for value in box_size):
+        raise ValueError("dynamic obstacle size values must be positive")
+    return {
+        "center": [float(value) for value in center],
+        "size": box_size,
     }
 
 
@@ -109,6 +125,35 @@ def make_world_box_scene(object_id, box, frame_id) -> PlanningScene:
     return scene
 
 
+def make_remove_world_box_scene(object_id) -> PlanningScene:
+    """Build a diff scene removing one world collision object."""
+    scene = PlanningScene()
+    scene.is_diff = True
+    scene.world.collision_objects = [_remove_collision_object(object_id)]
+    return scene
+
+
+def make_dynamic_obstacle_scene(
+    center,
+    size,
+    frame_id="base_link",
+    object_id=DYNAMIC_ARM_OBSTACLE_BOX_ID,
+) -> PlanningScene:
+    """Build a diff scene adding/updating the G5 dynamic arm obstacle box."""
+    return make_world_box_scene(
+        object_id,
+        dynamic_obstacle_box(center, size),
+        frame_id,
+    )
+
+
+def make_remove_dynamic_obstacle_scene(
+    object_id=DYNAMIC_ARM_OBSTACLE_BOX_ID,
+) -> PlanningScene:
+    """Build a diff scene removing the G5 dynamic arm obstacle box."""
+    return make_remove_world_box_scene(object_id)
+
+
 def make_attach_scene(object_id) -> PlanningScene:
     """Build a diff scene attaching the carried sample box to the TCP link."""
     attached = AttachedCollisionObject()
@@ -142,9 +187,28 @@ def make_detach_scene(object_id) -> PlanningScene:
 class PlanningSceneClient:
     """Thin ApplyPlanningScene client with startup race retries."""
 
-    def __init__(self, node, service_name=APPLY_SCENE_SERVICE):
+    def __init__(
+        self,
+        node,
+        service_name=APPLY_SCENE_SERVICE,
+        callback_group=None,
+    ):
         self._node = node
-        self._client = node.create_client(ApplyPlanningScene, service_name)
+        self._client = node.create_client(
+            ApplyPlanningScene,
+            service_name,
+            callback_group=callback_group,
+        )
+        self._service_ready = False
+
+    def wait_until_ready(self, timeout_sec=APPLY_SCENE_TIMEOUT_SEC) -> bool:
+        """Wait once for ApplyPlanningScene; future applies reuse the ready client."""
+        if self._service_ready:
+            return True
+        self._service_ready = bool(
+            self._client.wait_for_service(timeout_sec=float(timeout_sec))
+        )
+        return self._service_ready
 
     def apply(
         self,
@@ -156,7 +220,7 @@ class PlanningSceneClient:
         # DDS 启动竞态:节点刚起时单次 service call 会假超时,一律多次重试;
         # 响应由外部 executor 线程处理,这里只轮询 future,不再自旋节点。
         for _attempt in range(int(attempts)):
-            if not self._client.wait_for_service(timeout_sec=timeout_sec):
+            if not self.wait_until_ready(timeout_sec=timeout_sec):
                 continue
             request = ApplyPlanningScene.Request()
             request.scene = scene

@@ -89,7 +89,14 @@ class FakeSceneClient:
             else:
                 self._events.append("scene_detach")
         elif scene.world.collision_objects:
-            self._events.append("scene_surface")
+            obj = scene.world.collision_objects[0]
+            if obj.id == pick_place_node.DYNAMIC_ARM_OBSTACLE_BOX_ID:
+                if obj.operation == obj.ADD:
+                    self._events.append("scene_dynamic_update")
+                else:
+                    self._events.append("scene_dynamic_remove")
+            else:
+                self._events.append("scene_surface")
         return self._ok
 
 
@@ -950,6 +957,32 @@ def test_pick_injects_surface_before_arm_motion_and_attaches_after_acquire():
         "close",
         "move_above",
     ]
+
+
+def test_dynamic_arm_obstacle_update_and_clear_use_planning_scene():
+    pick_place = make_pick_place_without_ros(fake_moves=[])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    assert pick_place.update_dynamic_arm_obstacle(
+        [0.35, 0.12, 0.50],
+        [0.12, 0.12, 0.20],
+    )
+    assert pick_place.clear_dynamic_arm_obstacle()
+    assert action_events(pick_place.events) == [
+        "scene_dynamic_update",
+        "scene_dynamic_remove",
+    ]
+
+
+def test_dynamic_arm_obstacle_disabled_without_scene_client():
+    pick_place = make_pick_place_without_ros(fake_moves=[])
+
+    assert not pick_place.update_dynamic_arm_obstacle(
+        [0.35, 0.12, 0.50],
+        [0.12, 0.12, 0.20],
+    )
+    assert not pick_place.clear_dynamic_arm_obstacle()
+    assert action_events(pick_place.events) == []
 
 
 def test_pick_detaches_scene_box_when_close_fails_after_attach():

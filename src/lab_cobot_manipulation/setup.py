@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'contact_force_recorder = lab_cobot_manipulation.contact_force_recorder:main',
+            'dynamic_arm_obstacle_node = lab_cobot_manipulation.dynamic_arm_obstacle_node:main',
             'joint_state_qos_relay = lab_cobot_manipulation.joint_state_qos_relay:main',
         ],
     },

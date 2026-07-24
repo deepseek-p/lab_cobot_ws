@@ -7,6 +7,7 @@ import math
 from lab_cobot_manipulation.scene_obstacles import (
     ATTACHED_SAMPLE_BOTTOM_TRIM,
     CARRIED_SAMPLE_BOX_ID,
+    DYNAMIC_ARM_OBSTACLE_BOX_ID,
     GRIPPER_ATTACH_LINK,
     GRIPPER_TOUCH_LINKS,
     HELD_SAMPLE_CENTER_FROM_TCP_Z,
@@ -15,8 +16,11 @@ from lab_cobot_manipulation.scene_obstacles import (
     SURFACE_BOX_XY,
     TABLE_HEIGHT,
     carried_sample_box,
+    dynamic_obstacle_box,
     make_attach_scene,
     make_detach_scene,
+    make_dynamic_obstacle_scene,
+    make_remove_dynamic_obstacle_scene,
     make_world_box_scene,
     station_surface_box,
 )
@@ -104,6 +108,47 @@ def test_make_world_box_scene_is_add_diff():
     assert obj.header.frame_id == "base_link"
     assert list(obj.primitives[0].dimensions) == list(box["size"])
     assert obj.primitive_poses[0].position.z == box["center"][2]
+
+
+def test_dynamic_obstacle_box_preserves_center_and_size():
+    box = dynamic_obstacle_box([0.35, 0.12, 0.5], [0.12, 0.12, 0.2])
+
+    assert box["center"] == [0.35, 0.12, 0.5]
+    assert box["size"] == [0.12, 0.12, 0.2]
+
+
+def test_dynamic_obstacle_box_rejects_non_positive_size():
+    try:
+        dynamic_obstacle_box([0.35, 0.12, 0.5], [0.12, 0.0, 0.2])
+    except ValueError as exc:
+        assert "positive" in str(exc)
+    else:
+        raise AssertionError("dynamic_obstacle_box should reject zero size")
+
+
+def test_make_dynamic_obstacle_scene_is_add_or_update_diff():
+    scene = make_dynamic_obstacle_scene(
+        [0.35, 0.12, 0.5],
+        [0.12, 0.12, 0.2],
+        frame_id="base_link",
+    )
+
+    assert scene.is_diff is True
+    obj = scene.world.collision_objects[0]
+    assert obj.id == DYNAMIC_ARM_OBSTACLE_BOX_ID
+    assert obj.operation == obj.ADD
+    assert obj.header.frame_id == "base_link"
+    assert list(obj.primitives[0].dimensions) == [0.12, 0.12, 0.2]
+    assert obj.primitive_poses[0].position.x == 0.35
+
+
+def test_make_remove_dynamic_obstacle_scene_is_remove_diff():
+    scene = make_remove_dynamic_obstacle_scene()
+
+    assert scene.is_diff is True
+    obj = scene.world.collision_objects[0]
+    assert obj.id == DYNAMIC_ARM_OBSTACLE_BOX_ID
+    assert obj.operation == obj.REMOVE
 
 
 def test_make_attach_scene_binds_to_tcp_with_touch_links():
