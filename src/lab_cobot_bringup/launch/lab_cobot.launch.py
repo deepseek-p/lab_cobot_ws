@@ -58,6 +58,8 @@ def generate_launch_description():
     launch_perception = LaunchConfiguration("launch_perception")
     launch_voice = LaunchConfiguration("launch_voice")
     voice_audio_file = LaunchConfiguration("voice_audio_file")
+    nav_only = LaunchConfiguration("nav_only")
+    skip_visual_dock = LaunchConfiguration("skip_visual_dock")
 
     world = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(gz, "launch", "world.launch.py")),
@@ -209,6 +211,12 @@ def generate_launch_description():
             "use_planning_scene_obstacles": ParameterValue(
                 use_planning_scene_obstacles, value_type=bool
             ),
+            "skip_visual_dock": ParameterValue(
+                skip_visual_dock, value_type=bool
+            ),
+            "nav_only": ParameterValue(
+                nav_only, value_type=bool
+            ),
         }],
         condition=IfCondition(LaunchConfiguration("launch_mission")),
     )
@@ -287,6 +295,8 @@ def generate_launch_description():
             "use_planning_scene_obstacles", default_value="true"
         ),
         DeclareLaunchArgument("launch_voice", default_value="false"),
+        DeclareLaunchArgument("skip_visual_dock", default_value="false"),
+        DeclareLaunchArgument("nav_only", default_value="false"),
         DeclareLaunchArgument("voice_audio_file", default_value=""),
         SetEnvironmentVariable("GALLIUM_DRIVER", "d3d12"),
         SetEnvironmentVariable("MESA_D3D12_DEFAULT_ADAPTER_NAME", "NVIDIA"),

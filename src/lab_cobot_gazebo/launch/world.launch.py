@@ -189,6 +189,24 @@ def generate_launch_description():
             ),
         )
     )
+
+    actor_collision_shadow = Node(
+        package="lab_cobot_gazebo",
+        executable="actor_collision_shadow",
+        name="actor_collision_shadow",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("enable_actor")),
+    )
+    obstacle_avoidance_metrics = Node(
+        package="lab_cobot_gazebo",
+        executable="obstacle_avoidance_metrics",
+        name="obstacle_avoidance_metrics",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("enable_actor")),
+    )
+
     delay_wheel_velocity = RegisterEventHandler(
         OnProcessExit(
             target_action=gripper_position_controller,
@@ -214,6 +232,8 @@ def generate_launch_description():
         gzclient,
         robot_state_publisher,
         spawn_entity,
+        actor_collision_shadow,
+        obstacle_avoidance_metrics,
         delay_jsb,
         delay_jtc,
         delay_gripper,

@@ -2,7 +2,7 @@
 from std_msgs.msg import String
 
 from lab_cobot_bringup import mission_node
-from lab_cobot_bringup.mission_node import MissionNode
+from lab_cobot_bringup.mission_node import MissionNode, navigation_goals_for_station
 from lab_cobot_bringup.task_planner import (
     NavigationRequest,
     PlannerConfig,
@@ -26,6 +26,7 @@ class FakeLogger:
 def _make_node(executed, published):
     node = MissionNode.__new__(MissionNode)
     node._busy = True
+    node._nav_only = False
     node._wait_for_navigation_ready = lambda: True
     node._execute = lambda state: executed.append(state) or True
     node._publish = lambda state: published.append(state.name)
@@ -193,6 +194,33 @@ def _make_route_node(events, statuses):
     return node
 
 
+
+def test_tooling_zone_uses_corridor_entry_before_staging():
+    goals = navigation_goals_for_station("tooling_zone")
+
+    assert [goal[0] for goal in goals] == [
+        "tooling_zone_corridor_entry",
+        "tooling_zone",
+    ]
+    assert goals[0][2] is None
+    assert goals[-1][2] == "tooling_zone"
+    assert goals[0][1]["y"] == goals[-1][1]["y"]
+
+
+
+def test_aging_zone_uses_south_entry_before_staging():
+    goals = navigation_goals_for_station("aging_zone")
+
+    assert [goal[0] for goal in goals] == [
+        "aging_zone_south_entry",
+        "aging_zone_east_corridor",
+    ]
+    assert goals[0][2] is None
+    assert goals[1][2] is None
+    assert goals[0][1]["x"] == goals[1][1]["x"]
+    assert goals[1][1]["y"] == 3.20
+
+
 def test_single_station_navigation_stops_at_requested_station():
     events, statuses = [], []
     node = _make_route_node(events, statuses)
@@ -329,6 +357,7 @@ def test_run_mission_dispatches_navigation_before_legacy_planner(monkeypatch):
     node._instruction = "去B工位"
     node._planner_config = None
     node._busy = True
+    node._nav_only = False
     node._wait_for_navigation_ready = lambda: events.append("ready") or True
     node._run_navigation_request = (
         lambda actual: events.append(("route", actual)) or True
@@ -347,6 +376,7 @@ def test_invalid_station_fails_before_waiting_for_nav2():
     node._instruction = "导航到充电区"
     node._planner_config = None
     node._busy = True
+    node._nav_only = False
     node._wait_for_navigation_ready = lambda: events.append("ready") or True
     node._publish_failure = (
         lambda reason, station=None: events.append(("failure", reason, station))
@@ -357,3 +387,25 @@ def test_invalid_station_fails_before_waiting_for_nav2():
 
     assert events == [("failure", "unknown_station", "充电区")]
     assert node._busy is False
+
+
+def test_task_status_uses_transient_local_qos():
+    source = open(mission_node.__file__, encoding="utf-8").read()
+
+    assert "DurabilityPolicy.TRANSIENT_LOCAL" in source
+    assert "ReliabilityPolicy.RELIABLE" in source
+    assert '"/task/status"' in source
+
+
+def test_task_status_is_periodically_republished():
+    source = open(mission_node.__file__, encoding="utf-8").read()
+
+    assert "_last_status_msg" in source
+    assert "create_timer(1.0, self._republish_status)" in source
+    assert "def _republish_status" in source
+
+
+def test_task_status_publish_is_logged():
+    source = open(mission_node.__file__, encoding="utf-8").read()
+
+    assert 'task status: {status}' in source

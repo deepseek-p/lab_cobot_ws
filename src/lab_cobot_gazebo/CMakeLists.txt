@@ -7,6 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(gazebo_dev REQUIRED)
 find_package(gazebo_ros REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -77,9 +78,35 @@ if(BUILD_TESTING)
     ENV "PYTEST_ADDOPTS=-p no:anyio")
   ament_add_pytest_test(grasp_fix_plugin test/test_grasp_fix_plugin.py
     ENV "PYTEST_ADDOPTS=-p no:anyio")
+  ament_add_pytest_test(actor_safety_contracts test/test_actor_safety_contracts.py
+    ENV "PYTEST_ADDOPTS=-p no:anyio")
   ament_add_pytest_test(mecanum_drive_plugin test/test_mecanum_drive_plugin.py
     ENV "PYTEST_ADDOPTS=-p no:anyio")
+  # Long-running E2E: 5x T1 with actor; budget ~3600s for 5 runs + launch overhead.
+  ament_add_pytest_test(dynamic_obstacle_avoidance
+    test/test_dynamic_obstacle_avoidance.py
+    ENV "PYTEST_ADDOPTS=-p no:anyio"
+    TIMEOUT 3600
+  )
 endif()
+
+install(PROGRAMS
+  scripts/actor_collision_shadow.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME actor_collision_shadow
+)
+
+install(PROGRAMS
+  scripts/obstacle_avoidance_metrics.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME obstacle_avoidance_metrics
+)
+
+install(PROGRAMS
+  scripts/cmd_vel_safety_mux.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME cmd_vel_safety_mux
+)
 
 install(DIRECTORY worlds launch models
   DESTINATION share/${PROJECT_NAME}

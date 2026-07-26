@@ -19,6 +19,7 @@ from threading import Thread
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
@@ -64,7 +65,7 @@ DOCK_TARGET_X = 0.62
 DOCK_TARGET_Y = 0.0
 DOCK_TOLERANCE_X = 0.05
 DOCK_TOLERANCE_Y = 0.015
-DOCK_SAFE_HANDOFF_MAX_X = 0.83
+DOCK_SAFE_HANDOFF_MAX_X = 0.87
 DOCK_GAIN_X = 0.8
 DOCK_GAIN_Y = 0.8
 DOCK_MAX_LINEAR_X = 0.08
@@ -76,9 +77,9 @@ DETECTION_MAX_AGE_SEC = 1.0
 REFINE_WAIT_SEC = 2.5
 REFINE_POLL_SEC = 0.05
 WRIST_DETECT_WAIT_SEC = 3.0
-NAV_TIMEOUT_SEC = 60.0
+NAV_TIMEOUT_SEC = 240.0
 NAV_SERVER_WAIT_SEC = 20.0
-NAV_STARTUP_WAIT_SEC = 120.0
+NAV_STARTUP_WAIT_SEC = 240.0
 NAV_STARTUP_POLL_SEC = 1.0
 NAV_ACTIVE_WAIT_SEC = 30.0
 NAV_ACTIVE_POLL_SEC = 0.5
@@ -87,7 +88,7 @@ NAV_TF_READY_WAIT_SEC = 12.0
 NAV_TF_READY_LOOKUP_SEC = 0.1
 NAV_TF_READY_POLL_SEC = 0.2
 PICK_NAV_HANDOFF_MIN_X = 0.70
-PICK_NAV_HANDOFF_MAX_X = 0.90
+PICK_NAV_HANDOFF_MAX_X = 0.87
 PICK_NAV_HANDOFF_MAX_ABS_Y = 0.12
 PICK_NAV_HANDOFF_MAX_STATION_DISTANCE = 0.35
 STATION_B_TABLE_MIN_X = -0.50
@@ -311,6 +312,19 @@ def _station_base_pose(station: str):
 
 def navigation_goals_for_station(station: str):
     waypoint = get_waypoint(station)
+    if station == "tooling_zone":
+        entry = {"x": 1.90, "y": float(waypoint["y"]), "yaw": float(waypoint["yaw"])}
+        return [
+            ("tooling_zone_corridor_entry", entry, None),
+            (station, waypoint, station),
+        ]
+    if station == "aging_zone":
+        south_entry = {"x": 2.00, "y": -3.80, "yaw": float(waypoint["yaw"])}
+        east_corridor = {"x": 2.00, "y": float(waypoint["y"]), "yaw": float(waypoint["yaw"])}
+        return [
+            ("aging_zone_south_entry", south_entry, None),
+            ("aging_zone_east_corridor", east_corridor, None),
+        ]
     return [(station, waypoint, station)]
 
 
@@ -590,6 +604,8 @@ class MissionNode(Node):
         self._skip_visual_dock = bool(
             self.get_parameter("skip_visual_dock").value
         )
+        self.declare_parameter("nav_only", False)
+        self._nav_only = bool(self.get_parameter("nav_only").value)
         self.declare_parameter("llm_enabled", False)
         self.declare_parameter("llm_api_base", "https://api.deepseek.com")
         self.declare_parameter("llm_model", "deepseek-chat")
@@ -635,7 +651,19 @@ class MissionNode(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        self.status_pub = self.create_publisher(String, "/task/status", 10)
+        self.status_pub = self.create_publisher(
+            String,
+            "/task/status",
+            QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=10,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
+        self._last_status_msg = String()
+        self._last_status_msg.data = "IDLE"
+        self.create_timer(1.0, self._republish_status)
         self.create_subscription(String, "/task/instruction", self._on_instruction, 10)
         self._busy = False
         self.get_logger().info("mission_node 就绪,等待 /task/instruction")
@@ -693,11 +721,12 @@ class MissionNode(Node):
             self._stop_base(DOCK_STOP_SEC)
         except Exception as exc:  # noqa: BLE001
             self.get_logger().error(f"路线失败停底盘异常: {exc}")
-        try:
-            if not self.pp.go_home():
-                self.get_logger().warn("路线失败后机械臂回 home 失败")
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().error(f"路线失败后机械臂回 home 异常: {exc}")
+        if not getattr(self, "_nav_only", False):
+            try:
+                if not self.pp.go_home():
+                    self.get_logger().warn("路线失败后机械臂回 home 失败")
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().error(f"路线失败后机械臂回 home 异常: {exc}")
 
     def _retreat_from_route_station(self, station: str) -> bool:
         if station not in WORKTABLE_STATIONS:
@@ -728,14 +757,15 @@ class MissionNode(Node):
         return False
 
     def _run_navigation_request(self, request) -> bool:
-        try:
-            if not self.pp.go_home():
+        if not getattr(self, "_nav_only", False):
+            try:
+                if not self.pp.go_home():
+                    self._publish_failure("arm_not_stowed")
+                    return False
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().error(f"导航任务收臂异常: {exc}")
                 self._publish_failure("arm_not_stowed")
                 return False
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().error(f"导航任务收臂异常: {exc}")
-            self._publish_failure("arm_not_stowed")
-            return False
 
         task = StationRouteTask(self._route_stations(request), max_retries=1)
         task.start()
@@ -1334,10 +1364,15 @@ class MissionNode(Node):
 
         return wait_for_refined_position
 
+    def _republish_status(self) -> None:
+        self.status_pub.publish(self._last_status_msg)
+
     def _publish_status(self, status: str) -> None:
         m = String()
         m.data = status
+        self._last_status_msg = m
         self.status_pub.publish(m)
+        self.get_logger().info(f"task status: {status}")
 
     def _publish(self, state: TaskState):
         self._publish_status(state.name)

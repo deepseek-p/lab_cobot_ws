@@ -13,7 +13,7 @@ from typing import Dict, List
 WAYPOINTS: Dict[str, Dict[str, float]] = {
     "station_a": {"x": -4.30, "y": 2.48, "yaw": math.pi / 2.0},
     "inspection_zone": {"x": 4.10, "y": 1.10, "yaw": math.pi / 2.0},
-    "tooling_zone": {"x": -4.10, "y": -3.30, "yaw": math.pi / 2.0},
+    "tooling_zone": {"x": -3.70, "y": -5.05, "yaw": math.pi / 2.0},
     "aging_zone": {"x": 0.20, "y": 3.20, "yaw": math.pi / 2.0},
     "station_b": {"x": 0.30, "y": -3.01, "yaw": math.pi / 2.0},
     "home": {"x": 4.50, "y": -4.20, "yaw": 0.0},

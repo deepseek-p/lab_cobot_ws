@@ -172,3 +172,16 @@ def test_auxiliary_worktable_docking_preserves_front_clearance(station):
     )
     assert cmd.linear.x == pytest.approx(0.0)
     assert cmd.linear.y == pytest.approx(0.0)
+
+
+def test_pick_visual_dock_hands_off_at_observed_actor_t1_safe_line():
+    safe_y = mission_node.station_safe_base_y(math.pi / 2.0, "station_a")
+    done, cmd = dock_velocity_for_object(
+        [0.863, -0.005, 0.630],
+        base_pose=(-2.15, safe_y, math.pi / 2.0),
+        station="station_a",
+    )
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)
