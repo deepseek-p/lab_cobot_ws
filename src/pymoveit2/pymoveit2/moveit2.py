@@ -1194,25 +1194,25 @@ class MoveIt2:
             self.__last_execution_succeeded = False
             return None
 
-        action_result = self.__follow_joint_trajectory_action_client.send_goal_async(
-            goal=goal,
-            feedback_callback=None,
+        self.__send_goal_future_follow_joint_trajectory = (
+            self.__follow_joint_trajectory_action_client.send_goal_async(
+                goal=goal,
+                feedback_callback=None,
+            )
         )
 
-        action_result.add_done_callback(
+        self.__send_goal_future_follow_joint_trajectory.add_done_callback(
             self.__response_callback_follow_joint_trajectory
         )
 
         if wait_until_response:
             self.__future_done_event.clear()
-            action_result.add_done_callback(
+            self.__send_goal_future_follow_joint_trajectory.add_done_callback(
                 self.__response_callback_with_event_set_follow_joint_trajectory
             )
             self.__future_done_event.wait(timeout=wait_for_server_timeout_sec)
-        else:
-            action_result.add_done_callback(
-                self.__response_callback_follow_joint_trajectory
-            )
+
+        return self.__send_goal_future_follow_joint_trajectory
 
     def __response_callback_follow_joint_trajectory(self, response):
         goal_handle = response.result()

@@ -100,6 +100,60 @@ class FakeSceneClient:
         return self._ok
 
 
+def test_pick_place_uses_direct_controller_execution_to_avoid_move_action_races(
+    monkeypatch,
+):
+    created = {}
+
+    monkeypatch.setattr(pick_place_node.Node, "__init__", lambda self, name: None)
+    monkeypatch.setattr(pick_place_node, "ReentrantCallbackGroup", lambda: object())
+
+    def declare_parameter(self, name, value):
+        setattr(self, f"_param_{name}", value)
+
+    def get_parameter(self, name):
+        return type(
+            "Parameter",
+            (),
+            {"value": getattr(self, f"_param_{name}")},
+        )()
+
+    class FakeMoveIt2:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+
+    monkeypatch.setattr(PickPlace, "declare_parameter", declare_parameter)
+    monkeypatch.setattr(PickPlace, "get_parameter", get_parameter)
+    monkeypatch.setattr(PickPlace, "create_timer", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        PickPlace,
+        "create_publisher",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(PickPlace, "get_logger", lambda self: FakeLogger([]))
+    monkeypatch.setattr(pick_place_node, "MoveIt2", FakeMoveIt2)
+    monkeypatch.setattr(
+        pick_place_node,
+        "configure_moveit_for_pick_place",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        pick_place_node,
+        "make_gripper_driver",
+        lambda *args, **kwargs: FakeGripper([]),
+    )
+    monkeypatch.setattr(
+        pick_place_node,
+        "PlanningSceneClient",
+        lambda *args, **kwargs: object(),
+    )
+
+    PickPlace()
+
+    assert created["execute_via_moveit"] is False
+    assert created["group_name"] == "ur_manipulator"
+
+
 def make_pick_place_without_ros(
     fake_moves,
     open_ok=True,
@@ -619,19 +673,60 @@ def test_place_descend_and_lift_use_cartesian_straight_line():
     assert pick_place.move_kwargs[2].get("cartesian") is True      # lift
 
 
-def test_tactile_place_approach_uses_cartesian_straight_line():
-    """Tactile place approach must be Cartesian while carrying the object."""
-    # T-4 实测:触觉路径下物块已由 fixed joint 带在手上,place approach
-    # 若走自由关节规划,高空移动也会给样件注入大 twist。
+def test_tactile_place_approach_uses_joint_space_then_straight_release():
+    """Tactile place uses joint-space approach, then Cartesian release/lift."""
+    # lab.world B 点实测:携物 approach 距离较长,Cartesian 直线被台面/姿态
+    # 约束截断;释放下降和抬升仍保持直线,避免样件扫掠台面。
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
     )
 
     assert pick_place.place([0.8, 0.0, 0.78])
-    assert pick_place.move_kwargs[0].get("cartesian") is True
+    assert pick_place.move_kwargs[0].get("cartesian") is not True
     assert pick_place.move_kwargs[1].get("cartesian") is True
     assert pick_place.move_kwargs[2].get("cartesian") is True
+
+
+def test_tactile_place_releases_from_approach_when_short_descent_is_blocked():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, False, True],
+        use_tactile_grasp=True,
+    )
+
+    assert pick_place.place([0.8, 0.0, 0.78])
+    assert "release" in action_events(pick_place.events)
+    assert any(
+        "releasing from approach height" in event
+        for event in pick_place.events
+    )
+
+
+def test_non_tactile_place_still_fails_when_descent_is_blocked():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, False])
+
+    assert not pick_place.place([0.8, 0.0, 0.78])
+    assert "release" not in action_events(pick_place.events)
+
+
+def test_tactile_place_succeeds_when_lift_fails_after_confirmed_release():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True, False, False],
+        use_tactile_grasp=True,
+    )
+
+    assert pick_place.place([0.8, 0.0, 0.78])
+    assert "release" in action_events(pick_place.events)
+    assert any(
+        "continuing" in event
+        for event in pick_place.events
+    )
+
+
+def test_non_tactile_place_fails_when_lift_fails_after_release():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, False, False])
+
+    assert not pick_place.place([0.8, 0.0, 0.78])
 
 
 def test_place_relaxes_orientation_for_approach_descent_and_lift():
@@ -762,6 +857,52 @@ def test_moveit_wait_accepts_completed_private_state():
         _MoveIt2__is_executing = False
 
     assert pick_place_node._wait_for_moveit_result(FakeMoveIt(), 0.1)
+
+
+def test_moveit_wait_accepts_completed_follow_trajectory_result():
+    class FakeResult:
+        status = pick_place_node.GoalStatus.STATUS_SUCCEEDED
+
+    class FakeFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            return FakeResult()
+
+    class FakeMoveIt:
+        _MoveIt2__send_goal_future_follow_joint_trajectory = object()
+        _MoveIt2__get_result_future_follow_joint_trajectory = FakeFuture()
+        _MoveIt2__last_execution_succeeded = True
+        _MoveIt2__is_motion_requested = False
+        _MoveIt2__is_executing = False
+
+        def wait_until_executed(self, timeout_sec=None):
+            raise AssertionError("private follow result future should be used")
+
+    assert pick_place_node._wait_for_moveit_result(FakeMoveIt(), 0.1)
+
+
+def test_moveit_wait_returns_false_when_planning_sends_no_new_goal():
+    old_send = object()
+    old_result = object()
+
+    class FakeMoveIt:
+        _MoveIt2__send_goal_future_follow_joint_trajectory = old_send
+        _MoveIt2__get_result_future_follow_joint_trajectory = old_result
+        _MoveIt2__last_execution_succeeded = False
+        _MoveIt2__is_motion_requested = False
+        _MoveIt2__is_executing = False
+
+        def wait_until_executed(self, timeout_sec=None):
+            raise AssertionError("no-goal failures should return immediately")
+
+    assert not pick_place_node._wait_for_moveit_result(
+        FakeMoveIt(),
+        30.0,
+        previous_send_future=old_send,
+        previous_result_future=old_result,
+    )
 
 
 def test_moveit_wait_ignores_stale_completed_result_future(monkeypatch):
@@ -940,17 +1081,18 @@ def test_move_to_observe_retries_transient_execution_failure(monkeypatch):
     assert configs == [pick_place_node.OBSERVE_CONFIG] * 2
 
 
-def test_pick_injects_surface_before_arm_motion_and_attaches_after_acquire():
-    # 台面盒必须先于第一次臂规划注入(否则 approach 弧仍对台面盲);
+def test_pick_injects_surface_before_descent_and_attaches_after_acquire():
+    # lab.world 中 observe 起始位可能被粗台面盒判成假碰撞;先到达
+    # approach 位,再注入台面盒保护下降段。
     # 样件附着盒必须在 acquire 成功后立即挂上(持物段全程护航)。
     pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
     pick_place.scene_client = FakeSceneClient(pick_place.events)
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert action_events(pick_place.events) == [
-        "scene_surface",
         "open",
         "move_above",
+        "scene_surface",
         "move_grasp",
         "acquire",
         "scene_attach",
@@ -994,9 +1136,9 @@ def test_pick_detaches_scene_box_when_close_fails_after_attach():
 
     assert not pick_place.pick([0.8, 0.0, 0.78])
     assert action_events(pick_place.events) == [
-        "scene_surface",
         "open",
         "move_above",
+        "scene_surface",
         "move_grasp",
         "acquire",
         "scene_attach",
@@ -1030,6 +1172,8 @@ def test_place_injects_surface_and_detaches_after_release():
         "scene_detach",
         "open",
         "move_above",
+        "scene_dynamic_update",
+        "scene_dynamic_remove",
     ]
 
 

@@ -44,6 +44,10 @@ def generate_launch_description():
     use_planning_scene_obstacles = LaunchConfiguration(
         "use_planning_scene_obstacles"
     )
+    launch_g4g5_results = LaunchConfiguration("launch_g4g5_results")
+    g4_force_duration = LaunchConfiguration("g4_force_duration")
+    g4_output_dir = LaunchConfiguration("g4_output_dir")
+    g4_stem = LaunchConfiguration("g4_stem")
     use_wrist_camera = PythonExpression([
         "'true' if ('",
         use_refine_detect,
@@ -153,6 +157,38 @@ def generate_launch_description():
         }],
         condition=IfCondition(use_sim_attach),
     )
+    joint_state_qos_relay = Node(
+        package="lab_cobot_manipulation",
+        executable="joint_state_qos_relay",
+        output="screen",
+    )
+    g5_dynamic_obstacle = Node(
+        package="lab_cobot_manipulation",
+        executable="dynamic_arm_obstacle_node",
+        output="screen",
+        condition=IfCondition(launch_g4g5_results),
+    )
+    g4_contact_force_recorder = Node(
+        package="lab_cobot_manipulation",
+        executable="contact_force_recorder",
+        output="screen",
+        arguments=[
+            "--duration", g4_force_duration,
+            "--target-object", target_object,
+            "--output-dir", g4_output_dir,
+            "--stem", g4_stem,
+        ],
+        condition=IfCondition(launch_g4g5_results),
+    )
+    g4g5_result = Node(
+        package="lab_cobot_bringup",
+        executable="g4g5_result_node",
+        output="screen",
+        parameters=[{
+            "target_object": target_object,
+        }],
+        condition=IfCondition(launch_g4g5_results),
+    )
     mission = Node(
         package="lab_cobot_bringup",
         executable="mission_node",
@@ -195,10 +231,21 @@ def generate_launch_description():
     # 等 Gazebo + spawn + 控制器起来后再起规划/导航/感知
     stage2 = TimerAction(
         period=10.0,
-        actions=[move_group, navigation, aruco, wrist_aruco, object_detector],
+        actions=[
+            move_group,
+            joint_state_qos_relay,
+            navigation,
+            aruco,
+            wrist_aruco,
+            object_detector,
+            g5_dynamic_obstacle,
+            g4_contact_force_recorder,
+        ],
     )
-    # 再等编排依赖就绪
-    stage3 = TimerAction(period=15.0, actions=[mission, voice])
+    # 再等编排依赖就绪。navigation.launch.py 内部还会延迟 15s 启动
+    # Nav2 lifecycle manager；stage2=10s,所以 manager 约 25s 才启动。
+    # WSL/Gazebo 负载下 Nav2 激活还会再花十几秒,mission 晚起更稳。
+    stage3 = TimerAction(period=60.0, actions=[mission, voice, g4g5_result])
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="Gazebo GUI"),
@@ -253,6 +300,26 @@ def generate_launch_description():
         # 机械臂规划场景障碍注入:台面盒+持物样件附着盒(mission 透传)。
         DeclareLaunchArgument(
             "use_planning_scene_obstacles", default_value="true"
+        ),
+        DeclareLaunchArgument(
+            "launch_g4g5_results",
+            default_value="true",
+            description="true=在正式 A->B 流程中启动 G4/G5 结果显示与采集旁路",
+        ),
+        DeclareLaunchArgument(
+            "g4_force_duration",
+            default_value="900.0",
+            description="G4 接触力曲线采集秒数；节点退出时写 CSV/PNG",
+        ),
+        DeclareLaunchArgument(
+            "g4_output_dir",
+            default_value="g4_artifacts",
+            description="G4 接触力 CSV/PNG 输出目录",
+        ),
+        DeclareLaunchArgument(
+            "g4_stem",
+            default_value="g4_lab_ab_contact_force",
+            description="G4 接触力 CSV/PNG 文件名前缀",
         ),
         DeclareLaunchArgument("launch_voice", default_value="false"),
         DeclareLaunchArgument("voice_audio_file", default_value=""),

@@ -38,6 +38,14 @@ class FakeSceneClient:
         return self.ok
 
 
+class FakePublisher:
+    def __init__(self, events):
+        self.events = events
+
+    def publish(self, msg):
+        self.events.append(f"status:{msg.data}")
+
+
 class FakeMsg:
     def __init__(self, data):
         self.data = data
@@ -51,6 +59,7 @@ def make_node(events, ok=True):
     node.frame_id = "base_link"
     node.object_id = node_mod.DYNAMIC_ARM_OBSTACLE_BOX_ID
     node.service_timeout_sec = 5.0
+    node._status_pub = FakePublisher(events)
     node.get_logger = lambda: FakeLogger(events)
     return node
 
@@ -92,6 +101,7 @@ def test_obstacle_callback_updates_scene():
         [0.12, 0.12, 0.2],
     )
     assert any("dynamic arm obstacle updated" in event for event in events)
+    assert any(str(event).startswith("status:updated ") for event in events)
 
 
 def test_empty_obstacle_callback_removes_scene_object():
@@ -102,6 +112,7 @@ def test_empty_obstacle_callback_removes_scene_object():
 
     assert events[0] == ("remove", node_mod.DYNAMIC_ARM_OBSTACLE_BOX_ID)
     assert any("dynamic arm obstacle removed" in event for event in events)
+    assert any(str(event).startswith("status:removed ") for event in events)
 
 
 def test_invalid_obstacle_callback_warns_without_apply():
@@ -110,4 +121,7 @@ def test_invalid_obstacle_callback_warns_without_apply():
 
     node._on_obstacle_box(FakeMsg([0.35, 0.12, 0.5]))
 
-    assert events == ["warn:dynamic obstacle command must contain 6 values"]
+    assert events == [
+        "warn:dynamic obstacle command must contain 6 values",
+        "status:invalid dynamic obstacle command must contain 6 values",
+    ]

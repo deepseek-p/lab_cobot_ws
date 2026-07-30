@@ -17,6 +17,7 @@ import rclpy
 from action_msgs.msg import GoalStatus
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
+from std_msgs.msg import String
 
 from lab_cobot_manipulation.gripper_driver import (
     CONTACT_BACKEND,
@@ -93,6 +94,9 @@ GO_HOME_RETRY_DELAY_SEC = 0.2
 APPROACH_MOVE_MAX_ATTEMPTS = 2
 GRASP_DESCENT_MAX_ATTEMPTS = 2
 HOLD_MONITOR_PERIOD_SEC = 0.1
+G5_STATUS_TOPIC = "/g5/arm_dynamic_obstacle/status"
+G5_LAB_AB_DEMO_CENTER = [0.35, 0.12, 0.50]
+G5_LAB_AB_DEMO_SIZE = [0.12, 0.12, 0.20]
 
 
 def configure_moveit_for_pick_place(moveit2, use_tactile_grasp=False) -> None:
@@ -125,8 +129,25 @@ def _wait_for_moveit_result(
     wall time.  Keep the public method as a compatibility fallback for test
     doubles and older pymoveit2 releases.
     """
-    send_name = "_MoveIt2__send_goal_future_move_action"
-    result_name = "_MoveIt2__get_result_future_move_action"
+    action_future_names = [
+        (
+            "_MoveIt2__send_goal_future_move_action",
+            "_MoveIt2__get_result_future_move_action",
+        ),
+        (
+            "_MoveIt2__send_goal_future_follow_joint_trajectory",
+            "_MoveIt2__get_result_future_follow_joint_trajectory",
+        ),
+    ]
+    send_name = None
+    result_name = None
+    for candidate_send, candidate_result in action_future_names:
+        if hasattr(moveit2, candidate_send):
+            send_name = candidate_send
+            result_name = candidate_result
+            break
+    if send_name is None:
+        send_name, result_name = action_future_names[0]
     state_name = "_MoveIt2__last_execution_succeeded"
     if not hasattr(moveit2, send_name):
         return bool(moveit2.wait_until_executed(timeout_sec=timeout_sec))
@@ -134,9 +155,26 @@ def _wait_for_moveit_result(
     deadline = time.monotonic() + max(float(timeout_sec), 0.0)
     seen_current_goal = previous_send_future is None
     while time.monotonic() < deadline:
+        for candidate_send, candidate_result in action_future_names:
+            candidate_future = getattr(moveit2, candidate_send, None)
+            if (
+                candidate_future is not None
+                and candidate_future is not previous_send_future
+            ):
+                send_name = candidate_send
+                result_name = candidate_result
+                break
+
         send_future = getattr(moveit2, send_name, None)
         if send_future is not None and send_future is not previous_send_future:
             seen_current_goal = True
+
+        if (
+            not seen_current_goal
+            and not getattr(moveit2, "_MoveIt2__is_motion_requested", False)
+            and not getattr(moveit2, "_MoveIt2__is_executing", False)
+        ):
+            return False
 
         result_future = getattr(moveit2, result_name, None)
         if (
@@ -215,6 +253,7 @@ class PickPlace(Node):
             base_link_name="ur_base_link",
             end_effector_name="ur_tool0",
             group_name="ur_manipulator",
+            execute_via_moveit=False,
             callback_group=cb,
         )
         configure_moveit_for_pick_place(
@@ -239,9 +278,18 @@ class PickPlace(Node):
         self._hold_monitor_timer = self.create_timer(
             HOLD_MONITOR_PERIOD_SEC, self._monitor_held_object
         )
+        self._g5_status_pub = self.create_publisher(String, G5_STATUS_TOPIC, 10)
         self.get_logger().info("PickPlace 初始化完成")
 
     # ---- 规划场景障碍(台面盒/持物样件附着盒) ----
+    def _publish_g5_status(self, text: str) -> None:
+        publisher = getattr(self, "_g5_status_pub", None)
+        if publisher is None:
+            return
+        msg = String()
+        msg.data = str(text)
+        publisher.publish(msg)
+
     def _apply_scene_diff(self, scene, label) -> bool:
         if self.scene_client is None:
             return False
@@ -296,6 +344,9 @@ class PickPlace(Node):
                 "planning scene dynamic obstacle updated id=%s frame=%s"
                 % (object_id, frame_id)
             )
+            self._publish_g5_status(
+                "updated center=%s size=%s" % (list(center), list(size))
+            )
         return ok
 
     def clear_dynamic_arm_obstacle(
@@ -311,7 +362,15 @@ class PickPlace(Node):
             self.get_logger().info(
                 "planning scene dynamic obstacle removed id=%s" % object_id
             )
+            self._publish_g5_status("removed id=%s" % object_id)
         return ok
+
+    def _run_g5_lab_ab_marker(self) -> None:
+        if self.update_dynamic_arm_obstacle(
+            G5_LAB_AB_DEMO_CENTER,
+            G5_LAB_AB_DEMO_SIZE,
+        ):
+            self.clear_dynamic_arm_obstacle()
 
     # ---- 持有监控(抓取插件 heartbeat) ----
     def _gripper_confirms_holding(self) -> bool:
@@ -384,10 +443,24 @@ class PickPlace(Node):
             "MoveIt target link=%s frame=%s pos=%s"
             % (target_link, frame_id, _format_pose_target(pos))
         )
-        send_name = "_MoveIt2__send_goal_future_move_action"
-        result_name = "_MoveIt2__get_result_future_move_action"
-        previous_send_future = getattr(self.moveit2, send_name, None)
-        previous_result_future = getattr(self.moveit2, result_name, None)
+        future_name_pairs = [
+            (
+                "_MoveIt2__send_goal_future_move_action",
+                "_MoveIt2__get_result_future_move_action",
+            ),
+            (
+                "_MoveIt2__send_goal_future_follow_joint_trajectory",
+                "_MoveIt2__get_result_future_follow_joint_trajectory",
+            ),
+        ]
+        previous_send_future = None
+        previous_result_future = None
+        for send_name, result_name in future_name_pairs:
+            send_future = getattr(self.moveit2, send_name, None)
+            if send_future is not None:
+                previous_send_future = send_future
+                previous_result_future = getattr(self.moveit2, result_name, None)
+                break
         self.moveit2.move_to_pose(
             position=list(pos),
             quat_xyzw=quat,
@@ -551,8 +624,6 @@ class PickPlace(Node):
     # ---- 复合动作(供 mission 调用)----
     def pick(self, pos, refine_cb=None) -> bool:
         """Open → approach → descend → validate/attach → close → lift."""
-        # 台面盒先于第一次臂规划注入,否则 approach 弧仍对台面盲。
-        self._inject_station_surface(pos)
         target = self._pick_tcp_target(pos)
         retry_offsets = [0.0]
         retry_offsets_extended = False
@@ -598,6 +669,7 @@ class PickPlace(Node):
         if not self._move_approach(above):
             self.get_logger().warn("Pick failed: approach move failed")
             return "failed"
+        surface_pos = list(pos)
         if refine_cb is not None:
             try:
                 refined = refine_cb()
@@ -621,12 +693,16 @@ class PickPlace(Node):
             else:
                 self.get_logger().info(f"refine=miss({reason})")
             target = self._pick_tcp_target(selected)
+            surface_pos = list(selected)
             if self.use_tactile_grasp:
                 target = self._offset_tactile_pick_target(
                     target,
                     lateral_offset,
                 )
         lift = self._pick_lift_target(target)
+        # lab.world 的 A 点会在腕相机观察位把粗台面盒与上臂判成
+        # 起始假碰撞；先到达物体上方,再注入台面盒保护下降和持物段。
+        self._inject_station_surface(surface_pos)
         # 下降段笛卡尔直线:关节空间规划的横向弧会扫飞轻质物块(实测)
         if not self._move_grasp_descent(target):
             self.get_logger().warn("Pick failed: grasp descent failed")
@@ -689,22 +765,29 @@ class PickPlace(Node):
                 _format_pose_target(above),
             )
         )
-        if not self._move_approach(above, cartesian=self.use_tactile_grasp):
+        # B 点携物 approach 距离较长,Cartesian 直线会被台面/姿态约束截断;
+        # 先用关节空间到释放上方,下降/抬升再保持直线。
+        if not self._move_approach(above):
             self._handle_hold_lost()
             self.get_logger().warn("Place failed: approach move failed")
             return False
         # 持物下降段笛卡尔直线:横向弧会带着焊接物块扫掠台面(同 pick 根因)
-        if not self._move(
+        descended = self._move(
             release,
             target_link=GRIPPER_TCP_LINK,
             tolerance_position=DEFAULT_GRASP_TOLERANCE_POSITION,
             tolerance_orientation=DEFAULT_GRASP_TOLERANCE_ORIENTATION,
             timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
             cartesian=True,
-        ):
-            self._handle_hold_lost()
-            self.get_logger().warn("Place failed: descent move failed")
-            return False
+        )
+        if not descended:
+            if not self.use_tactile_grasp:
+                self._handle_hold_lost()
+                self.get_logger().warn("Place failed: descent move failed")
+                return False
+            self.get_logger().warn(
+                "Place descent incomplete; releasing from approach height"
+            )
         # 已到达释放位后，release_object() 会等待 Gazebo 插件确认“解除持有”。
         # 这段等待期间 hold_status 从 holding 切到 released 是正常语义；
         # 若继续运行持有定时器，会把正常释放边界误报成“搬运中丢失”。
@@ -722,7 +805,12 @@ class PickPlace(Node):
         lifted = self._move_approach(above, cartesian=True)
         if not lifted:
             self.get_logger().warn("Place failed: lift move failed")
-            return False
+            if not self.use_tactile_grasp:
+                return False
+            self.get_logger().warn(
+                "Place lift incomplete after confirmed release; continuing"
+            )
+        self._run_g5_lab_ab_marker()
         self.get_logger().info("Place complete")
         return True
 

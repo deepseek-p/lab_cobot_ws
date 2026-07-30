@@ -5,7 +5,7 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, String
 
 from lab_cobot_manipulation.scene_obstacles import (
     DYNAMIC_ARM_OBSTACLE_BOX_ID,
@@ -17,6 +17,7 @@ from lab_cobot_manipulation.scene_obstacles import (
 
 DEFAULT_TOPIC = "/arm_dynamic_obstacle_box"
 DEFAULT_FRAME_ID = "base_link"
+DEFAULT_STATUS_TOPIC = "/g5/arm_dynamic_obstacle/status"
 
 
 def parse_obstacle_box(data):
@@ -37,11 +38,13 @@ class DynamicArmObstacleNode(Node):
     def __init__(self):
         super().__init__("dynamic_arm_obstacle_node")
         self.declare_parameter("topic", DEFAULT_TOPIC)
+        self.declare_parameter("status_topic", DEFAULT_STATUS_TOPIC)
         self.declare_parameter("frame_id", DEFAULT_FRAME_ID)
         self.declare_parameter("object_id", DYNAMIC_ARM_OBSTACLE_BOX_ID)
         self.declare_parameter("service_timeout_sec", 5.0)
 
         self.topic = str(self.get_parameter("topic").value)
+        self.status_topic = str(self.get_parameter("status_topic").value)
         self.frame_id = str(self.get_parameter("frame_id").value)
         self.object_id = str(self.get_parameter("object_id").value)
         self.service_timeout_sec = float(
@@ -54,6 +57,7 @@ class DynamicArmObstacleNode(Node):
             callback_group=self._callback_group,
         )
         self.scene_client.wait_until_ready(timeout_sec=self.service_timeout_sec)
+        self._status_pub = self.create_publisher(String, self.status_topic, 10)
         self.create_subscription(
             Float32MultiArray,
             self.topic,
@@ -65,6 +69,19 @@ class DynamicArmObstacleNode(Node):
             "dynamic arm obstacle bridge listening topic=%s frame=%s id=%s"
             % (self.topic, self.frame_id, self.object_id)
         )
+        self._publish_status("ready topic=%s frame=%s id=%s" % (
+            self.topic,
+            self.frame_id,
+            self.object_id,
+        ))
+
+    def _publish_status(self, text: str) -> None:
+        publisher = getattr(self, "_status_pub", None)
+        if publisher is None:
+            return
+        msg = String()
+        msg.data = str(text)
+        publisher.publish(msg)
 
     def _apply_scene(self, scene, label) -> bool:
         ok = self.scene_client.apply(
@@ -73,6 +90,7 @@ class DynamicArmObstacleNode(Node):
         )
         if not ok:
             self.get_logger().warn(f"dynamic obstacle {label} apply failed")
+            self._publish_status(f"{label}_failed id={self.object_id}")
         return ok
 
     def _on_obstacle_box(self, msg) -> None:
@@ -82,11 +100,13 @@ class DynamicArmObstacleNode(Node):
                 self.get_logger().info(
                     "dynamic arm obstacle removed id=%s" % self.object_id
                 )
+                self._publish_status("removed id=%s" % self.object_id)
             return
         try:
             center, size = parse_obstacle_box(msg.data)
         except ValueError as exc:
             self.get_logger().warn(str(exc))
+            self._publish_status("invalid %s" % str(exc))
             return
 
         scene = make_dynamic_obstacle_scene(
@@ -99,6 +119,9 @@ class DynamicArmObstacleNode(Node):
             self.get_logger().info(
                 "dynamic arm obstacle updated center=%s size=%s"
                 % (center, size)
+            )
+            self._publish_status(
+                "updated center=%s size=%s" % (center, size)
             )
 
 

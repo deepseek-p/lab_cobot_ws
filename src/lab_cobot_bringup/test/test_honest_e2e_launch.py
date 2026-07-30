@@ -18,8 +18,11 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.msg import Log
 from rcl_interfaces.srv import GetParameters
-from std_msgs.msg import String
+from std_msgs.msg import Float64MultiArray, String
 from vision_msgs.msg import Detection3DArray
+
+from lab_cobot_bringup.g4g5_result_node import parse_fingers_status
+from lab_cobot_manipulation.gripper_driver import FINGERS_STATUS_TOPIC
 
 
 TASK_TIMEOUT_SEC = 420.0
@@ -94,6 +97,7 @@ class TestHonestE2E(unittest.TestCase):
         contact_snapshots = []
         runtime_logs = []
         object_detections = []
+        g4g5_results = []
         pub = node.create_publisher(String, "/task/instruction", 10)
         node.create_subscription(
             String,
@@ -136,6 +140,12 @@ class TestHonestE2E(unittest.TestCase):
             lambda msg: object_detections.append(msg),
             10,
         )
+        node.create_subscription(
+            String,
+            "/task/g4g5_result",
+            lambda msg: g4g5_results.append(str(msg.data)),
+            10,
+        )
         # T-5 翻默认后默认路径为触觉抓取:记录双指与样件的真实接触对
         finger_touches = {"left": 0, "right": 0}
         node.create_subscription(
@@ -148,6 +158,18 @@ class TestHonestE2E(unittest.TestCase):
             ContactsState,
             "/gripper/right_finger_contacts",
             lambda msg: self._record_finger_touch(finger_touches, "right", msg),
+            10,
+        )
+        node.create_subscription(
+            String,
+            FINGERS_STATUS_TOPIC,
+            lambda msg: self._record_fingers_status(finger_touches, msg),
+            10,
+        )
+        node.create_subscription(
+            Float64MultiArray,
+            "/gripper/contact/force",
+            lambda msg: self._record_contact_force(finger_touches, msg),
             10,
         )
 
@@ -176,6 +198,7 @@ class TestHonestE2E(unittest.TestCase):
                         contact_statuses,
                         contact_snapshots,
                     )
+                    self._assert_g4g5_result_was_published(node, g4g5_results)
                     self._assert_only_sample_was_attached(contact_statuses)
                     self._assert_both_fingers_touched_sample(finger_touches)
                     self._assert_object_gravity_stays_enabled(node)
@@ -309,9 +332,28 @@ class TestHonestE2E(unittest.TestCase):
                 finger_touches[side] += 1
                 return
 
+    @staticmethod
+    def _record_fingers_status(finger_touches, msg):
+        """Count tactile plugin snapshots where either finger touches the sample."""
+        left_touch, right_touch = parse_fingers_status(msg.data)
+        if left_touch:
+            finger_touches["left"] += 1
+        if right_touch:
+            finger_touches["right"] += 1
+
+    @staticmethod
+    def _record_contact_force(finger_touches, msg):
+        """Count G4 force samples where either tactile side loads the sample."""
+        if len(msg.data) < 2:
+            return
+        if float(msg.data[0]) > 0.0:
+            finger_touches["left"] += 1
+        if float(msg.data[1]) > 0.0:
+            finger_touches["right"] += 1
+
     def _assert_both_fingers_touched_sample(self, finger_touches):
         """Require real dual-finger contact on the tactile default path."""
-        # T-4 判据口径:PICK 期间左右指都须出现 aruco_sample:: 接触对。
+        # T-4 判据口径:PICK 期间左右指都须出现样件接触或 G4 力响应。
         # 隔空取物(封套命中但指面未接触)在默认路径必须不可能发生。
         self.assertGreater(
             finger_touches["left"],
@@ -323,6 +365,17 @@ class TestHonestE2E(unittest.TestCase):
             0,
             f"right finger never touched the sample; finger_touches={finger_touches}",
         )
+
+    def _assert_g4g5_result_was_published(self, node, g4g5_results):
+        deadline = time.monotonic() + 10.0
+        while not g4g5_results and time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.2)
+        self.assertGreater(len(g4g5_results), 0, "no /task/g4g5_result observed")
+        latest = g4g5_results[-1]
+        self.assertIn("task_status=DONE", latest)
+        self.assertIn("g4_touch_ok=True", latest)
+        self.assertIn("g5_dynamic_obstacle_updates=1", latest)
+        self.assertIn("g5_last_status='removed id=g5_dynamic_arm_obstacle'", latest)
 
     def _assert_only_sample_was_attached(self, contact_statuses):
         attached = [
@@ -422,6 +475,9 @@ class TestHonestE2E(unittest.TestCase):
             or "夹爪" in text
             or "视觉" in text
             or "地图" in text
+            or "导航" in text
+            or "nav_result" in text
+            or "bt_navigator" in text
             or "任务" in text
             or "步骤" in text
         )

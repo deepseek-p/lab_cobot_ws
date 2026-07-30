@@ -82,6 +82,7 @@ STATION_B_TABLE_BACK_Y = 1.8
 STATION_B_SAFE_DROP_FRONT_Y = 1.35
 STATION_B_SAFE_DROP_BACK_Y = 1.65
 NAV_HANDOFF_STOP_SEC = 0.3
+NAV_FAILED_LOCAL_DOCK_STATIONS = {"station_a", "station_b", "home"}
 STATION_DOCK_TOLERANCE_X = 0.06
 STATION_DOCK_TOLERANCE_Y = 0.06
 STATION_DOCK_TOLERANCE_YAW = 0.15
@@ -403,6 +404,7 @@ class MissionNode(Node):
         self._latest_detection_pose = None
         self._latest_wrist_detection_pose = None
         self._latest_task_detection = None
+        self._latest_nav_pick_detection = None
         self.create_subscription(Odometry, RAW_ODOM_TOPIC, self._on_odom, 10)
         self.create_subscription(
             PoseStamped,
@@ -446,6 +448,7 @@ class MissionNode(Node):
     def _run_mission(self):
         try:
             self._latest_task_detection = None
+            self._latest_nav_pick_detection = None
             instruction = getattr(self, "_instruction", "")
             config = getattr(self, "_planner_config", None)
             result = plan_actions(instruction, config)
@@ -485,6 +488,12 @@ class MissionNode(Node):
                         )
                 if pose is None:
                     pose = self._detect()
+                if pose is None:
+                    pose = getattr(self, "_latest_nav_pick_detection", None)
+                    if pose is not None:
+                        self.get_logger().info(
+                            "detect=nav_pick_cache"
+                        )
                 self._latest_task_detection = pose
                 return pose is not None
             if state == TaskState.PICK:
@@ -593,6 +602,7 @@ class MissionNode(Node):
                 done, cmd = dock_velocity_for_object(pose)
                 if done:
                     self._stop_base(DOCK_STOP_SEC)
+                    self._latest_nav_pick_detection = list(pose)
                     self.get_logger().info(
                         f"视觉停靠完成 obj=({pose[0]:.3f},{pose[1]:.3f},{pose[2]:.3f})"
                     )
@@ -721,16 +731,39 @@ class MissionNode(Node):
                 self._stop_base(NAV_HANDOFF_STOP_SEC)
                 return False
             time.sleep(0.2)
-        return self.nav.getResult() == TaskResult.SUCCEEDED
+        result = self.nav.getResult()
+        if result != TaskResult.SUCCEEDED:
+            if self._navigation_handoff_ready(station):
+                self.get_logger().info(
+                    f"导航到 {station} nav_result={result} 但已满足任务交接条件"
+                )
+                self._stop_base(NAV_HANDOFF_STOP_SEC)
+                return True
+            if self._can_continue_with_local_dock(station):
+                self.get_logger().warn(
+                    f"导航到 {station} nav_result={result}, 转入地图精停兜底"
+                )
+                self._stop_base(NAV_HANDOFF_STOP_SEC)
+                return True
+            self.get_logger().warn(
+                f"导航到 {station} 失败: nav_result={result}"
+            )
+            return False
+        return True
+
+    def _can_continue_with_local_dock(self, station: str) -> bool:
+        if station not in NAV_FAILED_LOCAL_DOCK_STATIONS:
+            return False
+        return self._base_pose_in_map(timeout_sec=0.05) is not None
 
     def _wait_for_nav_active(self) -> bool:
         """Wait until bt_navigator lifecycle state reaches active."""
-        start = self.get_clock().now()
-        while not self._duration_elapsed(start, NAV_ACTIVE_WAIT_SEC):
+        deadline = time.monotonic() + NAV_ACTIVE_WAIT_SEC
+        while time.monotonic() < deadline:
             if self._bt_state_client.service_is_ready():
                 future = self._bt_state_client.call_async(GetState.Request())
-                deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
-                while not future.done() and time.time() < deadline:
+                call_deadline = time.time() + NAV_ACTIVE_CALL_TIMEOUT_SEC
+                while not future.done() and time.time() < call_deadline:
                     time.sleep(0.05)
                 result = future.result() if future.done() else None
                 if (
@@ -740,11 +773,13 @@ class MissionNode(Node):
                 ):
                     return True
             time.sleep(NAV_ACTIVE_POLL_SEC)
+        if hasattr(self, "_logger"):
+            self.get_logger().warn("bt_navigator active wait timed out")
         return False
 
     def _wait_for_navigation_tf(self, station: str) -> bool:
-        start = self.get_clock().now()
-        while not self._duration_elapsed(start, NAV_TF_READY_WAIT_SEC):
+        deadline = time.monotonic() + NAV_TF_READY_WAIT_SEC
+        while time.monotonic() < deadline:
             if self._base_pose_in_map(timeout_sec=NAV_TF_READY_LOOKUP_SEC) is not None:
                 return True
             time.sleep(NAV_TF_READY_POLL_SEC)

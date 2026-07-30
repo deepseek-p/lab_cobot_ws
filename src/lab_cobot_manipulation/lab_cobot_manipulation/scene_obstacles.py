@@ -26,12 +26,18 @@ SAMPLE_HALF_HEIGHT = 0.035
 # 两站台面同高,台顶在 base_link 系是常量——不从检测 z 推(检测 z 有误差)。
 BASE_LINK_WORLD_Z = 0.155
 TABLE_TOP_Z_IN_BASE = TABLE_HEIGHT - BASE_LINK_WORLD_Z
-# 方盒边长预算:停靠 yaw 容差 0.25rad 下 0.8x0.6 台面的轴对齐包络为
-# 0.8*cos(0.25)+0.6*sin(0.25)=0.924,加检测误差余量取 0.95。上限约束:
-# 名义车心-样件距离 0.88,盒前缘 0.88-0.475=0.405 必须大于车头半长
-# 0.28+停靠容差 0.12=0.40——0.95 已是极限,禁止加大,否则停靠偏近时
-# 起始位形陷入碰撞盒,所有规划直接失败。
-SURFACE_BOX_XY = 0.95
+# 台面盒尺寸预算:lab.world 台面为 world x/y = 0.8/0.6m,机器人在工位前
+# 朝 +y 停靠,所以 base_link 近似 x/y 包络为 0.6/0.8m。停靠 yaw 容差
+# 0.25rad 下取矩形 AABB:
+# x = 0.6*cos(0.25)+0.8*sin(0.25)=0.779
+# y = 0.8*cos(0.25)+0.6*sin(0.25)=0.924
+# 旧 0.95m 正方盒在 lab.world A 点会把车侧空气也包进去,使
+# ur_upper_arm_link 起始状态与 station_surface 假碰撞,OMPL 直接拒绝规划。
+SURFACE_BOX_X = 0.78
+SURFACE_BOX_Y = 0.93
+# Backward-compatible alias for older tests/docs that only cared about the
+# larger planar extent.
+SURFACE_BOX_XY = SURFACE_BOX_Y
 # 附着盒底部上收 0.02(与悬空释放余量同源):lift 起点样件底与台面零距,
 # 不收则持物笛卡尔路径首个路径点即报碰撞,抓取序列全灭。
 ATTACHED_SAMPLE_BOTTOM_TRIM = 0.02
@@ -61,7 +67,7 @@ def station_surface_box(pos) -> dict:
     center_z = TABLE_TOP_Z_IN_BASE - TABLE_HEIGHT / 2.0
     return {
         "center": [float(pos[0]), float(pos[1]), center_z],
-        "size": [SURFACE_BOX_XY, SURFACE_BOX_XY, TABLE_HEIGHT],
+        "size": [SURFACE_BOX_X, SURFACE_BOX_Y, TABLE_HEIGHT],
     }
 
 

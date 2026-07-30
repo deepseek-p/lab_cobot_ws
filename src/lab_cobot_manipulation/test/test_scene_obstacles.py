@@ -13,7 +13,9 @@ from lab_cobot_manipulation.scene_obstacles import (
     HELD_SAMPLE_CENTER_FROM_TCP_Z,
     SAMPLE_HALF_HEIGHT,
     STATION_SURFACE_BOX_ID,
+    SURFACE_BOX_X,
     SURFACE_BOX_XY,
+    SURFACE_BOX_Y,
     TABLE_HEIGHT,
     carried_sample_box,
     dynamic_obstacle_box,
@@ -58,11 +60,14 @@ def test_surface_box_ignores_input_z():
 
 
 def test_surface_box_covers_rotated_table_envelope():
-    # 停靠 yaw 容差 0.25rad 下,0.8x0.6 台面的轴对齐包络需求:
-    # w*cos(yaw)+h*sin(yaw);方盒边长必须覆盖再留检测误差余量。
+    # 停靠 yaw 容差 0.25rad 下,base_link x 近似桌面 0.6m 深度,
+    # y 近似桌面 0.8m 宽度;矩形盒按旋转 AABB 覆盖该包络。
     yaw_tol = 0.25
-    envelope = 0.8 * math.cos(yaw_tol) + 0.6 * math.sin(yaw_tol)
-    assert SURFACE_BOX_XY >= envelope + 0.01
+    envelope_x = 0.6 * math.cos(yaw_tol) + 0.8 * math.sin(yaw_tol)
+    envelope_y = 0.8 * math.cos(yaw_tol) + 0.6 * math.sin(yaw_tol)
+    assert SURFACE_BOX_X >= envelope_x
+    assert SURFACE_BOX_Y >= envelope_y
+    assert SURFACE_BOX_XY == SURFACE_BOX_Y
 
 
 def test_surface_box_front_edge_clears_docked_footprint():

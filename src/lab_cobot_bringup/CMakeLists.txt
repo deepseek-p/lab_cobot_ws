@@ -62,6 +62,12 @@ install(PROGRAMS
   RENAME voice_node
 )
 
+install(PROGRAMS
+  ${PROJECT_NAME}/g4g5_result_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME g4g5_result_node
+)
+
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
