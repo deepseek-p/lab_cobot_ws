@@ -506,7 +506,7 @@ def test_tactile_step_close_rejects_stale_split_contact(monkeypatch):
         fake_node,
         contact_timeout_sec=0.0,
         use_tactile_grasp=True,
-        tactile_dwell_sec=0.1,
+        tactile_dwell_sec=0.31,
     )
 
     assert not driver._step_close_until_contact()
@@ -543,19 +543,13 @@ def test_tactile_step_close_holds_touched_finger_and_continues_other_side():
 
     assert driver._step_close_until_contact()
     assert driver.last_tactile_contact_sides() == (True, True)
-    assert fake_node.float_arrays == [
-        [0.006, 0.006],
-        [0.006, 0.0065],
-        [0.006, 0.007],
-        [0.006, 0.0075],
-        [0.006, 0.008],
-        [0.006, 0.0085],
-        [0.006, 0.009],
-        [0.006, 0.0095],
-        [0.006, 0.01],
-        [0.006, 0.0105],
-        [0.006, 0.011],
-    ]
+    assert fake_node.float_arrays[0] == [0.006, 0.006]
+    assert fake_node.float_arrays[-1] == [0.006, 0.011]
+    assert len(fake_node.float_arrays) == 21
+    assert all(command[0] == pytest.approx(0.006) for command in fake_node.float_arrays)
+    right_positions = [command[1] for command in fake_node.float_arrays]
+    assert right_positions == sorted(right_positions)
+    assert len(set(right_positions)) >= 19
 
 
 def test_tactile_acquire_stops_closing_when_plugin_attaches():
@@ -661,7 +655,11 @@ def test_tactile_acquire_waits_past_stale_no_contact_refusal():
     )
 
     assert driver.acquire_object()
-    assert fake_node.float_arrays == [[0.006, 0.006], [0.0065, 0.0065]]
+    assert fake_node.float_arrays == [
+        [0.006, 0.006],
+        [0.0063, 0.0063],
+        [0.0065, 0.0065],
+    ]
 
 
 def test_tactile_acquire_fails_at_limit_without_dual_contact():

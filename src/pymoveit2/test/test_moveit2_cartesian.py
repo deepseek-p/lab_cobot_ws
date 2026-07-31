@@ -3,6 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Pose
@@ -15,6 +17,7 @@ from moveit_msgs.msg import (
 )
 from moveit_msgs.srv import GetCartesianPath
 from pymoveit2.moveit2 import MoveIt2
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 
 class _Stamp:
@@ -124,3 +127,128 @@ def test_cartesian_partial_fraction_is_rejected():
     moveit2, _service = _make_moveit_with_tcp_goal(fraction=0.4)
 
     assert moveit2._plan_cartesian_path() is None
+
+
+def test_move_to_pose_cartesian_uses_cartesian_plan_before_execute():
+    moveit2 = object.__new__(MoveIt2)
+    moveit2._MoveIt2__execute_via_moveit = True
+    calls = {}
+
+    def fake_plan(**kwargs):
+        calls["plan"] = kwargs
+        return "cartesian-trajectory"
+
+    def fake_execute(trajectory, **kwargs):
+        calls["execute"] = trajectory
+        calls["execute_kwargs"] = kwargs
+
+    moveit2.plan = fake_plan
+    moveit2.execute = fake_execute
+
+    moveit2.move_to_pose(
+        position=(0.8, 0.0, 0.75),
+        quat_xyzw=(1.0, 0.0, 0.0, 0.0),
+        frame_id="base_link",
+        target_link="gripper_tcp",
+        cartesian=True,
+    )
+
+    assert calls["plan"]["cartesian"] is True
+    assert calls["plan"]["target_link"] == "gripper_tcp"
+    assert calls["plan"]["frame_id"] == "base_link"
+    assert calls["execute"] == "cartesian-trajectory"
+    assert calls["execute_kwargs"]["via_moveit"] is True
+
+
+def test_execute_adds_monotonic_timing_for_cartesian_trajectory_points():
+    moveit2 = object.__new__(MoveIt2)
+    moveit2._MoveIt2__ignore_new_calls_while_executing = False
+    moveit2._MoveIt2__is_executing = False
+    moveit2._MoveIt2__is_motion_requested = False
+    moveit2._MoveIt2__last_execution_succeeded = True
+    captured = {}
+
+    def fake_send(goal):
+        captured["goal"] = goal
+
+    moveit2._send_goal_async_follow_joint_trajectory = fake_send
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = ["ur_wrist_3_joint"]
+    trajectory.points = [JointTrajectoryPoint(), JointTrajectoryPoint()]
+    trajectory.points[0].positions = [0.0]
+    trajectory.points[1].positions = [0.1]
+
+    moveit2.execute(trajectory)
+
+    assert captured["goal"].trajectory.points[0].time_from_start.nanosec > 0
+    assert (
+        captured["goal"].trajectory.points[1].time_from_start.nanosec
+        > captured["goal"].trajectory.points[0].time_from_start.nanosec
+    )
+    assert moveit2._MoveIt2__last_execution_succeeded is False
+
+
+def test_execute_via_moveit_wraps_cartesian_trajectory_for_moveit_execution():
+    moveit2 = object.__new__(MoveIt2)
+    moveit2._MoveIt2__ignore_new_calls_while_executing = False
+    moveit2._MoveIt2__is_executing = False
+    moveit2._MoveIt2__is_motion_requested = False
+    moveit2._MoveIt2__last_execution_succeeded = True
+    captured = {}
+
+    def fake_send(goal):
+        captured["goal"] = goal
+
+    moveit2._send_goal_async_execute_trajectory = fake_send
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = ["ur_wrist_3_joint"]
+    point = JointTrajectoryPoint()
+    point.positions = [0.1]
+    point.time_from_start.nanosec = 100000000
+    trajectory.points = [point]
+
+    moveit2.execute(trajectory, via_moveit=True)
+
+    assert captured["goal"].trajectory.joint_trajectory is trajectory
+    assert moveit2._MoveIt2__last_execution_succeeded is False
+
+
+def test_joint_path_constraints_are_written_to_move_group_request():
+    moveit2 = object.__new__(MoveIt2)
+    moveit2._MoveIt2__joint_names = [
+        "ur_wrist_1_joint",
+        "ur_wrist_2_joint",
+        "ur_wrist_3_joint",
+    ]
+    moveit2._MoveIt2__move_action_goal = MoveGroup.Goal()
+
+    moveit2.set_joint_path_constraints(
+        [-1.0, 4.0, -0.2],
+        tolerance=[0.7, 0.8, 0.4],
+    )
+
+    constraints = (
+        moveit2._MoveIt2__move_action_goal.request.path_constraints
+        .joint_constraints
+    )
+    assert [constraint.joint_name for constraint in constraints] == [
+        "ur_wrist_1_joint",
+        "ur_wrist_2_joint",
+        "ur_wrist_3_joint",
+    ]
+    assert [constraint.position for constraint in constraints] == pytest.approx(
+        [-1.0, 4.0, -0.2]
+    )
+    assert [constraint.tolerance_above for constraint in constraints] == pytest.approx(
+        [0.7, 0.8, 0.4]
+    )
+
+    moveit2.clear_path_constraints()
+
+    assert (
+        moveit2._MoveIt2__move_action_goal.request.path_constraints
+        .joint_constraints
+        == []
+    )

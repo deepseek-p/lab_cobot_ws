@@ -248,11 +248,26 @@ def test_detect_state_preserves_bench_path_when_disabled_or_wrist_misses(enabled
     assert node._latest_task_detection == [0.82, 0.0, 0.79]
 
 
-def test_detect_state_uses_nav_pick_cache_when_perception_times_out():
+def test_detect_state_uses_dock_cache_when_bench_fallback_jumps_too_far():
     node = mission_node.MissionNode.__new__(mission_node.MissionNode)
     node._use_wrist_detect = True
     node._latest_task_detection = None
-    node._latest_nav_pick_detection = [0.815, 0.045, 0.599]
+    node._last_pick_dock_detection = [0.827, 0.002, 0.635]
+    node._wrist_detect = lambda: None
+    node._detect = lambda: [0.785, 0.009, 0.600]
+    logger = _Logger()
+    node.get_logger = lambda: logger
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert node._latest_task_detection == [0.827, 0.002, 0.635]
+    assert any("outlier" in message for message in logger.messages)
+
+
+def test_detect_state_uses_dock_cache_when_perception_times_out():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = True
+    node._latest_task_detection = None
+    node._last_pick_dock_detection = [0.815, 0.045, 0.599]
     node._wrist_detect = lambda: None
     node._detect = lambda: None
     logger = _Logger()
@@ -260,7 +275,20 @@ def test_detect_state_uses_nav_pick_cache_when_perception_times_out():
 
     assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
     assert node._latest_task_detection == [0.815, 0.045, 0.599]
-    assert any("nav_pick_cache" in message for message in logger.messages)
+    assert any("using_last_pick_dock_pose" in message for message in logger.messages)
+
+
+def test_detect_state_keeps_consistent_bench_fallback_near_dock_cache():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = True
+    node._latest_task_detection = None
+    node._last_pick_dock_detection = [0.827, 0.002, 0.635]
+    node._wrist_detect = lambda: None
+    node._detect = lambda: [0.815, 0.009, 0.630]
+    node.get_logger = lambda: _Logger()
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert node._latest_task_detection == [0.815, 0.009, 0.630]
 
 
 @pytest.mark.parametrize("enabled", [False, True])

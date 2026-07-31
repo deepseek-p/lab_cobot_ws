@@ -39,6 +39,18 @@ def test_trajectory_execution_tolerates_gazebo_settling_residual():
     assert config["trajectory_execution"]["allowed_goal_duration_margin"] == 30.0
 
 
+def test_ompl_pipeline_defaults_to_rrtconnect_for_long_moves():
+    config_file = (
+        Path(__file__).resolve().parents[1] / "config" / "ompl_planning.yaml"
+    )
+    config = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+
+    assert (
+        config["ur_manipulator"]["default_planner_config"]
+        == "RRTConnectkConfigDefault"
+    )
+
+
 def test_joint_limits_prevent_multi_turn_grasp_paths():
     config_file = (
         Path(__file__).resolve().parents[1] / "config" / "joint_limits.yaml"

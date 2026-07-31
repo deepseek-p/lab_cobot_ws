@@ -26,15 +26,13 @@ SAMPLE_HALF_HEIGHT = 0.035
 # 两站台面同高,台顶在 base_link 系是常量——不从检测 z 推(检测 z 有误差)。
 BASE_LINK_WORLD_Z = 0.155
 TABLE_TOP_Z_IN_BASE = TABLE_HEIGHT - BASE_LINK_WORLD_Z
-# 台面盒尺寸预算:lab.world 台面为 world x/y = 0.8/0.6m,机器人在工位前
-# 朝 +y 停靠,所以 base_link 近似 x/y 包络为 0.6/0.8m。停靠 yaw 容差
-# 0.25rad 下取矩形 AABB:
-# x = 0.6*cos(0.25)+0.8*sin(0.25)=0.779
-# y = 0.8*cos(0.25)+0.6*sin(0.25)=0.924
-# 旧 0.95m 正方盒在 lab.world A 点会把车侧空气也包进去,使
-# ur_upper_arm_link 起始状态与 station_surface 假碰撞,OMPL 直接拒绝规划。
-SURFACE_BOX_X = 0.78
-SURFACE_BOX_Y = 0.93
+# 局部台面碰撞盒:只覆盖样件附近的工作台实体,保留抓取点附近碰撞检测。
+# 旧 0.95m 方盒会向车侧伸到 x≈0.35m;实跑中抓取后 lift 的起始
+# 位形被误判为 ur_upper_arm_link 撞 station_surface,导致任务直接失败。
+# station A/B 台面真实 footprint 为 0.8x0.6m;机器人正对台面时 base_link
+# x 方向近似台面深度,取 0.62m;横向取 0.82m 覆盖样件附近宽度。
+SURFACE_BOX_X = 0.62
+SURFACE_BOX_Y = 0.82
 # Backward-compatible alias for older tests/docs that only cared about the
 # larger planar extent.
 SURFACE_BOX_XY = SURFACE_BOX_Y

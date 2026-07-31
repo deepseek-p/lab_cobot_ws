@@ -59,14 +59,13 @@ def test_surface_box_ignores_input_z():
     assert lifted == nominal
 
 
-def test_surface_box_covers_rotated_table_envelope():
-    # 停靠 yaw 容差 0.25rad 下,base_link x 近似桌面 0.6m 深度,
-    # y 近似桌面 0.8m 宽度;矩形盒按旋转 AABB 覆盖该包络。
-    yaw_tol = 0.25
-    envelope_x = 0.6 * math.cos(yaw_tol) + 0.8 * math.sin(yaw_tol)
-    envelope_y = 0.8 * math.cos(yaw_tol) + 0.6 * math.sin(yaw_tol)
-    assert SURFACE_BOX_X >= envelope_x
-    assert SURFACE_BOX_Y >= envelope_y
+def test_surface_box_covers_local_grasp_workspace_without_full_table_overreach():
+    # 局部台面盒覆盖样件附近即可;不再用 0.95m 方盒覆盖整张旋转台面,
+    # 否则实跑中会把 ur_upper_arm_link 初始位形误判进 station_surface。
+    assert SURFACE_BOX_X >= 0.60
+    assert SURFACE_BOX_Y >= 0.80
+    assert SURFACE_BOX_X < 0.70
+    assert SURFACE_BOX_Y < 0.90
     assert SURFACE_BOX_XY == SURFACE_BOX_Y
 
 

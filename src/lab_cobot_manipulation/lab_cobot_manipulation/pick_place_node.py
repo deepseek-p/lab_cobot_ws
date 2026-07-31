@@ -10,6 +10,7 @@ PickPlace 类供 mission_node 复用;mission_node 是跨工位任务的正式入
 - 关节 ur_ 前缀,规划组 ur_manipulator,基座 ur_base_link,末端 ur_tool0
 - pose 为 base_link(底盘)系下的 gripper_tcp 目标;本类负责换算 ur_tool0 目标
 """
+import math
 import time
 from threading import Thread
 
@@ -52,14 +53,14 @@ OBSERVE_CONFIG = [
     -0.807952,
     0.425992,
     -1.337190,
-    4.581185,
+    -1.701999,
     -1.844921,
 ]
 DEFAULT_APPROACH_HEIGHT = 0.04
 DEFAULT_APPROACH_TOLERANCE_POSITION = 0.005
 DEFAULT_APPROACH_TOLERANCE_ORIENTATION = 0.2
 DEFAULT_GRASP_TOLERANCE_POSITION = 0.005
-DEFAULT_GRASP_TOLERANCE_ORIENTATION = 0.2
+DEFAULT_GRASP_TOLERANCE_ORIENTATION = 0.05
 TACTILE_GRASP_TOLERANCE_ORIENTATION = DEFAULT_GRASP_TOLERANCE_ORIENTATION
 # Gazebo 在低实时因子（深度相机、MoveIt、接触传感器同时运行）下，首条
 # approach 轨迹实测可到 166 秒墙钟。若此时取消 action，后续重试会与旧目标竞争。
@@ -67,26 +68,33 @@ TACTILE_GRASP_TOLERANCE_ORIENTATION = DEFAULT_GRASP_TOLERANCE_ORIENTATION
 DEFAULT_MOVE_TIMEOUT_SEC = 240.0
 MOVE_RESULT_GRACE_SEC = 5.0
 PICK_TCP_Z_CLEARANCE = 0.06
-TACTILE_PICK_TCP_Z_CLEARANCE = 0.0125
+TACTILE_PICK_TCP_Z_CLEARANCE = 0.018
 TACTILE_PICK_TCP_VISUAL_Y_LIMIT = 0.018
 TACTILE_PICK_LATERAL_BIAS = 0.006
 TACTILE_PICK_LATERAL_RETRY_STEP = 0.006
 TACTILE_PICK_RETRY_Y_LIMIT = 0.036
-TACTILE_APPROACH_HEIGHT = 0.060
+TACTILE_APPROACH_HEIGHT = 0.090
+# 夹住后的第一段竖直抬升单独设定。实跑日志显示当前 A 点姿态下
+# 9cm Cartesian 抬升稳定被截断到约 81%,6.5cm 位于已验证可达区间内,
+# 仍满足抓取后 5~10cm 直线离台要求。
+TACTILE_PICK_LIFT_HEIGHT = 0.065
 # 悬空释放余量:place 下降只到名义放置点上方该高度即松爪,物块自由落到台面。
 # 根因回归:带焊物块被压向台面时固定关节与接触约束冲突,求解器会给物块
 # 注入巨大速度(实测弹飞 181 m/s);悬空释放从机制上避免该约束冲突。
 PLACE_RELEASE_CLEARANCE = 0.02
 TACTILE_PLACE_RELEASE_CLEARANCE = 0.025
-# G4 A->B 放置使用 base_link 坐标时，额外下压补偿会把释放 TCP 拉到
-# 目标点下方，容易触发 MoveIt 下降段执行失败；触觉放置仍采用上方悬空释放。
-TACTILE_PLACE_TCP_Z_COMPENSATION = 0.0
+# 触觉夹持样件释放时保持悬空/贴近台面,但不再把 TCP 目标压到台面下方。
+# 过低目标会让放置下降/抬升 Cartesian path 被台面碰撞截断,随后触发 OMPL
+# fallback,在 B 端产生多余关节绕行。
+TACTILE_PLACE_TCP_Z_COMPENSATION = 0.025
 TACTILE_PLACE_DROP_SETTLE_SEC = 0.3
-GRIPPER_CLOSE_SETTLE_SEC = 0.8
+GRIPPER_CLOSE_SETTLE_SEC = 1.0
 ARM_MAX_VELOCITY_SCALING = 0.75
 ARM_MAX_ACCELERATION_SCALING = 0.75
 TACTILE_ARM_MAX_VELOCITY_SCALING = 0.30
 TACTILE_ARM_MAX_ACCELERATION_SCALING = 0.30
+LOCAL_ARM_MAX_VELOCITY_SCALING = 0.18
+LOCAL_ARM_MAX_ACCELERATION_SCALING = 0.18
 ARM_ALLOWED_PLANNING_TIME_SEC = 3.0
 ARM_NUM_PLANNING_ATTEMPTS = 3
 GO_HOME_MAX_ATTEMPTS = 2
@@ -97,6 +105,15 @@ HOLD_MONITOR_PERIOD_SEC = 0.1
 G5_STATUS_TOPIC = "/g5/arm_dynamic_obstacle/status"
 G5_LAB_AB_DEMO_CENTER = [0.35, 0.12, 0.50]
 G5_LAB_AB_DEMO_SIZE = [0.12, 0.12, 0.20]
+CARTESIAN_FALLBACK_TO_OMPL = True
+WRIST_PATH_CONSTRAINT_JOINTS = [
+    "ur_wrist_1_joint",
+    "ur_wrist_2_joint",
+    "ur_wrist_3_joint",
+]
+WRIST_PATH_CONSTRAINT_TOLERANCES = [2.4, 2.4, 1.6]
+PRE_GRASP_SETTLE_SEC = 0.25
+POST_GRASP_SETTLE_SEC = 0.35
 
 
 def configure_moveit_for_pick_place(moveit2, use_tactile_grasp=False) -> None:
@@ -425,6 +442,191 @@ class PickPlace(Node):
         self.get_logger().error("抓放任务失败：物块在搬运期间不再被持有")
 
     # ---- 基础动作 ----
+    def _current_joint_positions_by_name(self) -> dict:
+        joint_state = getattr(self.moveit2, "joint_state", None)
+        if joint_state is None:
+            return {}
+        return {
+            name: float(position)
+            for name, position in zip(joint_state.name, joint_state.position)
+        }
+
+    def _apply_wrist_path_constraints(self) -> bool:
+        if not hasattr(self.moveit2, "set_joint_path_constraints"):
+            return False
+        positions_by_name = self._current_joint_positions_by_name()
+        if not positions_by_name:
+            return False
+        try:
+            positions = [
+                positions_by_name[name] for name in WRIST_PATH_CONSTRAINT_JOINTS
+            ]
+        except KeyError:
+            return False
+        self.moveit2.set_joint_path_constraints(
+            positions,
+            joint_names=WRIST_PATH_CONSTRAINT_JOINTS,
+            tolerance=WRIST_PATH_CONSTRAINT_TOLERANCES,
+        )
+        self.get_logger().info(
+            "MoveIt joint branch constraints set "
+            + ", ".join(
+                "%s=%.3f" % (name, value)
+                for name, value in zip(WRIST_PATH_CONSTRAINT_JOINTS, positions)
+            )
+        )
+        return True
+
+    def _clear_wrist_path_constraints(self) -> None:
+        if hasattr(self.moveit2, "clear_path_constraints"):
+            self.moveit2.clear_path_constraints()
+
+    def _current_tcp_quat(self):
+        moveit2 = getattr(self, "moveit2", None)
+        if moveit2 is None or not hasattr(moveit2, "compute_fk"):
+            return DOWN_QUAT
+        pose_stamped = moveit2.compute_fk(fk_link_names=[GRIPPER_TCP_LINK])
+        if not pose_stamped:
+            return DOWN_QUAT
+        if isinstance(pose_stamped, list):
+            pose_stamped = pose_stamped[0] if pose_stamped else None
+        if pose_stamped is None:
+            return DOWN_QUAT
+        orientation = pose_stamped.pose.orientation
+        return [
+            float(orientation.x),
+            float(orientation.y),
+            float(orientation.z),
+            float(orientation.w),
+        ]
+
+    def _normalize_wrist_trajectory_to_current(self, trajectory) -> None:
+        if trajectory is None or not getattr(trajectory, "points", None):
+            return
+        current = self._current_joint_positions_by_name()
+        previous = {
+            name: current[name]
+            for name in UR_JOINTS
+            if name in current
+        }
+        if not previous:
+            return
+        joint_indices = {
+            name: trajectory.joint_names.index(name)
+            for name in UR_JOINTS
+            if name in trajectory.joint_names and name in previous
+        }
+        for point in trajectory.points:
+            positions = list(point.positions)
+            changed = False
+            for name, index in joint_indices.items():
+                if index >= len(positions):
+                    continue
+                reference = previous[name]
+                value = float(positions[index])
+                delta = value - reference
+                if abs(delta) > math.pi:
+                    value -= round(delta / math.tau) * math.tau
+                    positions[index] = value
+                    changed = True
+                previous[name] = value
+            if changed:
+                point.positions = positions
+
+    def _plan_execute_pose(
+        self,
+        pos,
+        quat,
+        frame_id,
+        target_link,
+        tolerance_position,
+        tolerance_orientation,
+        timeout_sec,
+        cartesian=False,
+    ) -> bool:
+        if not hasattr(self.moveit2, "plan"):
+            send_name = "_MoveIt2__send_goal_future_move_action"
+            result_name = "_MoveIt2__get_result_future_move_action"
+            previous_send_future = getattr(self.moveit2, send_name, None)
+            previous_result_future = getattr(self.moveit2, result_name, None)
+            self.moveit2.move_to_pose(
+                position=list(pos),
+                quat_xyzw=quat,
+                frame_id=frame_id,
+                target_link=target_link,
+                tolerance_position=tolerance_position,
+                tolerance_orientation=tolerance_orientation,
+                cartesian=cartesian,
+            )
+            done = _wait_for_moveit_result(
+                self.moveit2,
+                timeout_sec,
+                previous_send_future=previous_send_future,
+                previous_result_future=previous_result_future,
+            )
+            if not done and MOVE_RESULT_GRACE_SEC > 0.0:
+                time.sleep(MOVE_RESULT_GRACE_SEC)
+                done = _wait_for_moveit_result(
+                    self.moveit2,
+                    MOVE_RESULT_GRACE_SEC,
+                    previous_send_future=previous_send_future,
+                    previous_result_future=previous_result_future,
+                )
+            return done
+        trajectory = self.moveit2.plan(
+            position=list(pos),
+            quat_xyzw=quat,
+            frame_id=frame_id,
+            target_link=target_link,
+            tolerance_position=tolerance_position,
+            tolerance_orientation=tolerance_orientation,
+            cartesian=cartesian,
+        )
+        if trajectory is None:
+            return False
+        self._normalize_wrist_trajectory_to_current(trajectory)
+        send_name = "_MoveIt2__send_goal_future_move_action"
+        result_name = "_MoveIt2__get_result_future_move_action"
+        previous_send_future = getattr(self.moveit2, send_name, None)
+        previous_result_future = getattr(self.moveit2, result_name, None)
+        self.moveit2.execute(trajectory, via_moveit=True)
+        done = _wait_for_moveit_result(
+            self.moveit2,
+            timeout_sec,
+            previous_send_future=previous_send_future,
+            previous_result_future=previous_result_future,
+        )
+        if not done and MOVE_RESULT_GRACE_SEC > 0.0:
+            time.sleep(MOVE_RESULT_GRACE_SEC)
+            done = _wait_for_moveit_result(
+                self.moveit2,
+                MOVE_RESULT_GRACE_SEC,
+                previous_send_future=previous_send_future,
+                previous_result_future=previous_result_future,
+            )
+        return done
+
+    def _with_local_arm_scaling(self, enabled: bool, fn):
+        if not enabled:
+            return fn()
+        old_velocity = getattr(self.moveit2, "max_velocity", None)
+        old_acceleration = getattr(self.moveit2, "max_acceleration", None)
+        self.moveit2.max_velocity = min(
+            float(old_velocity) if old_velocity is not None else 1.0,
+            LOCAL_ARM_MAX_VELOCITY_SCALING,
+        )
+        self.moveit2.max_acceleration = min(
+            float(old_acceleration) if old_acceleration is not None else 1.0,
+            LOCAL_ARM_MAX_ACCELERATION_SCALING,
+        )
+        try:
+            return fn()
+        finally:
+            if old_velocity is not None:
+                self.moveit2.max_velocity = old_velocity
+            if old_acceleration is not None:
+                self.moveit2.max_acceleration = old_acceleration
+
     def _move(
         self,
         pos,
@@ -435,6 +637,9 @@ class PickPlace(Node):
         tolerance_orientation=0.001,
         timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
         cartesian=False,
+        stabilize_wrist=True,
+        local_speed=False,
+        fallback_to_ompl=True,
     ) -> bool:
         # frame_id="base_link":pos 为底盘系坐标(感知/放置点都在此系),
         # 由 MoveIt 用 planning scene 的 TF 换算到规划基座 ur_base_link。
@@ -443,47 +648,52 @@ class PickPlace(Node):
             "MoveIt target link=%s frame=%s pos=%s"
             % (target_link, frame_id, _format_pose_target(pos))
         )
-        future_name_pairs = [
-            (
-                "_MoveIt2__send_goal_future_move_action",
-                "_MoveIt2__get_result_future_move_action",
-            ),
-            (
-                "_MoveIt2__send_goal_future_follow_joint_trajectory",
-                "_MoveIt2__get_result_future_follow_joint_trajectory",
-            ),
-        ]
-        previous_send_future = None
-        previous_result_future = None
-        for send_name, result_name in future_name_pairs:
-            send_future = getattr(self.moveit2, send_name, None)
-            if send_future is not None:
-                previous_send_future = send_future
-                previous_result_future = getattr(self.moveit2, result_name, None)
-                break
-        self.moveit2.move_to_pose(
-            position=list(pos),
-            quat_xyzw=quat,
-            frame_id=frame_id,
-            target_link=target_link,
-            tolerance_position=tolerance_position,
-            tolerance_orientation=tolerance_orientation,
-            cartesian=cartesian,
-        )
-        executed = _wait_for_moveit_result(
-            self.moveit2,
-            timeout_sec,
-            previous_send_future=previous_send_future,
-            previous_result_future=previous_result_future,
-        )
-        if not executed and MOVE_RESULT_GRACE_SEC > 0.0:
-            time.sleep(MOVE_RESULT_GRACE_SEC)
-            executed = _wait_for_moveit_result(
-                self.moveit2,
-                MOVE_RESULT_GRACE_SEC,
-                previous_send_future=previous_send_future,
-                previous_result_future=previous_result_future,
+        constraints_set = False
+        try:
+            if stabilize_wrist:
+                constraints_set = self._apply_wrist_path_constraints()
+            executed = self._with_local_arm_scaling(
+                local_speed,
+                lambda: self._plan_execute_pose(
+                    pos,
+                    quat,
+                    frame_id,
+                    target_link,
+                    tolerance_position,
+                    tolerance_orientation,
+                    timeout_sec,
+                    cartesian=cartesian,
+                ),
             )
+            if (
+                not executed
+                and cartesian
+                and fallback_to_ompl
+                and CARTESIAN_FALLBACK_TO_OMPL
+            ):
+                if stabilize_wrist and not constraints_set:
+                    constraints_set = self._apply_wrist_path_constraints()
+                self.get_logger().warn(
+                    "MoveIt Cartesian target failed; retrying with MoveGroup fallback "
+                    "link=%s frame=%s pos=%s"
+                    % (target_link, frame_id, _format_pose_target(pos))
+                )
+                executed = self._with_local_arm_scaling(
+                    local_speed,
+                    lambda: self._plan_execute_pose(
+                        pos,
+                        quat,
+                        frame_id,
+                        target_link,
+                        tolerance_position,
+                        tolerance_orientation,
+                        timeout_sec,
+                        cartesian=False,
+                    ),
+                )
+        finally:
+            if constraints_set:
+                self._clear_wrist_path_constraints()
         if not executed:
             self.get_logger().warn(
                 "MoveIt target failed link=%s frame=%s pos=%s"
@@ -554,14 +764,22 @@ class PickPlace(Node):
     def _pick_lift_target(self, target):
         approach_height = self.approach_height
         if self.use_tactile_grasp:
-            approach_height = max(approach_height, TACTILE_APPROACH_HEIGHT)
+            approach_height = max(approach_height, TACTILE_PICK_LIFT_HEIGHT)
         return [
             target[0],
             target[1],
             target[2] + approach_height,
         ]
 
-    def _move_approach(self, pos, cartesian=False) -> bool:
+    def _move_approach(
+        self,
+        pos,
+        quat=DOWN_QUAT,
+        cartesian=False,
+        local_speed=False,
+        fallback_to_ompl=True,
+        tolerance_orientation=DEFAULT_APPROACH_TOLERANCE_ORIENTATION,
+    ) -> bool:
         for attempt in range(APPROACH_MOVE_MAX_ATTEMPTS):
             restore_scaling = None
             if self.use_tactile_grasp and hasattr(self, "moveit2"):
@@ -575,11 +793,14 @@ class PickPlace(Node):
                 self.moveit2.max_acceleration = ARM_MAX_ACCELERATION_SCALING
             if self._move(
                 pos,
+                quat=quat,
                 target_link=GRIPPER_TCP_LINK,
                 tolerance_position=DEFAULT_APPROACH_TOLERANCE_POSITION,
-                tolerance_orientation=DEFAULT_APPROACH_TOLERANCE_ORIENTATION,
+                tolerance_orientation=tolerance_orientation,
                 timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
                 cartesian=cartesian,
+                local_speed=local_speed,
+                fallback_to_ompl=fallback_to_ompl,
             ):
                 if restore_scaling is not None:
                     (
@@ -612,6 +833,7 @@ class PickPlace(Node):
                 ),
                 timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
                 cartesian=True,
+                local_speed=True,
             ):
                 return True
             if attempt + 1 < GRASP_DESCENT_MAX_ATTEMPTS:
@@ -619,6 +841,41 @@ class PickPlace(Node):
                     "MoveIt grasp descent transient failure, retrying"
                 )
                 time.sleep(GO_HOME_RETRY_DELAY_SEC)
+        return False
+
+    def _move_pick_lift(self, lift) -> bool:
+        # 抓取后的局部抬升只能走 Cartesian。若这里退回 OMPL,
+        # RRTConnect 会在已夹物状态下重新选 IK 分支,正是 A 点偶发绕圈根因。
+        lift_quat = self._current_tcp_quat()
+        if self._move_approach(
+            lift,
+            quat=lift_quat,
+            cartesian=True,
+            local_speed=True,
+            fallback_to_ompl=False,
+        ):
+            return True
+        if not self.use_tactile_grasp:
+            return False
+
+        # 触觉夹持时真实样件由 Gazebo 接触/附着插件保持;MoveIt 中的
+        # carried_sample 只是保守碰撞盒。它有时会把竖直抬升截断到 75%-86%,
+        # 所以只在本地抬升失败后临时移除,成功抬升后再挂回用于长距离搬运。
+        self.get_logger().warn(
+            "Pick lift Cartesian failed with carried scene box; "
+            "retrying Cartesian after planning-scene detach"
+        )
+        self._detach_carried_sample()
+        lift_quat = self._current_tcp_quat()
+        if self._move_approach(
+            lift,
+            quat=lift_quat,
+            cartesian=True,
+            local_speed=True,
+            fallback_to_ompl=False,
+        ):
+            self._attach_carried_sample()
+            return True
         return False
 
     # ---- 复合动作(供 mission 调用)----
@@ -707,10 +964,12 @@ class PickPlace(Node):
         if not self._move_grasp_descent(target):
             self.get_logger().warn("Pick failed: grasp descent failed")
             return "failed"
+        if PRE_GRASP_SETTLE_SEC > 0.0:
+            time.sleep(PRE_GRASP_SETTLE_SEC)
         if not self.gripper.acquire_object():
             if self.use_tactile_grasp:
                 self.gripper.open()
-                self._move_approach(above, cartesian=True)
+                self._move_approach(above, cartesian=True, local_speed=True)
             self.get_logger().warn("Pick failed: object acquire rejected")
             return "acquire_failed"
         # 持物段规划护航:样件附着盒随 acquire 成功立即挂上。
@@ -726,7 +985,9 @@ class PickPlace(Node):
             self._detach_carried_sample()
             self.get_logger().warn("Pick failed: gripper close rejected")
             return "failed"
-        if not self._move_approach(lift, cartesian=True):
+        if POST_GRASP_SETTLE_SEC > 0.0:
+            time.sleep(POST_GRASP_SETTLE_SEC)
+        if not self._move_pick_lift(lift):
             self._stop_hold_monitor()
             self.gripper.release_object()
             self._detach_carried_sample()
@@ -754,7 +1015,10 @@ class PickPlace(Node):
         release = [
             target[0],
             target[1],
-            target[2] + release_clearance - tcp_z_compensation,
+            max(
+                target[2],
+                target[2] + release_clearance - tcp_z_compensation,
+            ),
         ]
         above = [target[0], target[1], target[2] + self.approach_height]
         self.get_logger().info(
@@ -767,27 +1031,31 @@ class PickPlace(Node):
         )
         # B 点携物 approach 距离较长,Cartesian 直线会被台面/姿态约束截断;
         # 先用关节空间到释放上方,下降/抬升再保持直线。
-        if not self._move_approach(above):
+        if not self._move_approach(above, cartesian=False):
             self._handle_hold_lost()
             self.get_logger().warn("Place failed: approach move failed")
             return False
+        if self.use_tactile_grasp:
+            # Gazebo 插件仍保持真实样件夹持;这里只移除 MoveIt 中的保守
+            # 附着盒,避免 release 附近与台面盒共同截断竖直 Cartesian path。
+            self._detach_carried_sample()
+        place_quat = self._current_tcp_quat()
         # 持物下降段笛卡尔直线:横向弧会带着焊接物块扫掠台面(同 pick 根因)
         descended = self._move(
             release,
+            quat=place_quat,
             target_link=GRIPPER_TCP_LINK,
             tolerance_position=DEFAULT_GRASP_TOLERANCE_POSITION,
             tolerance_orientation=DEFAULT_GRASP_TOLERANCE_ORIENTATION,
             timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
             cartesian=True,
+            local_speed=True,
+            fallback_to_ompl=False,
         )
         if not descended:
-            if not self.use_tactile_grasp:
-                self._handle_hold_lost()
-                self.get_logger().warn("Place failed: descent move failed")
-                return False
-            self.get_logger().warn(
-                "Place descent incomplete; releasing from approach height"
-            )
+            self._handle_hold_lost()
+            self.get_logger().warn("Place failed: descent move failed")
+            return False
         # 已到达释放位后，release_object() 会等待 Gazebo 插件确认“解除持有”。
         # 这段等待期间 hold_status 从 holding 切到 released 是正常语义；
         # 若继续运行持有定时器，会把正常释放边界误报成“搬运中丢失”。
@@ -796,13 +1064,21 @@ class PickPlace(Node):
             self._start_hold_monitor()
             self.get_logger().warn("Place failed: release rejected")
             return False
-        self._detach_carried_sample()
+        if not self.use_tactile_grasp:
+            self._detach_carried_sample()
         if self.use_tactile_grasp and TACTILE_PLACE_DROP_SETTLE_SEC > 0.0:
             time.sleep(TACTILE_PLACE_DROP_SETTLE_SEC)
         if not self.gripper.open():
             self.get_logger().warn("Place failed: gripper open rejected")
             return False
-        lifted = self._move_approach(above, cartesian=True)
+        lift_quat = self._current_tcp_quat()
+        lifted = self._move_approach(
+            above,
+            quat=lift_quat,
+            cartesian=True,
+            local_speed=True,
+            fallback_to_ompl=False,
+        )
         if not lifted:
             self.get_logger().warn("Place failed: lift move failed")
             if not self.use_tactile_grasp:

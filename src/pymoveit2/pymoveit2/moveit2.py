@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple, Union
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from moveit_msgs.action import MoveGroup
+from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
     CollisionObject,
     AttachedCollisionObject,
@@ -154,6 +154,13 @@ class MoveIt2:
         )
         self.__cartesian_path_request = GetCartesianPath.Request()
 
+        self.__execute_trajectory_action_client = ActionClient(
+            node=self._node,
+            action_type=ExecuteTrajectory,
+            action_name="execute_trajectory",
+            callback_group=self._callback_group,
+        )
+
         # Create action client for trajectory execution
         self.__follow_joint_trajectory_action_client = ActionClient(
             node=self._node,
@@ -246,6 +253,23 @@ class MoveIt2:
         Plan and execute motion based on previously set goals. Optional arguments can be
         passed in to internally use `set_pose_goal()` to define a goal during the call.
         """
+
+        if cartesian:
+            self.execute(
+                self.plan(
+                    position=position,
+                    quat_xyzw=quat_xyzw,
+                    frame_id=frame_id,
+                    target_link=target_link,
+                    tolerance_position=tolerance_position,
+                    tolerance_orientation=tolerance_orientation,
+                    weight_position=weight_position,
+                    weight_orientation=weight_orientation,
+                    cartesian=True,
+                ),
+                via_moveit=getattr(self, "_MoveIt2__execute_via_moveit", False),
+            )
+            return
 
         if self.__execute_via_moveit:
             if self.__ignore_new_calls_while_executing and self.__is_executing:
@@ -429,7 +453,7 @@ class MoveIt2:
 
         return joint_trajectory
 
-    def execute(self, joint_trajectory: JointTrajectory):
+    def execute(self, joint_trajectory: JointTrajectory, via_moveit: bool = False):
         """
         Execute joint_trajectory by communicating directly with the controller.
         """
@@ -440,6 +464,21 @@ class MoveIt2:
             )
             return
         self.__is_motion_requested = True
+        self.__last_execution_succeeded = False
+        self._ensure_joint_trajectory_timing(joint_trajectory)
+
+        if via_moveit:
+            execute_trajectory_goal = init_execute_trajectory_goal(
+                joint_trajectory=joint_trajectory
+            )
+            if execute_trajectory_goal is None:
+                self._node.get_logger().warn(
+                    "Cannot execute motion because the provided/planned trajectory is invalid."
+                )
+                self.__is_motion_requested = False
+                return
+            self._send_goal_async_execute_trajectory(goal=execute_trajectory_goal)
+            return
 
         follow_joint_trajectory_goal = init_follow_joint_trajectory_goal(
             joint_trajectory=joint_trajectory
@@ -453,6 +492,36 @@ class MoveIt2:
             return
 
         self._send_goal_async_follow_joint_trajectory(goal=follow_joint_trajectory_goal)
+
+    def _ensure_joint_trajectory_timing(
+        self,
+        joint_trajectory: Optional[JointTrajectory],
+        step_duration_sec: float = 0.05,
+    ) -> None:
+        if joint_trajectory is None or not joint_trajectory.points:
+            return
+
+        previous = -1.0
+        has_valid_timing = True
+        for point in joint_trajectory.points:
+            seconds = (
+                float(point.time_from_start.sec)
+                + float(point.time_from_start.nanosec) * 1e-9
+            )
+            if seconds <= previous:
+                has_valid_timing = False
+                break
+            previous = seconds
+
+        if has_valid_timing:
+            return
+
+        for index, point in enumerate(joint_trajectory.points, start=1):
+            seconds = index * step_duration_sec
+            point.time_from_start.sec = int(seconds)
+            point.time_from_start.nanosec = int(
+                round((seconds - int(seconds)) * 1e9)
+            )
 
     def wait_until_executed(self, timeout_sec: Optional[float] = None):
         """
@@ -686,6 +755,38 @@ class MoveIt2:
         """
 
         self.__move_action_goal.request.goal_constraints = [Constraints()]
+
+    def set_joint_path_constraints(
+        self,
+        joint_positions: List[float],
+        joint_names: Optional[List[str]] = None,
+        tolerance: Union[float, List[float]] = 0.5,
+        weight: float = 1.0,
+    ):
+        """Constrain a joint-space corridor for pose planning."""
+
+        if joint_names == None:
+            joint_names = self.__joint_names
+        if isinstance(tolerance, list):
+            tolerances = tolerance
+        else:
+            tolerances = [float(tolerance)] * len(joint_positions)
+
+        constraints = Constraints()
+        for i in range(len(joint_positions)):
+            constraint = JointConstraint()
+            constraint.joint_name = joint_names[i]
+            constraint.position = joint_positions[i]
+            constraint.tolerance_above = tolerances[i]
+            constraint.tolerance_below = tolerances[i]
+            constraint.weight = weight
+            constraints.joint_constraints.append(constraint)
+        self.__move_action_goal.request.path_constraints = constraints
+
+    def clear_path_constraints(self):
+        """Clear path constraints previously set for planning requests."""
+
+        self.__move_action_goal.request.path_constraints = Constraints()
 
     def create_new_goal_constraint(self):
         """
@@ -1178,6 +1279,80 @@ class MoveIt2:
 
         self.__is_executing = False
 
+    def _send_goal_async_execute_trajectory(
+        self,
+        goal: ExecuteTrajectory.Goal,
+        wait_for_server_timeout_sec: Optional[float] = 1.0,
+    ):
+        if not self.__execute_trajectory_action_client.wait_for_server(
+            timeout_sec=wait_for_server_timeout_sec
+        ):
+            self._node.get_logger().warn(
+                f"Action server '{self.__execute_trajectory_action_client._action_name}' is not yet available."
+            )
+            self.__is_motion_requested = False
+            self.__last_execution_succeeded = False
+            return None
+
+        with self.__move_lock:
+            self.__move_generation += 1
+            gen = self.__move_generation
+            self.__move_goal_handle = None
+
+        action_result = self.__execute_trajectory_action_client.send_goal_async(
+            goal=goal,
+            feedback_callback=None,
+        )
+        action_result.add_done_callback(
+            functools.partial(self.__response_callback_execute_trajectory, gen=gen)
+        )
+
+    def __response_callback_execute_trajectory(self, response, gen):
+        with self.__move_lock:
+            if gen != self.__move_generation:
+                return
+        goal_handle = response.result()
+        if not goal_handle.accepted:
+            self._node.get_logger().warn(
+                f"Action '{self.__execute_trajectory_action_client._action_name}' was rejected."
+            )
+            self.__is_motion_requested = False
+            self.__last_execution_succeeded = False
+            return
+
+        with self.__move_lock:
+            if gen != self.__move_generation:
+                return
+            self.__move_goal_handle = goal_handle
+        self.__is_executing = True
+        self.__is_motion_requested = False
+
+        get_result_future = goal_handle.get_result_async()
+        get_result_future.add_done_callback(
+            functools.partial(self.__result_callback_execute_trajectory, gen=gen)
+        )
+
+    def __result_callback_execute_trajectory(self, res, gen):
+        with self.__move_lock:
+            if gen != self.__move_generation:
+                return
+        result = res.result()
+        self.__last_execution_succeeded = (
+            result.status == GoalStatus.STATUS_SUCCEEDED
+            and result.result.error_code.val == MoveItErrorCodes.SUCCESS
+        )
+        if not self.__last_execution_succeeded:
+            self._node.get_logger().error(
+                "Action '%s' was unsuccessful: status=%s error_code=%s."
+                % (
+                    self.__execute_trajectory_action_client._action_name,
+                    result.status,
+                    result.result.error_code.val,
+                )
+            )
+
+        self.__is_executing = False
+
     def _send_goal_async_follow_joint_trajectory(
         self,
         goal: FollowJointTrajectory,
@@ -1426,6 +1601,17 @@ def init_follow_joint_trajectory_goal(
     # follow_joint_trajectory_goal.goal_time_tolerance = "Ignored"
 
     return follow_joint_trajectory_goal
+
+
+def init_execute_trajectory_goal(
+    joint_trajectory: JointTrajectory,
+) -> Optional[ExecuteTrajectory.Goal]:
+    if joint_trajectory is None:
+        return None
+
+    execute_trajectory_goal = ExecuteTrajectory.Goal()
+    execute_trajectory_goal.trajectory.joint_trajectory = joint_trajectory
+    return execute_trajectory_goal
 
 
 def init_dummy_joint_trajectory_from_state(

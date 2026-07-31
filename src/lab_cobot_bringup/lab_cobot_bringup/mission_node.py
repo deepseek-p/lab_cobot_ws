@@ -38,6 +38,8 @@ RETREAT_TOPIC = "/cmd_vel"
 RAW_ODOM_TOPIC = "/odom"
 DETECTION_TOPIC_TEMPLATE = "/perception/aruco_{object_id}/pose"
 WRIST_DETECTION_TOPIC_TEMPLATE = "/perception/wrist/aruco_{object_id}/pose"
+PICK_DETECTION_CACHE_MAX_XY_DELTA = 0.035
+PICK_DETECTION_CACHE_MAX_Z_DELTA = 0.04
 DEFAULT_WRIST_MARKER_ID = 1
 RETREAT_LINEAR_X = -0.18
 RETREAT_DURATION_SEC = 6.0
@@ -404,7 +406,7 @@ class MissionNode(Node):
         self._latest_detection_pose = None
         self._latest_wrist_detection_pose = None
         self._latest_task_detection = None
-        self._latest_nav_pick_detection = None
+        self._last_pick_dock_detection = None
         self.create_subscription(Odometry, RAW_ODOM_TOPIC, self._on_odom, 10)
         self.create_subscription(
             PoseStamped,
@@ -448,7 +450,7 @@ class MissionNode(Node):
     def _run_mission(self):
         try:
             self._latest_task_detection = None
-            self._latest_nav_pick_detection = None
+            self._last_pick_dock_detection = None
             instruction = getattr(self, "_instruction", "")
             config = getattr(self, "_planner_config", None)
             result = plan_actions(instruction, config)
@@ -488,11 +490,25 @@ class MissionNode(Node):
                         )
                 if pose is None:
                     pose = self._detect()
+                dock_pose = getattr(self, "_last_pick_dock_detection", None)
+                if pose is not None and dock_pose is not None:
+                    dx = float(pose[0]) - float(dock_pose[0])
+                    dy = float(pose[1]) - float(dock_pose[1])
+                    dz = float(pose[2]) - float(dock_pose[2])
+                    if (
+                        math.hypot(dx, dy) > PICK_DETECTION_CACHE_MAX_XY_DELTA
+                        or abs(dz) > PICK_DETECTION_CACHE_MAX_Z_DELTA
+                    ):
+                        self.get_logger().warn(
+                            "detect=outlier(using_last_pick_dock_pose) "
+                            "dx=%.3f dy=%.3f dz=%.3f" % (dx, dy, dz)
+                        )
+                        pose = list(dock_pose)
                 if pose is None:
-                    pose = getattr(self, "_latest_nav_pick_detection", None)
+                    pose = dock_pose
                     if pose is not None:
                         self.get_logger().info(
-                            "detect=nav_pick_cache"
+                            "detect=miss(using_last_pick_dock_pose)"
                         )
                 self._latest_task_detection = pose
                 return pose is not None
@@ -602,7 +618,7 @@ class MissionNode(Node):
                 done, cmd = dock_velocity_for_object(pose)
                 if done:
                     self._stop_base(DOCK_STOP_SEC)
-                    self._latest_nav_pick_detection = list(pose)
+                    self._last_pick_dock_detection = list(pose)
                     self.get_logger().info(
                         f"视觉停靠完成 obj=({pose[0]:.3f},{pose[1]:.3f},{pose[2]:.3f})"
                     )
