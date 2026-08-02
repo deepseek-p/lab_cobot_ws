@@ -8,6 +8,7 @@ __pycache__/
 !.claude/skills/
 
 # Local GUI/debug artifacts
+g4_artifacts/
 屏幕截图*.png
 docs/NIGHT_REPORT.md
 docs/superpowers/plans/
