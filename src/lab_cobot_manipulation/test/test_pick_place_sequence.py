@@ -5,6 +5,7 @@ import pytest
 from lab_cobot_manipulation import pick_place_node
 from lab_cobot_manipulation.pick_place_node import (
     DEFAULT_APPROACH_HEIGHT,
+    GRIPPER_OPEN_SETTLE_SEC,
     GRIPPER_CLOSE_SETTLE_SEC,
     PickPlace,
 )
@@ -349,17 +350,17 @@ def test_pick_refine_callback_exception_degrades_to_coarse_target():
     assert "log_info:refine=miss(callback_exception)" in pick_place.events
 
 
-def test_tactile_pick_keeps_visual_lateral_target_inside_safe_band():
+def test_tactile_pick_uses_visual_lateral_target_near_detected_object():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
     )
 
-    assert pick_place.pick([0.8, 0.0, 0.78])
+    assert pick_place.pick([0.8, -0.395, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.006, 0.888],
-        [0.8, 0.006, 0.798],
-        [0.8, 0.006, 0.863],
+        [0.8, -0.395, 0.888],
+        [0.8, -0.395, 0.798],
+        [0.8, -0.395, 0.863],
     ])
 
 
@@ -371,9 +372,9 @@ def test_tactile_pick_preserves_negative_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, -0.006, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.0, 0.888],
-        [0.8, 0.0, 0.798],
-        [0.8, 0.0, 0.863],
+        [0.8, -0.006, 0.888],
+        [0.8, -0.006, 0.798],
+        [0.8, -0.006, 0.863],
     ])
 
 
@@ -385,13 +386,13 @@ def test_tactile_pick_preserves_positive_visual_lateral_residual_inside_safe_ban
 
     assert pick_place.pick([0.8, 0.012, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.888],
-        [0.8, 0.018, 0.798],
-        [0.8, 0.018, 0.863],
+        [0.8, 0.012, 0.888],
+        [0.8, 0.012, 0.798],
+        [0.8, 0.012, 0.863],
     ])
 
 
-def test_tactile_pick_clamps_large_visual_lateral_residuals_on_first_attempt():
+def test_tactile_pick_does_not_clamp_large_visual_lateral_residuals_to_base_center():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
@@ -399,9 +400,9 @@ def test_tactile_pick_clamps_large_visual_lateral_residuals_on_first_attempt():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.888],
-        [0.8, 0.018, 0.798],
-        [0.8, 0.018, 0.863],
+        [0.8, 0.030, 0.888],
+        [0.8, 0.030, 0.798],
+        [0.8, 0.030, 0.863],
     ])
 
 
@@ -434,12 +435,12 @@ def test_tactile_pick_retries_laterally_after_left_only_contact_failure():
         "acquire",
     ]
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.006, 0.888],
-        [0.8, 0.006, 0.798],
-        [0.8, 0.006, 0.888],
         [0.8, 0.0, 0.888],
         [0.8, 0.0, 0.798],
-        [0.8, 0.0, 0.863],
+        [0.8, 0.0, 0.888],
+        [0.8, -0.006, 0.888],
+        [0.8, -0.006, 0.798],
+        [0.8, -0.006, 0.863],
     ])
 
 
@@ -453,12 +454,12 @@ def test_tactile_pick_retries_laterally_after_right_only_contact_failure():
 
     assert pick_place.pick([0.8, 0.0, 0.78])
     assert_positions_close(pick_place.move_positions, [
+        [0.8, 0.0, 0.888],
+        [0.8, 0.0, 0.798],
+        [0.8, 0.0, 0.888],
         [0.8, 0.006, 0.888],
         [0.8, 0.006, 0.798],
-        [0.8, 0.006, 0.888],
-        [0.8, 0.012, 0.888],
-        [0.8, 0.012, 0.798],
-        [0.8, 0.012, 0.863],
+        [0.8, 0.006, 0.863],
     ])
 
 
@@ -472,15 +473,15 @@ def test_tactile_pick_continues_retries_away_from_left_only_contact():
 
     assert pick_place.pick([0.8, -0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, -0.018, 0.888],
-        [0.8, -0.018, 0.798],
-        [0.8, -0.018, 0.888],
-        [0.8, -0.024, 0.888],
-        [0.8, -0.024, 0.798],
-        [0.8, -0.024, 0.888],
         [0.8, -0.030, 0.888],
         [0.8, -0.030, 0.798],
-        [0.8, -0.030, 0.863],
+        [0.8, -0.030, 0.888],
+        [0.8, -0.036, 0.888],
+        [0.8, -0.036, 0.798],
+        [0.8, -0.036, 0.888],
+        [0.8, -0.042, 0.888],
+        [0.8, -0.042, 0.798],
+        [0.8, -0.042, 0.863],
     ])
 
 
@@ -494,12 +495,12 @@ def test_tactile_pick_retries_away_from_right_only_contact():
 
     assert pick_place.pick([0.8, 0.030, 0.78])
     assert_positions_close(pick_place.move_positions, [
-        [0.8, 0.018, 0.888],
-        [0.8, 0.018, 0.798],
-        [0.8, 0.018, 0.888],
-        [0.8, 0.024, 0.888],
-        [0.8, 0.024, 0.798],
-        [0.8, 0.024, 0.863],
+        [0.8, 0.030, 0.888],
+        [0.8, 0.030, 0.798],
+        [0.8, 0.030, 0.888],
+        [0.8, 0.036, 0.888],
+        [0.8, 0.036, 0.798],
+        [0.8, 0.036, 0.863],
     ])
 
 
@@ -608,6 +609,11 @@ def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
+        move_names=[
+            "move_above",
+            "move_grasp",
+            "move_above",
+        ],
     )
 
     assert pick_place.place([0.8, 0.0, 0.78])
@@ -618,8 +624,12 @@ def test_tactile_place_waits_for_object_drop_before_opening(monkeypatch):
         "open",
         "move_above",
     ]
-    assert sleeps == [pytest.approx(pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC)]
-    assert pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC == pytest.approx(0.3)
+    assert sleeps == [
+        pytest.approx(pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC),
+        pytest.approx(pick_place_node.TACTILE_PLACE_POST_OPEN_SETTLE_SEC),
+    ]
+    assert pick_place_node.TACTILE_PLACE_DROP_SETTLE_SEC == pytest.approx(0.6)
+    assert pick_place_node.TACTILE_PLACE_POST_OPEN_SETTLE_SEC == pytest.approx(0.25)
 
 
 def test_pick_descend_and_lift_use_cartesian_straight_line():
@@ -683,7 +693,7 @@ def test_tactile_place_approach_uses_joint_space_then_straight_release():
     # lab.world B 点实测:携物 approach 距离较长,Cartesian 直线被台面/姿态
     # 约束截断;释放下降和抬升仍保持直线,避免样件扫掠台面。
     pick_place = make_pick_place_without_ros(
-        fake_moves=[True, True, True],
+        fake_moves=[True, True, True, True, True, True],
         use_tactile_grasp=True,
     )
 
@@ -693,7 +703,32 @@ def test_tactile_place_approach_uses_joint_space_then_straight_release():
     assert pick_place.move_kwargs[2].get("cartesian") is True
 
 
-def test_tactile_place_fails_when_short_descent_is_blocked():
+def test_tactile_place_enters_ready_joint_branch_before_approach():
+    pick_place = make_pick_place_without_ros(
+        fake_moves=[True, True, True],
+        use_tactile_grasp=True,
+    )
+
+    def fake_place_ready():
+        pick_place.events.append("place_ready_config")
+        return True
+
+    pick_place._move_to_place_ready_configuration = fake_place_ready
+
+    assert pick_place.place([0.8, 0.0, 0.78])
+    events = action_events(pick_place.events)
+    assert events.index("place_ready_config") < events.index("move_above")
+    assert pick_place_node.TACTILE_PLACE_READY_CONFIG == pytest.approx([
+        0.0,
+        -1.5708,
+        1.5708,
+        -1.5708,
+        -1.5708,
+        -1.5708,
+    ])
+
+
+def test_tactile_place_does_not_release_when_lower_descent_is_blocked():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, False],
         use_tactile_grasp=True,
@@ -755,6 +790,8 @@ def test_default_approach_height_stays_within_reachable_gripper_band():
 
 
 def test_gripper_close_waits_for_visible_motion():
+    assert GRIPPER_OPEN_SETTLE_SEC < GRIPPER_CLOSE_SETTLE_SEC
+    assert GRIPPER_OPEN_SETTLE_SEC <= 0.3
     assert GRIPPER_CLOSE_SETTLE_SEC >= 0.8
 
 
@@ -882,6 +919,68 @@ def test_moveit_wait_accepts_completed_follow_trajectory_result():
             raise AssertionError("private follow result future should be used")
 
     assert pick_place_node._wait_for_moveit_result(FakeMoveIt(), 0.1)
+
+
+def test_moveit_wait_accepts_completed_execute_trajectory_result():
+    class FakeErrorCode:
+        val = 1
+
+    class FakeMoveItResult:
+        error_code = FakeErrorCode()
+
+    class FakeResult:
+        status = pick_place_node.GoalStatus.STATUS_SUCCEEDED
+        result = FakeMoveItResult()
+
+    class FakeFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            return FakeResult()
+
+    class FakeMoveIt:
+        _MoveIt2__send_goal_future_execute_trajectory = object()
+        _MoveIt2__get_result_future_execute_trajectory = FakeFuture()
+        _MoveIt2__last_execution_succeeded = True
+        _MoveIt2__is_motion_requested = False
+        _MoveIt2__is_executing = False
+
+        def wait_until_executed(self, timeout_sec=None):
+            raise AssertionError("private execute result future should be used")
+
+    assert pick_place_node._wait_for_moveit_result(FakeMoveIt(), 0.1)
+
+
+def test_moveit_wait_rejects_failed_execute_trajectory_error_code():
+    class FakeErrorCode:
+        val = -7
+
+    class FakeMoveItResult:
+        error_code = FakeErrorCode()
+
+    class FakeResult:
+        status = pick_place_node.GoalStatus.STATUS_SUCCEEDED
+        result = FakeMoveItResult()
+
+    class FakeFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            return FakeResult()
+
+    class FakeMoveIt:
+        _MoveIt2__send_goal_future_execute_trajectory = object()
+        _MoveIt2__get_result_future_execute_trajectory = FakeFuture()
+        _MoveIt2__last_execution_succeeded = True
+        _MoveIt2__is_motion_requested = False
+        _MoveIt2__is_executing = False
+
+        def wait_until_executed(self, timeout_sec=None):
+            raise AssertionError("private execute result future should be used")
+
+    assert not pick_place_node._wait_for_moveit_result(FakeMoveIt(), 0.1)
 
 
 def test_moveit_wait_returns_false_when_planning_sends_no_new_goal():
@@ -1134,6 +1233,61 @@ def test_cartesian_fallback_plans_then_executes_normalized_trajectory(monkeypatc
     assert positions[5] == pytest.approx(0.08318530717958605)
 
 
+def test_local_cartesian_without_ompl_fallback_skips_result_grace_sleep(monkeypatch):
+    pick_place = PickPlace.__new__(PickPlace)
+    pick_place.events = []
+    pick_place.get_logger = lambda: FakeLogger(pick_place.events)
+    sleeps = []
+    wait_timeouts = []
+    monkeypatch.setattr(
+        pick_place_node.time,
+        "sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+    monkeypatch.setattr(
+        pick_place_node,
+        "_wait_for_moveit_result",
+        lambda _moveit2, timeout_sec, **_kwargs: (
+            wait_timeouts.append(timeout_sec) or False
+        ),
+    )
+
+    class FakeMoveIt:
+        def __init__(self):
+            self.joint_state = type(
+                "JointState",
+                (),
+                {
+                    "name": pick_place_node.UR_JOINTS,
+                    "position": [0.0, 0.0, 0.0, -1.05, -1.54, 0.02],
+                },
+            )()
+            self.executed = []
+
+        def set_joint_path_constraints(self, *args, **kwargs):
+            pass
+
+        def clear_path_constraints(self):
+            pass
+
+        def plan(self, **_kwargs):
+            return type("Trajectory", (), {"joint_names": [], "points": []})()
+
+        def execute(self, trajectory, via_moveit=False):
+            self.executed.append((trajectory, via_moveit))
+
+    pick_place.moveit2 = FakeMoveIt()
+
+    assert not pick_place._move(
+        [0.8, 0.0, 0.74],
+        cartesian=True,
+        fallback_to_ompl=False,
+    )
+    assert wait_timeouts == [pytest.approx(pick_place_node.DEFAULT_MOVE_TIMEOUT_SEC)]
+    assert sleeps == []
+    assert pick_place.moveit2.executed[0][1] is True
+
+
 def test_moveit_settings_are_tuned_for_fast_reliable_pick_place():
     assert hasattr(pick_place_node, "configure_moveit_for_pick_place")
     assert hasattr(pick_place_node, "ARM_ALLOWED_PLANNING_TIME_SEC")
@@ -1190,8 +1344,8 @@ def test_tactile_moveit_settings_use_lower_speed_to_bound_object_twist():
     assert fake.max_acceleration == pytest.approx(
         pick_place_node.TACTILE_ARM_MAX_ACCELERATION_SCALING
     )
-    assert fake.max_velocity == pytest.approx(0.30)
-    assert fake.max_acceleration == pytest.approx(0.30)
+    assert fake.max_velocity == pytest.approx(0.24)
+    assert fake.max_acceleration == pytest.approx(0.20)
     assert fake.max_velocity < pick_place_node.ARM_MAX_VELOCITY_SCALING
     assert fake.max_acceleration < pick_place_node.ARM_MAX_ACCELERATION_SCALING
     assert fake.allowed_planning_time == pytest.approx(
@@ -1219,6 +1373,74 @@ def test_go_home_retries_transient_invalid_moveit_execution():
     assert pick_place.go_home()
     assert len(configs) == 2
     assert all(config == pick_place_node.HOME_CONFIG for config in configs)
+
+
+def test_go_home_waits_for_follow_joint_trajectory_success_code_zero():
+    pick_place = PickPlace.__new__(PickPlace)
+
+    class FakeMoveItResult:
+        error_code = 0
+
+    class FakeResult:
+        status = pick_place_node.GoalStatus.STATUS_SUCCEEDED
+        result = FakeMoveItResult()
+
+    class FakeFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            return FakeResult()
+
+    class FakeMoveIt:
+        def __init__(self):
+            self._MoveIt2__send_goal_future_follow_joint_trajectory = object()
+            self._MoveIt2__get_result_future_follow_joint_trajectory = object()
+            self._MoveIt2__last_execution_succeeded = False
+            self._MoveIt2__is_motion_requested = False
+            self._MoveIt2__is_executing = False
+
+        def move_to_configuration(self, _config):
+            self._MoveIt2__send_goal_future_follow_joint_trajectory = object()
+            self._MoveIt2__get_result_future_follow_joint_trajectory = FakeFuture()
+
+        def wait_until_executed(self, timeout_sec=None):
+            raise AssertionError(
+                "go_home should wait on follow_joint_trajectory result"
+            )
+
+    pick_place.moveit2 = FakeMoveIt()
+    pick_place._hold_monitor_active = False
+
+    assert pick_place.go_home()
+
+
+def test_go_home_uses_local_speed_while_holding_object():
+    pick_place = PickPlace.__new__(PickPlace)
+    speeds = []
+
+    class FakeMoveIt:
+        def __init__(self):
+            self.max_velocity = 0.75
+            self.max_acceleration = 0.75
+
+        def move_to_configuration(self, _config):
+            speeds.append((self.max_velocity, self.max_acceleration))
+
+        def wait_until_executed(self, timeout_sec=None):
+            return True
+
+    fake = FakeMoveIt()
+    pick_place.moveit2 = fake
+    pick_place._hold_monitor_active = True
+
+    assert pick_place.go_home()
+    assert speeds == [(
+        pytest.approx(pick_place_node.LOCAL_ARM_MAX_VELOCITY_SCALING),
+        pytest.approx(pick_place_node.LOCAL_ARM_MAX_ACCELERATION_SCALING),
+    )]
+    assert fake.max_velocity == pytest.approx(0.75)
+    assert fake.max_acceleration == pytest.approx(0.75)
 
 
 def test_move_to_observe_uses_probed_fixed_joint_configuration():
@@ -1283,6 +1505,57 @@ def test_pick_injects_surface_before_descent_and_attaches_after_acquire():
         "acquire",
         "scene_attach",
         "close",
+        "move_above",
+    ]
+
+
+def test_pick_waits_for_hold_status_before_attaching_scene_and_lifting():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    def wait_until_holding(timeout_sec):
+        assert timeout_sec == pytest.approx(
+            pick_place_node.POST_ATTACH_HOLD_CONFIRM_TIMEOUT_SEC
+        )
+        pick_place.events.append("wait_holding")
+        return True
+
+    pick_place.gripper.wait_until_holding = wait_until_holding
+
+    assert pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "open",
+        "move_above",
+        "scene_surface",
+        "move_grasp",
+        "acquire",
+        "wait_holding",
+        "scene_attach",
+        "close",
+        "move_above",
+    ]
+
+
+def test_pick_fails_without_hold_status_before_lift():
+    pick_place = make_pick_place_without_ros(fake_moves=[True, True, True])
+    pick_place.scene_client = FakeSceneClient(pick_place.events)
+
+    def wait_until_holding(_timeout_sec):
+        pick_place.events.append("wait_holding")
+        return False
+
+    pick_place.gripper.wait_until_holding = wait_until_holding
+
+    assert not pick_place.pick([0.8, 0.0, 0.78])
+    assert action_events(pick_place.events) == [
+        "open",
+        "move_above",
+        "scene_surface",
+        "move_grasp",
+        "acquire",
+        "wait_holding",
+        "release",
+        "open",
         "move_above",
     ]
 
@@ -1391,6 +1664,11 @@ def test_tactile_place_detaches_scene_box_before_descent():
     pick_place = make_pick_place_without_ros(
         fake_moves=[True, True, True],
         use_tactile_grasp=True,
+        move_names=[
+            "move_above",
+            "move_grasp",
+            "move_above",
+        ],
     )
     pick_place.scene_client = FakeSceneClient(pick_place.events)
 

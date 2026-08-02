@@ -305,6 +305,39 @@ def test_failed_mission_releases_object_stops_base_and_goes_home(monkeypatch):
     assert "home" in events
 
 
+def test_place_failure_cleanup_does_not_release_when_object_is_still_held():
+    events = []
+
+    class FakeGripper:
+        def release_object(self):
+            events.append("release")
+
+    class FakePickPlace:
+        def __init__(self):
+            self.gripper = FakeGripper()
+
+        def _holding_is_healthy(self):
+            return True
+
+        def _detach_carried_sample(self):
+            events.append("scene_detach")
+
+        def go_home(self):
+            events.append("home")
+
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakePickPlace()
+    node._last_failed_state = TaskState.PLACE
+    node._stop_base = lambda duration: events.append(("stop", duration))
+    node.get_logger = lambda: FakeLogger()
+
+    MissionNode._failsafe_cleanup(node)
+
+    assert "release" not in events
+    assert ("stop", mission_node.DOCK_STOP_SEC) in events
+    assert "home" in events
+
+
 def test_retreat_and_stop_base_use_ros_clock(monkeypatch):
     clock = FakeClock()
     publisher = FakePublisher()

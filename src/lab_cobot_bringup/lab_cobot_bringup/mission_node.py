@@ -45,11 +45,10 @@ RETREAT_LINEAR_X = -0.18
 RETREAT_DURATION_SEC = 6.0
 RETREAT_PUBLISH_PERIOD_SEC = 0.05
 RETREAT_STOP_SEC = 0.5
-# base_link 系 TCP 放置点。z=0.725 + 悬空释放余量 0.02(pick_place 侧)
-# 使物块底面名义高出台面约 5cm 自由落下,覆盖视觉 z 误差带(±1.5cm),
-# 避免带焊物块压入台面引发约束爆炸(E2E 实测弹飞根因)。
-DEFAULT_PLACE_POSE = [0.82, 0.20, 0.725]
-PLACE_BASE_TARGET_POSE = (-2.0, 0.62, math.pi / 2.0)
+# base_link 系 TCP 放置点。触觉放置会低速小步下探到该高度释放,
+# 让样件底面几乎贴到台面后再松爪,形成“放上去”而不是“落下去”。
+DEFAULT_PLACE_POSE = [0.82, 0.20, 0.650]
+PLACE_BASE_TARGET_POSE = (-2.0, 0.72, math.pi / 2.0)
 DOCK_TARGET_X = 0.78
 DOCK_TARGET_Y = 0.0
 DOCK_TOLERANCE_X = 0.05
@@ -407,6 +406,7 @@ class MissionNode(Node):
         self._latest_wrist_detection_pose = None
         self._latest_task_detection = None
         self._last_pick_dock_detection = None
+        self._last_failed_state = None
         self.create_subscription(Odometry, RAW_ODOM_TOPIC, self._on_odom, 10)
         self.create_subscription(
             PoseStamped,
@@ -462,6 +462,8 @@ class MissionNode(Node):
             self._publish(task.state)
             while not task.is_terminal():
                 ok = self._execute(task.state)
+                if not ok:
+                    self._last_failed_state = task.state
                 task.on_result(ok)
                 self._publish(task.state)
             if task.state == TaskState.FAILED:
@@ -578,10 +580,18 @@ class MissionNode(Node):
 
     def _failsafe_cleanup(self) -> None:
         self.get_logger().warn("任务失败,执行终态兜底清理")
+        holding = False
         try:
-            self.pp.gripper.release_object()
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().error(f"兜底 detach 失败: {e}")
+            holding = bool(self.pp._holding_is_healthy())
+        except Exception:  # noqa: BLE001
+            holding = False
+        if self._last_failed_state == TaskState.PLACE and holding:
+            self.get_logger().warn("PLACE 未完成但物块仍被持有,跳过兜底 release")
+        else:
+            try:
+                self.pp.gripper.release_object()
+            except Exception as e:  # noqa: BLE001
+                self.get_logger().error(f"兜底 detach 失败: {e}")
         try:
             # 兜底同步移除 MoveIt 侧样件附着盒;残留只造成保守绕行,
             # 但清掉后续任务规划更干净(pp 内部接口,与 pp.gripper 同级深链)。

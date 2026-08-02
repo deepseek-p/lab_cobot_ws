@@ -48,6 +48,7 @@ UR_JOINTS = [
 DOWN_QUAT = [1.0, 0.0, 0.0, 0.0]
 GRIPPER_TCP_LINK = "gripper_tcp"
 HOME_CONFIG = [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+TACTILE_PLACE_READY_CONFIG = [0.0, -1.5708, 1.5708, -1.5708, -1.5708, -1.5708]
 OBSERVE_CONFIG = [
     -0.116421,
     -0.807952,
@@ -69,16 +70,15 @@ DEFAULT_MOVE_TIMEOUT_SEC = 240.0
 MOVE_RESULT_GRACE_SEC = 5.0
 PICK_TCP_Z_CLEARANCE = 0.06
 TACTILE_PICK_TCP_Z_CLEARANCE = 0.018
-TACTILE_PICK_TCP_VISUAL_Y_LIMIT = 0.018
-TACTILE_PICK_LATERAL_BIAS = 0.006
+TACTILE_PICK_LATERAL_BIAS = 0.0
 TACTILE_PICK_LATERAL_RETRY_STEP = 0.006
-TACTILE_PICK_RETRY_Y_LIMIT = 0.036
+TACTILE_PICK_RETRY_MAX_OFFSET = 0.036
 TACTILE_APPROACH_HEIGHT = 0.090
 # 夹住后的第一段竖直抬升单独设定。实跑日志显示当前 A 点姿态下
 # 9cm Cartesian 抬升稳定被截断到约 81%,6.5cm 位于已验证可达区间内,
 # 仍满足抓取后 5~10cm 直线离台要求。
 TACTILE_PICK_LIFT_HEIGHT = 0.065
-# 悬空释放余量:place 下降只到名义放置点上方该高度即松爪,物块自由落到台面。
+# 悬空释放余量:非触觉 place 仍保持少量悬空释放,避免压入台面。
 # 根因回归:带焊物块被压向台面时固定关节与接触约束冲突,求解器会给物块
 # 注入巨大速度(实测弹飞 181 m/s);悬空释放从机制上避免该约束冲突。
 PLACE_RELEASE_CLEARANCE = 0.02
@@ -87,14 +87,16 @@ TACTILE_PLACE_RELEASE_CLEARANCE = 0.025
 # 过低目标会让放置下降/抬升 Cartesian path 被台面碰撞截断,随后触发 OMPL
 # fallback,在 B 端产生多余关节绕行。
 TACTILE_PLACE_TCP_Z_COMPENSATION = 0.025
-TACTILE_PLACE_DROP_SETTLE_SEC = 0.3
+TACTILE_PLACE_DROP_SETTLE_SEC = 0.6
+TACTILE_PLACE_POST_OPEN_SETTLE_SEC = 0.25
+GRIPPER_OPEN_SETTLE_SEC = 0.2
 GRIPPER_CLOSE_SETTLE_SEC = 1.0
 ARM_MAX_VELOCITY_SCALING = 0.75
 ARM_MAX_ACCELERATION_SCALING = 0.75
-TACTILE_ARM_MAX_VELOCITY_SCALING = 0.30
-TACTILE_ARM_MAX_ACCELERATION_SCALING = 0.30
-LOCAL_ARM_MAX_VELOCITY_SCALING = 0.18
-LOCAL_ARM_MAX_ACCELERATION_SCALING = 0.18
+TACTILE_ARM_MAX_VELOCITY_SCALING = 0.24
+TACTILE_ARM_MAX_ACCELERATION_SCALING = 0.20
+LOCAL_ARM_MAX_VELOCITY_SCALING = 0.12
+LOCAL_ARM_MAX_ACCELERATION_SCALING = 0.12
 ARM_ALLOWED_PLANNING_TIME_SEC = 3.0
 ARM_NUM_PLANNING_ATTEMPTS = 3
 GO_HOME_MAX_ATTEMPTS = 2
@@ -114,6 +116,7 @@ WRIST_PATH_CONSTRAINT_JOINTS = [
 WRIST_PATH_CONSTRAINT_TOLERANCES = [2.4, 2.4, 1.6]
 PRE_GRASP_SETTLE_SEC = 0.25
 POST_GRASP_SETTLE_SEC = 0.35
+POST_ATTACH_HOLD_CONFIRM_TIMEOUT_SEC = 2.0
 
 
 def configure_moveit_for_pick_place(moveit2, use_tactile_grasp=False) -> None:
@@ -131,11 +134,29 @@ def _format_pose_target(pos) -> str:
     return "(%.3f, %.3f, %.3f)" % (float(pos[0]), float(pos[1]), float(pos[2]))
 
 
+def _moveit_action_result_succeeded(action_result) -> bool:
+    if action_result.status != GoalStatus.STATUS_SUCCEEDED:
+        return False
+    moveit_result = getattr(action_result, "result", None)
+    error_code = getattr(moveit_result, "error_code", None)
+    if error_code is None:
+        return True
+    value = getattr(error_code, "val", error_code)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return False
+    # MoveIt ExecuteTrajectory reports SUCCESS as 1; FollowJointTrajectory
+    # reports SUCCESSFUL as 0.  pymoveit2 can use either action internally.
+    return value in (0, 1)
+
+
 def _wait_for_moveit_result(
     moveit2,
     timeout_sec: float,
     previous_send_future=None,
     previous_result_future=None,
+    action_future_names=None,
 ) -> bool:
     """Wait for MoveIt's action future without depending on a ROS-time Rate.
 
@@ -146,16 +167,21 @@ def _wait_for_moveit_result(
     wall time.  Keep the public method as a compatibility fallback for test
     doubles and older pymoveit2 releases.
     """
-    action_future_names = [
-        (
-            "_MoveIt2__send_goal_future_move_action",
-            "_MoveIt2__get_result_future_move_action",
-        ),
-        (
-            "_MoveIt2__send_goal_future_follow_joint_trajectory",
-            "_MoveIt2__get_result_future_follow_joint_trajectory",
-        ),
-    ]
+    if action_future_names is None:
+        action_future_names = [
+            (
+                "_MoveIt2__send_goal_future_execute_trajectory",
+                "_MoveIt2__get_result_future_execute_trajectory",
+            ),
+            (
+                "_MoveIt2__send_goal_future_move_action",
+                "_MoveIt2__get_result_future_move_action",
+            ),
+            (
+                "_MoveIt2__send_goal_future_follow_joint_trajectory",
+                "_MoveIt2__get_result_future_follow_joint_trajectory",
+            ),
+        ]
     send_name = None
     result_name = None
     for candidate_send, candidate_result in action_future_names:
@@ -201,7 +227,7 @@ def _wait_for_moveit_result(
             and result_future.done()
         ):
             try:
-                return result_future.result().status == GoalStatus.STATUS_SUCCEEDED
+                return _moveit_action_result_succeeded(result_future.result())
             except Exception:  # noqa: BLE001
                 return False
 
@@ -280,6 +306,7 @@ class PickPlace(Node):
         self.gripper = make_gripper_driver(
             self,
             backend=self.gripper_backend,
+            open_settle_sec=GRIPPER_OPEN_SETTLE_SEC,
             command_settle_sec=GRIPPER_CLOSE_SETTLE_SEC,
             target_object=self.target_object,
             use_tactile_grasp=self.use_tactile_grasp,
@@ -433,6 +460,15 @@ class PickPlace(Node):
             not getattr(self, "_hold_monitor_fault", False)
         )
 
+    def _wait_until_gripper_holding(self) -> bool:
+        waiter = getattr(self.gripper, "wait_until_holding", None)
+        if waiter is None:
+            return True
+        try:
+            return bool(waiter(POST_ATTACH_HOLD_CONFIRM_TIMEOUT_SEC))
+        except Exception:  # noqa: BLE001
+            return False
+
     def _handle_hold_lost(self) -> None:
         """Remove the planning-scene carried box after an externally detected loss."""
         if not getattr(self, "_hold_monitor_fault", False):
@@ -543,7 +579,10 @@ class PickPlace(Node):
         tolerance_orientation,
         timeout_sec,
         cartesian=False,
+        result_grace_sec=None,
     ) -> bool:
+        if result_grace_sec is None:
+            result_grace_sec = MOVE_RESULT_GRACE_SEC
         if not hasattr(self.moveit2, "plan"):
             send_name = "_MoveIt2__send_goal_future_move_action"
             result_name = "_MoveIt2__get_result_future_move_action"
@@ -564,11 +603,11 @@ class PickPlace(Node):
                 previous_send_future=previous_send_future,
                 previous_result_future=previous_result_future,
             )
-            if not done and MOVE_RESULT_GRACE_SEC > 0.0:
-                time.sleep(MOVE_RESULT_GRACE_SEC)
+            if not done and result_grace_sec > 0.0:
+                time.sleep(result_grace_sec)
                 done = _wait_for_moveit_result(
                     self.moveit2,
-                    MOVE_RESULT_GRACE_SEC,
+                    result_grace_sec,
                     previous_send_future=previous_send_future,
                     previous_result_future=previous_result_future,
                 )
@@ -585,8 +624,8 @@ class PickPlace(Node):
         if trajectory is None:
             return False
         self._normalize_wrist_trajectory_to_current(trajectory)
-        send_name = "_MoveIt2__send_goal_future_move_action"
-        result_name = "_MoveIt2__get_result_future_move_action"
+        send_name = "_MoveIt2__send_goal_future_execute_trajectory"
+        result_name = "_MoveIt2__get_result_future_execute_trajectory"
         previous_send_future = getattr(self.moveit2, send_name, None)
         previous_result_future = getattr(self.moveit2, result_name, None)
         self.moveit2.execute(trajectory, via_moveit=True)
@@ -595,14 +634,16 @@ class PickPlace(Node):
             timeout_sec,
             previous_send_future=previous_send_future,
             previous_result_future=previous_result_future,
+            action_future_names=[(send_name, result_name)],
         )
-        if not done and MOVE_RESULT_GRACE_SEC > 0.0:
-            time.sleep(MOVE_RESULT_GRACE_SEC)
+        if not done and result_grace_sec > 0.0:
+            time.sleep(result_grace_sec)
             done = _wait_for_moveit_result(
                 self.moveit2,
-                MOVE_RESULT_GRACE_SEC,
+                result_grace_sec,
                 previous_send_future=previous_send_future,
                 previous_result_future=previous_result_future,
+                action_future_names=[(send_name, result_name)],
             )
         return done
 
@@ -652,6 +693,9 @@ class PickPlace(Node):
         try:
             if stabilize_wrist:
                 constraints_set = self._apply_wrist_path_constraints()
+            result_grace_sec = (
+                0.0 if cartesian and not fallback_to_ompl else MOVE_RESULT_GRACE_SEC
+            )
             executed = self._with_local_arm_scaling(
                 local_speed,
                 lambda: self._plan_execute_pose(
@@ -663,6 +707,7 @@ class PickPlace(Node):
                     tolerance_orientation,
                     timeout_sec,
                     cartesian=cartesian,
+                    result_grace_sec=result_grace_sec,
                 ),
             )
             if (
@@ -689,6 +734,7 @@ class PickPlace(Node):
                         tolerance_orientation,
                         timeout_sec,
                         cartesian=False,
+                        result_grace_sec=MOVE_RESULT_GRACE_SEC,
                     ),
                 )
         finally:
@@ -709,47 +755,46 @@ class PickPlace(Node):
         y_target = pos[1]
         if self.use_tactile_grasp:
             clearance = TACTILE_PICK_TCP_Z_CLEARANCE
-            limit = TACTILE_PICK_TCP_VISUAL_Y_LIMIT
-            y_target = min(max(pos[1] + TACTILE_PICK_LATERAL_BIAS, -limit), limit)
+            y_target = pos[1] + TACTILE_PICK_LATERAL_BIAS
         return [pos[0], y_target, pos[2] + clearance]
 
     def _offset_tactile_pick_target(self, target, lateral_offset):
         adjusted = list(target)
-        y_target = target[1] + lateral_offset
-        adjusted[1] = min(
-            max(y_target, -TACTILE_PICK_RETRY_Y_LIMIT),
-            TACTILE_PICK_RETRY_Y_LIMIT,
+        offset = min(
+            max(float(lateral_offset), -TACTILE_PICK_RETRY_MAX_OFFSET),
+            TACTILE_PICK_RETRY_MAX_OFFSET,
         )
+        adjusted[1] = target[1] + offset
         return adjusted
 
     def _tactile_pick_lateral_retry_offsets(self, target_y=0.0):
         step = TACTILE_PICK_LATERAL_RETRY_STEP
 
-        def dedupe_clamped(offsets):
-            seen = {round(float(target_y), 6)}
+        def dedupe_offsets(offsets):
+            seen = {0.0}
             result = []
             for offset in offsets:
-                adjusted = min(
-                    max(target_y + offset, -TACTILE_PICK_RETRY_Y_LIMIT),
-                    TACTILE_PICK_RETRY_Y_LIMIT,
+                adjusted_offset = min(
+                    max(float(offset), -TACTILE_PICK_RETRY_MAX_OFFSET),
+                    TACTILE_PICK_RETRY_MAX_OFFSET,
                 )
-                key = round(float(adjusted), 6)
+                key = round(adjusted_offset, 6)
                 if key in seen:
                     continue
                 seen.add(key)
-                result.append(offset)
+                result.append(adjusted_offset)
             return result
 
         left_touch, right_touch = self.gripper.last_tactile_contact_sides()
         if left_touch and not right_touch:
-            return dedupe_clamped([-step, -2.0 * step, step, 2.0 * step])
+            return dedupe_offsets([-step, -2.0 * step, step, 2.0 * step])
         if right_touch and not left_touch:
-            return dedupe_clamped([step, 2.0 * step, -step, -2.0 * step])
+            return dedupe_offsets([step, 2.0 * step, -step, -2.0 * step])
         if target_y > step * 0.5:
-            return dedupe_clamped([-step, step])
+            return dedupe_offsets([-step, step])
         if target_y < -step * 0.5:
-            return dedupe_clamped([step, -step])
-        return dedupe_clamped([step, -step])
+            return dedupe_offsets([step, -step])
+        return dedupe_offsets([step, -step])
 
     def _pick_approach_target(self, target):
         approach_height = self.approach_height
@@ -834,6 +879,7 @@ class PickPlace(Node):
                 timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
                 cartesian=True,
                 local_speed=True,
+                fallback_to_ompl=False,
             ):
                 return True
             if attempt + 1 < GRASP_DESCENT_MAX_ATTEMPTS:
@@ -842,6 +888,20 @@ class PickPlace(Node):
                 )
                 time.sleep(GO_HOME_RETRY_DELAY_SEC)
         return False
+
+    def _move_place_descent(self, above, release, quat):
+        ok = self._move(
+            release,
+            quat=quat,
+            target_link=GRIPPER_TCP_LINK,
+            tolerance_position=DEFAULT_GRASP_TOLERANCE_POSITION,
+            tolerance_orientation=DEFAULT_GRASP_TOLERANCE_ORIENTATION,
+            timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
+            cartesian=True,
+            local_speed=True,
+            fallback_to_ompl=False,
+        )
+        return ok, list(release) if ok else None
 
     def _move_pick_lift(self, lift) -> bool:
         # 抓取后的局部抬升只能走 Cartesian。若这里退回 OMPL,
@@ -877,6 +937,47 @@ class PickPlace(Node):
             self._attach_carried_sample()
             return True
         return False
+
+    def _move_to_configuration(self, config, local_speed=False) -> bool:
+        send_name = "_MoveIt2__send_goal_future_follow_joint_trajectory"
+        result_name = "_MoveIt2__get_result_future_follow_joint_trajectory"
+        previous_send_future = getattr(self.moveit2, send_name, None)
+        previous_result_future = getattr(self.moveit2, result_name, None)
+        return self._with_local_arm_scaling(
+            local_speed,
+            lambda: self._move_to_configuration_once(
+                config,
+                send_name,
+                result_name,
+                previous_send_future,
+                previous_result_future,
+            ),
+        )
+
+    def _move_to_configuration_once(
+        self,
+        config,
+        send_name,
+        result_name,
+        previous_send_future,
+        previous_result_future,
+    ) -> bool:
+        self.moveit2.move_to_configuration(config)
+        return _wait_for_moveit_result(
+            self.moveit2,
+            DEFAULT_MOVE_TIMEOUT_SEC,
+            previous_send_future=previous_send_future,
+            previous_result_future=previous_result_future,
+            action_future_names=[(send_name, result_name)],
+        )
+
+    def _move_to_place_ready_configuration(self) -> bool:
+        if not self.use_tactile_grasp or not hasattr(self, "moveit2"):
+            return True
+        return self._move_to_configuration(
+            TACTILE_PLACE_READY_CONFIG,
+            local_speed=True,
+        )
 
     # ---- 复合动作(供 mission 调用)----
     def pick(self, pos, refine_cb=None) -> bool:
@@ -969,9 +1070,25 @@ class PickPlace(Node):
         if not self.gripper.acquire_object():
             if self.use_tactile_grasp:
                 self.gripper.open()
-                self._move_approach(above, cartesian=True, local_speed=True)
+                self._move_approach(
+                    above,
+                    cartesian=True,
+                    local_speed=True,
+                    fallback_to_ompl=False,
+                )
             self.get_logger().warn("Pick failed: object acquire rejected")
             return "acquire_failed"
+        if not self._wait_until_gripper_holding():
+            self.gripper.release_object()
+            self.gripper.open()
+            self._move_approach(
+                above,
+                cartesian=True,
+                local_speed=True,
+                fallback_to_ompl=False,
+            )
+            self.get_logger().warn("Pick failed: hold status was not confirmed")
+            return "failed"
         # 持物段规划护航:样件附着盒随 acquire 成功立即挂上。
         self._attach_carried_sample()
         self._start_hold_monitor()
@@ -1029,9 +1146,13 @@ class PickPlace(Node):
                 _format_pose_target(above),
             )
         )
+        if self.use_tactile_grasp and not self._move_to_place_ready_configuration():
+            self.get_logger().warn(
+                "Place ready joint configuration failed; continuing with current branch"
+            )
         # B 点携物 approach 距离较长,Cartesian 直线会被台面/姿态约束截断;
         # 先用关节空间到释放上方,下降/抬升再保持直线。
-        if not self._move_approach(above, cartesian=False):
+        if not self._move_approach(above, cartesian=False, local_speed=True):
             self._handle_hold_lost()
             self.get_logger().warn("Place failed: approach move failed")
             return False
@@ -1041,17 +1162,7 @@ class PickPlace(Node):
             self._detach_carried_sample()
         place_quat = self._current_tcp_quat()
         # 持物下降段笛卡尔直线:横向弧会带着焊接物块扫掠台面(同 pick 根因)
-        descended = self._move(
-            release,
-            quat=place_quat,
-            target_link=GRIPPER_TCP_LINK,
-            tolerance_position=DEFAULT_GRASP_TOLERANCE_POSITION,
-            tolerance_orientation=DEFAULT_GRASP_TOLERANCE_ORIENTATION,
-            timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
-            cartesian=True,
-            local_speed=True,
-            fallback_to_ompl=False,
-        )
+        descended, stable_release = self._move_place_descent(above, release, place_quat)
         if not descended:
             self._handle_hold_lost()
             self.get_logger().warn("Place failed: descent move failed")
@@ -1071,6 +1182,8 @@ class PickPlace(Node):
         if not self.gripper.open():
             self.get_logger().warn("Place failed: gripper open rejected")
             return False
+        if self.use_tactile_grasp and TACTILE_PLACE_POST_OPEN_SETTLE_SEC > 0.0:
+            time.sleep(TACTILE_PLACE_POST_OPEN_SETTLE_SEC)
         lift_quat = self._current_tcp_quat()
         lifted = self._move_approach(
             above,
@@ -1091,9 +1204,9 @@ class PickPlace(Node):
         return True
 
     def go_home(self) -> bool:
+        local_speed = bool(getattr(self, "_hold_monitor_active", False))
         for attempt in range(GO_HOME_MAX_ATTEMPTS):
-            self.moveit2.move_to_configuration(HOME_CONFIG)
-            if self.moveit2.wait_until_executed(timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC):
+            if self._move_to_configuration(HOME_CONFIG, local_speed=local_speed):
                 return True
             if attempt + 1 < GO_HOME_MAX_ATTEMPTS:
                 time.sleep(GO_HOME_RETRY_DELAY_SEC)
@@ -1102,8 +1215,7 @@ class PickPlace(Node):
     def move_to_observe(self) -> bool:
         """Move the arm to the fixed wrist-camera observation configuration."""
         for attempt in range(GO_HOME_MAX_ATTEMPTS):
-            self.moveit2.move_to_configuration(OBSERVE_CONFIG)
-            if self.moveit2.wait_until_executed(timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC):
+            if self._move_to_configuration(OBSERVE_CONFIG):
                 return True
             if attempt + 1 < GO_HOME_MAX_ATTEMPTS:
                 time.sleep(GO_HOME_RETRY_DELAY_SEC)

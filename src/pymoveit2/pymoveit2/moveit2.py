@@ -1299,13 +1299,16 @@ class MoveIt2:
             gen = self.__move_generation
             self.__move_goal_handle = None
 
-        action_result = self.__execute_trajectory_action_client.send_goal_async(
-            goal=goal,
-            feedback_callback=None,
+        self.__send_goal_future_execute_trajectory = (
+            self.__execute_trajectory_action_client.send_goal_async(
+                goal=goal,
+                feedback_callback=None,
+            )
         )
-        action_result.add_done_callback(
+        self.__send_goal_future_execute_trajectory.add_done_callback(
             functools.partial(self.__response_callback_execute_trajectory, gen=gen)
         )
+        return self.__send_goal_future_execute_trajectory
 
     def __response_callback_execute_trajectory(self, response, gen):
         with self.__move_lock:
@@ -1327,8 +1330,8 @@ class MoveIt2:
         self.__is_executing = True
         self.__is_motion_requested = False
 
-        get_result_future = goal_handle.get_result_async()
-        get_result_future.add_done_callback(
+        self.__get_result_future_execute_trajectory = goal_handle.get_result_async()
+        self.__get_result_future_execute_trajectory.add_done_callback(
             functools.partial(self.__result_callback_execute_trajectory, gen=gen)
         )
 

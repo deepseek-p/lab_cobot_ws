@@ -527,7 +527,7 @@ def test_place_dock_velocity_drives_forward_and_rotates_toward_station_b_pose():
 def test_place_dock_velocity_stops_when_base_is_aligned_for_table_place():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
 
-    done, cmd = place_dock_velocity_for_base((-2.01, 0.62, math.radians(88.0)))
+    done, cmd = place_dock_velocity_for_base((-2.01, 0.72, math.radians(88.0)))
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)
@@ -547,7 +547,7 @@ def test_place_dock_velocity_keeps_docking_when_drop_point_is_near_front_edge():
 def test_place_dock_velocity_accepts_gui_verified_table_pose():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
 
-    done, cmd = place_dock_velocity_for_base((-1.995, 0.62, math.radians(94.7)))
+    done, cmd = place_dock_velocity_for_base((-1.995, 0.72, math.radians(94.7)))
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)

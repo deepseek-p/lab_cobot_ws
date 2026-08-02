@@ -50,6 +50,7 @@ class FakeNode:
         contact_status_on_close=None,
         contact_status_on_command=None,
         contact_status_on_release=None,
+        hold_status_on_release=None,
         left_contact_on_command=None,
         right_contact_on_command=None,
         emit_legacy_close_status=True,
@@ -61,6 +62,7 @@ class FakeNode:
         self._contact_status_on_close = contact_status_on_close
         self._contact_status_on_command = contact_status_on_command
         self._contact_status_on_release = contact_status_on_release
+        self._hold_status_on_release = hold_status_on_release
         self._left_contact_on_command = left_contact_on_command
         self._right_contact_on_command = right_contact_on_command
         self._emit_legacy_close_status = emit_legacy_close_status
@@ -145,6 +147,8 @@ class FakeNode:
                 threading.Thread(target=emit_sequence, daemon=True).start()
                 return
             self._emit_contact_status(self._contact_status_on_release)
+        if topic == CONTACT_RELEASE_TOPIC and self._hold_status_on_release:
+            self._emit_hold_status(self._hold_status_on_release)
 
     def _contact_message(self, source, msg):
         if callable(source):
@@ -155,6 +159,11 @@ class FakeNode:
         status_msg = type("Msg", (), {})()
         status_msg.data = status
         self._contact_status_callback(status_msg)
+
+    def _emit_hold_status(self, status):
+        status_msg = type("Msg", (), {})()
+        status_msg.data = status
+        self._hold_status_callback(status_msg)
 
     def get_logger(self):
         return self
@@ -265,6 +274,18 @@ def test_contact_gripper_refreshes_holding_watchdog():
     assert driver.is_holding_object()
 
 
+def test_contact_gripper_wait_until_holding_requires_plugin_heartbeat():
+    fake_node = FakeNode(contact_status_on_close="attached aruco_sample")
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+
+    assert driver.acquire_object()
+    assert not driver.wait_until_holding(timeout_sec=0.0)
+
+    fake_node._emit_hold_status("holding aruco_sample")
+
+    assert driver.wait_until_holding(timeout_sec=0.0)
+
+
 def test_contact_gripper_acquire_fails_without_plugin_attached_status():
     fake_node = FakeNode()
     driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
@@ -364,6 +385,14 @@ def test_contact_gripper_can_target_non_default_object():
 
 def test_contact_gripper_release_accepts_released_none_status():
     fake_node = FakeNode(contact_status_on_release="released none")
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+
+    assert driver.release_object()
+    assert CONTACT_RELEASE_TOPIC in fake_node.empty_topics
+
+
+def test_contact_gripper_release_accepts_empty_hold_status():
+    fake_node = FakeNode(hold_status_on_release="empty")
     driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
 
     assert driver.release_object()

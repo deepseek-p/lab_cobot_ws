@@ -94,7 +94,7 @@ sudo apt install -y \
 ## 构建
 
 ```bash
-cd ~/projects/lab_cobot_ws_g4g5
+cd ~/projects/lab_cobot_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -112,7 +112,7 @@ colcon build --symlink-install
 启动完整仿真：
 
 ```bash
-cd ~/projects/lab_cobot_ws_g4g5
+cd ~/projects/lab_cobot_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch lab_cobot_bringup lab_cobot.launch.py
@@ -132,7 +132,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/projects/lab_cobot_ws_g4g5/install/setup.bash
+source ~/projects/lab_cobot_ws/install/setup.bash
 ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
 ```
 
@@ -201,7 +201,7 @@ ros2 launch lab_cobot_navigation mapping.launch.py
 完整构建和测试：
 
 ```bash
-cd ~/projects/lab_cobot_ws_g4g5
+cd ~/projects/lab_cobot_ws
 source /opt/ros/humble/setup.bash
 PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
 PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure

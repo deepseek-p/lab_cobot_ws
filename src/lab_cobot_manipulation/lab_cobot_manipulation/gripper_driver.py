@@ -37,6 +37,7 @@ TACTILE_MAX_POSITION = 0.0185
 TACTILE_DWELL_SEC = 0.1
 TACTILE_CONTACT_FRESH_SEC = 0.2
 HOLD_STATUS_FRESH_SEC = 300.0
+HOLD_CONFIRM_TIMEOUT_SEC = DEFAULT_CONTACT_TIMEOUT_SEC
 
 
 def contact_object_name(data: str) -> str:
@@ -97,6 +98,9 @@ class GripperDriver(Protocol):
     def is_holding_object(self) -> bool:
         """Return whether the backend currently confirms the target is held."""
 
+    def wait_until_holding(self, timeout_sec: float = HOLD_CONFIRM_TIMEOUT_SEC) -> bool:
+        """Wait until the backend confirms that the target is held."""
+
 
 class SimAttachGripperDriver:
     """Parallel gripper driver using finger commands plus sim attach topics."""
@@ -105,10 +109,16 @@ class SimAttachGripperDriver:
         self,
         node,
         command_settle_sec: float = 0.0,
+        open_settle_sec: float | None = None,
         attach_timeout_sec: float = DEFAULT_ATTACH_TIMEOUT_SEC,
     ) -> None:
         self._node = node
         self._command_settle_sec = float(command_settle_sec)
+        self._open_settle_sec = (
+            float(command_settle_sec)
+            if open_settle_sec is None
+            else float(open_settle_sec)
+        )
         self._attach_timeout_sec = float(attach_timeout_sec)
         self._attach_status_event = threading.Event()
         self._last_attach_status = ""
@@ -128,7 +138,7 @@ class SimAttachGripperDriver:
         )
 
     def open(self) -> bool:
-        self._publish_positions(OPEN_POSITIONS)
+        self._publish_positions(OPEN_POSITIONS, settle_sec=self._open_settle_sec)
         self._log("夹爪打开")
         return True
 
@@ -169,6 +179,9 @@ class SimAttachGripperDriver:
     def is_holding_object(self) -> bool:
         return self._holding_object
 
+    def wait_until_holding(self, timeout_sec: float = HOLD_CONFIRM_TIMEOUT_SEC) -> bool:
+        return self._holding_object
+
     def _on_attach_status(self, msg: String) -> None:
         data = str(msg.data)
         if data.startswith(ATTACH_ACCEPTED_PREFIX) or data.startswith(
@@ -177,12 +190,17 @@ class SimAttachGripperDriver:
             self._last_attach_status = data
             self._attach_status_event.set()
 
-    def _publish_positions(self, positions: list[float]) -> None:
+    def _publish_positions(
+        self,
+        positions: list[float],
+        settle_sec: float | None = None,
+    ) -> None:
         msg = Float64MultiArray()
         msg.data = list(positions)
         self._command_pub.publish(msg)
-        if self._command_settle_sec > 0.0:
-            time.sleep(self._command_settle_sec)
+        wait_sec = self._command_settle_sec if settle_sec is None else float(settle_sec)
+        if wait_sec > 0.0:
+            time.sleep(wait_sec)
 
     def _log(self, message: str) -> None:
         logger = getattr(self._node, "get_logger", lambda: None)()
@@ -202,6 +220,7 @@ class ContactGripperDriver:
         self,
         node,
         command_settle_sec: float = 0.0,
+        open_settle_sec: float | None = None,
         contact_timeout_sec: float = DEFAULT_CONTACT_TIMEOUT_SEC,
         target_object: str = DEFAULT_TARGET_OBJECT,
         use_tactile_grasp: bool = False,
@@ -209,6 +228,11 @@ class ContactGripperDriver:
     ) -> None:
         self._node = node
         self._command_settle_sec = float(command_settle_sec)
+        self._open_settle_sec = (
+            float(command_settle_sec)
+            if open_settle_sec is None
+            else float(open_settle_sec)
+        )
         self._contact_timeout_sec = float(contact_timeout_sec)
         self._target_object = str(target_object)
         self._use_tactile_grasp = bool(use_tactile_grasp)
@@ -216,7 +240,9 @@ class ContactGripperDriver:
         self._contact_status_event = threading.Event()
         self._last_contact_status = ""
         self._holding_object = False
+        self._last_hold_status = ""
         self._last_hold_status_time = None
+        self._last_confirmed_holding_time = None
         self._last_left_contact_time = None
         self._last_right_contact_time = None
         self._command_pub = node.create_publisher(
@@ -257,7 +283,7 @@ class ContactGripperDriver:
         )
 
     def open(self) -> bool:
-        self._publish_positions(OPEN_POSITIONS)
+        self._publish_positions(OPEN_POSITIONS, settle_sec=self._open_settle_sec)
         self._holding_object = False
         self._log("夹爪打开")
         return True
@@ -289,6 +315,7 @@ class ContactGripperDriver:
             # 给插件下一次 10Hz 持有心跳一个启动窗口；窗口结束后必须由
             # _on_hold_status 刷新，否则 is_holding_object 会判定为丢失。
             self._last_hold_status_time = time.monotonic()
+            self._last_confirmed_holding_time = None
             return True
         if contact_event_matches(
             self._last_contact_status,
@@ -310,14 +337,11 @@ class ContactGripperDriver:
 
     def release_object(self) -> bool:
         self._last_contact_status = ""
+        self._last_hold_status = ""
         self._contact_status_event.clear()
         self._release_pub.publish(Empty())
         self._log(f"夹爪请求 contact release {self._target_object}")
-        if self._wait_for_contact_status(
-            CONTACT_RELEASED_PREFIX,
-            target=None,
-            fail_on_refused=False,
-        ):
+        if self._wait_for_release_status():
             self._log("夹爪 contact release accepted")
             self._holding_object = False
             return True
@@ -341,6 +365,21 @@ class ContactGripperDriver:
         if self._holding_object:
             self._last_hold_status_time = time.monotonic()
 
+    def wait_until_holding(self, timeout_sec: float = HOLD_CONFIRM_TIMEOUT_SEC) -> bool:
+        if not self._holding_object:
+            return False
+        deadline = time.monotonic() + max(float(timeout_sec), 0.0)
+        while True:
+            if self._last_confirmed_holding_time is not None:
+                return True
+            if not self._holding_object:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return False
+            self._contact_status_event.wait(timeout=remaining)
+            self._contact_status_event.clear()
+
     def _on_contact_status(self, msg: String) -> None:
         self._last_contact_status = str(msg.data)
         if contact_event_matches(
@@ -354,11 +393,15 @@ class ContactGripperDriver:
     def _on_hold_status(self, msg: String) -> None:
         """Consume the grasp-plugin heartbeat for live carry monitoring."""
         status = str(msg.data)
+        self._last_hold_status = status
         if contact_event_matches(status, "holding ", self._target_object):
             self._last_hold_status_time = time.monotonic()
+            self._last_confirmed_holding_time = self._last_hold_status_time
+            self._contact_status_event.set()
             return
         if status.startswith("lost ") or status.startswith("empty"):
             self._holding_object = False
+            self._contact_status_event.set()
 
     def _on_fingers_status(self, msg: String) -> None:
         """Refresh per-finger contact times from the plugin snapshot topic."""
@@ -415,6 +458,26 @@ class ContactGripperDriver:
             ):
                 if not self._tactile_no_contact_refusal(self._last_contact_status):
                     return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return False
+            self._contact_status_event.wait(timeout=remaining)
+            self._contact_status_event.clear()
+
+    def _wait_for_release_status(self) -> bool:
+        deadline = time.monotonic() + self._contact_timeout_sec
+        while True:
+            if contact_event_matches(
+                self._last_contact_status,
+                CONTACT_RELEASED_PREFIX,
+                target=None,
+            ):
+                return True
+            if (
+                self._last_hold_status.startswith("empty")
+                or self._last_hold_status.startswith("lost ")
+            ):
+                return True
             remaining = deadline - time.monotonic()
             if remaining <= 0.0:
                 return False
@@ -479,12 +542,17 @@ class ContactGripperDriver:
             and contact_refusal_reason(status) == "no_finger_contact"
         )
 
-    def _publish_positions(self, positions: list[float]) -> None:
+    def _publish_positions(
+        self,
+        positions: list[float],
+        settle_sec: float | None = None,
+    ) -> None:
         msg = Float64MultiArray()
         msg.data = list(positions)
         self._command_pub.publish(msg)
-        if self._command_settle_sec > 0.0:
-            time.sleep(self._command_settle_sec)
+        wait_sec = self._command_settle_sec if settle_sec is None else float(settle_sec)
+        if wait_sec > 0.0:
+            time.sleep(wait_sec)
 
     def _log(self, message: str) -> None:
         logger = getattr(self._node, "get_logger", lambda: None)()
@@ -501,6 +569,7 @@ def make_gripper_driver(
     node,
     backend: str = CONTACT_BACKEND,
     command_settle_sec: float = 0.0,
+    open_settle_sec: float | None = None,
     attach_timeout_sec: float = DEFAULT_ATTACH_TIMEOUT_SEC,
     target_object: str = DEFAULT_TARGET_OBJECT,
     use_tactile_grasp: bool = False,
@@ -513,12 +582,14 @@ def make_gripper_driver(
         return SimAttachGripperDriver(
             node,
             command_settle_sec=command_settle_sec,
+            open_settle_sec=open_settle_sec,
             attach_timeout_sec=attach_timeout_sec,
         )
     if normalized == CONTACT_BACKEND:
         return ContactGripperDriver(
             node,
             command_settle_sec=command_settle_sec,
+            open_settle_sec=open_settle_sec,
             contact_timeout_sec=contact_timeout_sec,
             target_object=target_object,
             use_tactile_grasp=use_tactile_grasp,
