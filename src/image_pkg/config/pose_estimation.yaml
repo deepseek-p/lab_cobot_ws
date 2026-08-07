@@ -1,0 +1,97 @@
+yolo_world_detection:
+  ros__parameters:
+    use_sim_time: true
+    # Use the wrist RGB-D camera for close-range, end-effector-referenced
+    # inspection.  Its optical +Z is the gripper TCP +Z direction.
+    image_topic: /wrist_camera/image_raw
+    detection_topic: /yolo/detections
+    # 自训练的固定八类模型；相对路径会从 image_pkg 的安装目录解析。
+    model_path: models/best.pt
+    # 仅接受新 best.pt 的八个原始训练类别；不保留旧语义别名。
+    target_classes: [material_spare_igbt, aruco_sample, material_grease_can, aging_rack, board_test_fixture, tooling_fixture_box, tooling_hand_tools, high_voltage_probe_kit]
+    # ROS 2 parameter arrays cannot be empty (it becomes NOT_SET).  The blank
+    # entry is ignored by the parser and therefore still performs no aliasing.
+    class_label_aliases: [""]
+    confidence_threshold: 0.05
+    nms_iou_threshold: 0.45
+    # Gazebo GUI 已占用显卡；评测时固定 CPU 可避免 CUDA 进程被终止。
+    device: cpu
+    inference_imgsz: 640
+    publish_annotated_image: true
+yolo_pointcloud_pose:
+  ros__parameters:
+    use_sim_time: true
+    # Must be an organized RGB-D cloud registered to image_topic. Gazebo truth
+    # is only written into evaluation_log_path and never sent to grasp topics.
+    pointcloud_topic: /image_pkg/wrist_camera_points
+    detection_topic: /yolo/detections
+    # The non-GUI Gazebo launch does not publish a `map` TF. RGB-D estimates
+    # are converted to `odom`; raw Gazebo ModelStates truth remains `world`
+    # and is explicitly transformed to odom from same-time robot poses.
+    target_frame: odom
+    objects_topic: /perception/objects
+    pose_topic: /perception/yolo/pose
+    json_pose_topic: /yolo/poses
+    evaluation_topic: /perception/yolo/evaluation
+    selected_pose_topic: /perception/target_pose
+    # Navigation/MoveIt consumes the selected grasp target in base_link;
+    # mapping and calibration above remain in odom.
+    selected_pose_frame: base_link
+    pose_source: yolo  # set aruco to relay aruco_pose_topic instead
+    # `/perception/target_pose` only carries this one semantic object.  Set an
+    # empty value only for manual exploration, which selects the most confident
+    # valid 3D detection instead.
+    target_label: aruco_sample
+    # Start from the URDF/Gazebo calibrated camera extrinsic.  A residual is
+    # written here only after a measured calibration run; do not retain an
+    # unverified manual offset.
+    # Measured on 2026-08-03 from 20 RGB-D/Gazebo correspondence samples:
+    # median truth - estimate = [+3.031, +0.143, -37.103] mm.
+    pose_translation_correction: [0.003031145, 0.000143172, -0.037103223]
+    # 2026-08-05 9x7 / 30 mm checkerboard 6D eye-to-hand calibration
+    # (20 solvePnP samples; result in calibration_results/).
+    camera_optical_translation_base: [0.180466354, -0.219095767, 1.225983643]
+    camera_optical_rpy_base: [-2.223343157, -0.001904591, -1.572639307]
+    aruco_pose_topic: /perception/aruco_0/pose
+    grasp_status_topic: /gripper/status
+    gazebo_truth_topic: /gazebo/model_states
+    # Gazebo 模型名与视觉语义类别一一对应，仅用于评估记录。
+    gazebo_model_names: [aruco_sample, material_spare_igbt, material_grease_can, tooling_fixture_box, tooling_hand_tools, aging_rack, board_test_fixture, high_voltage_probe_kit]
+    # 与当前 best.pt 的八个原始训练类别严格一致，不做旧标签别名兼容。
+    gazebo_model_labels: [aruco_sample, material_spare_igbt, material_grease_can, tooling_fixture_box, tooling_hand_tools, aging_rack, board_test_fixture, high_voltage_probe_kit]
+    gazebo_truth_frame: world
+    odom_topic: /odom
+    # Benchmark only evaluates the object belonging to the reached station.
+    # Require the same raw training label instead of matching any nearest item.
+    evaluation_truth_association: label
+    # ModelStates 内机器人模型的世界位姿用于 world -> base_link 真值换算。
+    gazebo_robot_model_name: lab_cobot
+    # 检测节点已经输出统一标签，留空即可；仅在外部检测器直接接入时使用。
+    detection_label_aliases: [""]
+    evaluation_log_path: ~/.ros/yolo_pose_evaluation.jsonl
+    min_points: 20
+    # CPU YOLO 有推理延迟。节点缓存历史点云，并仅选择与检测源图像
+    # 时间戳相差不超过该值的点云，避免机器人移动后发生框-深度错配。
+    pointcloud_cache_size: 180
+    max_rgbd_sync_delta_sec: 0.10
+rgbd_pointcloud:
+  ros__parameters:
+    use_sim_time: true
+    rgb_topic: /wrist_camera/image_raw
+    depth_topic: /wrist_camera/depth/image_raw
+    camera_info_topic: /wrist_camera/camera_info
+    pointcloud_topic: /image_pkg/wrist_camera_points
+    min_depth: 0.05
+    max_depth: 3.0
+indicator_state:
+  ros__parameters:
+    use_sim_time: true
+    image_topic: /bench_camera/image_raw
+    state_topic: /perception/device_states
+    device_id: board_test_fixture
+    # Set this to the calibrated indicator bounding rectangle [x,y,width,height].
+    # A zero width/height analyses the full image and is intentionally conservative.
+    roi: [0, 0, 0, 0]
+    min_pixels: 20
+    dominance: 0.60
+    publish_only_on_change: true

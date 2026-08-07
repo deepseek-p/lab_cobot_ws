@@ -1,0 +1,6 @@
+path: C:\Users\10915\Desktop\yolo\yolov8\1
+train: images/train
+val: images/val
+test: images/test
+nc: 8
+names: ['material_spare_igbt', 'aruco_sample', 'material_grease_can', 'aging_rack', 'board_test_fixture', 'tooling_fixture_box', 'tooling_hand_tools', 'high_voltage_probe_kit']
