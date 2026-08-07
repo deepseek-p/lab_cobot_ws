@@ -254,6 +254,31 @@ def test_contact_gripper_acquire_fails_without_plugin_attached_status():
     assert any("contact attach timed out" in message for _level, message in fake_node.logs)
 
 
+def test_contact_gripper_falls_back_to_attach_bridge_after_tactile_timeout():
+    fake_node = FakeNode(
+        attach_status="attached aruco_sample",
+        left_contact_on_command=FakeContactsState([
+            ("aruco_sample::link::collision", "left_finger::collision")
+        ]),
+        right_contact_on_command=FakeContactsState([
+            ("aruco_sample::link::collision", "right_finger::collision")
+        ]),
+        emit_legacy_close_status=False,
+    )
+    driver = ContactGripperDriver(
+        fake_node,
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_dwell_sec=0.0,
+        enable_attach_fallback=True,
+        attach_timeout_sec=0.0,
+    )
+
+    assert driver.acquire_object()
+    assert "/gripper/attach/aruco_sample" in fake_node.empty_topics
+    assert any("falling back to attach bridge" in message for _level, message in fake_node.logs)
+
+
 def test_contact_gripper_acquire_fails_fast_when_plugin_refuses_grasp():
     fake_node = FakeNode(
         contact_status_on_close="refused aruco_sample offset=(0.080,0.000,0.006)"

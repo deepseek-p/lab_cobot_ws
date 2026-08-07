@@ -78,11 +78,14 @@ def test_urdf_keeps_breakaway_fuse_disabled_by_default():
     assert breakaway is None or float(breakaway) == 0.0
 
 
-def test_urdf_grasp_candidate_list_is_exactly_the_e2e_sample():
-    """Keep the default grasp candidate list limited to the E2E sample."""
+def test_urdf_grasp_candidate_list_includes_all_graspable_workbench_objects():
     plugin = _plugin(_robot_xml(), "lab_cobot_grasp_fix")
-
-    assert [elem.text for elem in plugin.findall("object_model")] == ["aruco_sample"]
+    candidates = [elem.text for elem in plugin.findall("object_model")]
+    assert "aruco_sample" in candidates
+    assert "igbt_module_plain" in candidates
+    assert "igbt_module_aruco" in candidates
+    assert "fixture_box_plain" in candidates
+    assert len(candidates) == 4
 
 
 def test_grasp_candidates_are_dynamic_models_with_link_named_link():

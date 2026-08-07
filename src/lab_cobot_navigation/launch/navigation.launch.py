@@ -9,11 +9,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch.actions import SetEnvironmentVariable
 from launch.actions import TimerAction
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
@@ -44,6 +43,7 @@ def generate_launch_description():
             param_rewrites={
                 "use_sim_time": use_sim_time,
                 "autostart": "true",
+                "yaml_filename": map_yaml,
             },
             convert_types=True,
         ),
@@ -74,16 +74,42 @@ def generate_launch_description():
         ],
     )
 
-    # 定位:map_server + AMCL
-    localization = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(nav2_bringup, "launch", "localization_launch.py")
-        ),
-        launch_arguments={
-            "map": map_yaml,
-            "use_sim_time": use_sim_time,
-            "params_file": params,
-        }.items(),
+    # 定位:直接启动 map_server + AMCL + lifecycle_manager,避免 nav2_bringup
+    # localization_launch.py 默认 bond_timeout=4s 的静默超时导致 map 帧永不出现。
+    map_server_node = Node(
+        package="nav2_map_server",
+        executable="map_server",
+        name="map_server",
+        output="screen",
+        parameters=[nav2_params],
+        arguments=["--ros-args", "--log-level", nav2_log_level],
+        remappings=nav2_remappings,
+    )
+    amcl_node = Node(
+        package="nav2_amcl",
+        executable="amcl",
+        name="amcl",
+        output="screen",
+        parameters=[nav2_params],
+        arguments=["--ros-args", "--log-level", nav2_log_level],
+        remappings=nav2_remappings,
+    )
+    lifecycle_localization = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_localization",
+        output="screen",
+        respawn=True,
+        respawn_delay=2.0,
+        arguments=["--ros-args", "--log-level", nav2_log_level],
+        parameters=[
+            {"use_sim_time": use_sim_time},
+            {"autostart": nav2_autostart},
+            {"node_names": ["map_server", "amcl"]},
+            {"bond_timeout": 10.0},
+            {"attempt_respawn_reconnection": True},
+            {"bond_respawn_max_duration": 30.0},
+        ],
     )
 
     # 导航:planner + controller + bt_navigator + behaviors.
@@ -153,7 +179,14 @@ def generate_launch_description():
         parameters=[nav2_params],
         arguments=["--ros-args", "--log-level", nav2_log_level],
         remappings=nav2_remappings
-        + [("cmd_vel", "cmd_vel_nav"), ("cmd_vel_smoothed", "cmd_vel")],
+        + [("cmd_vel", "cmd_vel_nav"), ("cmd_vel_smoothed", "cmd_vel_nav_smoothed")],
+    )
+    cmd_vel_safety_mux = Node(
+        package="lab_cobot_gazebo",
+        executable="cmd_vel_safety_mux",
+        name="cmd_vel_safety_mux",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
     )
     lifecycle = Node(
         package="nav2_lifecycle_manager",
@@ -179,14 +212,23 @@ def generate_launch_description():
         "RCUTILS_LOGGING_BUFFERED_STREAM",
         "1",
     )
+    fastdds_no_shm = SetEnvironmentVariable(
+        "FASTRTPS_DEFAULT_PROFILES_FILE",
+        os.path.join(nav_pkg, "config", "fastdds_no_shm.xml"),
+    )
+
+    # lifecycle_manager 等待节点就绪后再编排,避免 change_state 竞态超时。
+    # localization 的 map_server 加载大图需时,也需要延后。
+    lifecycle_localization_delayed = TimerAction(period=20.0, actions=[lifecycle_localization])
 
     # 2026-07-10 GUI 实测根因:manager 在 launch 后 ~1s 即发起 configure,
     # 此时 gzserver 仍在加载(gzclient 抢资源),首次 change_state 服务调用 20ms 内
     # 失败,nav2 humble 的 manager 对此零重试直接弃栈(bt_navigator 永远 unconfigured)。
     # 延后 manager 启动,等全部 lifecycle 节点服务稳定后再编排,消灭竞态窗口。
-    lifecycle_delayed = TimerAction(period=15.0, actions=[lifecycle])
+    lifecycle_delayed = TimerAction(period=45.0, actions=[lifecycle])
 
     navigation = [
+        fastdds_no_shm,
         stdout_linebuf,
         controller,
         smoother,
@@ -194,6 +236,7 @@ def generate_launch_description():
         behavior,
         bt_navigator,
         velocity_smoother,
+        cmd_vel_safety_mux,
         lifecycle_delayed,
     ]
 
@@ -208,4 +251,9 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_rviz")),
     )
 
-    return LaunchDescription(declared + [ekf, localization] + navigation + [rviz])
+    return LaunchDescription(
+        declared
+        + [ekf, map_server_node, amcl_node, lifecycle_localization_delayed]
+        + navigation
+        + [rviz]
+    )

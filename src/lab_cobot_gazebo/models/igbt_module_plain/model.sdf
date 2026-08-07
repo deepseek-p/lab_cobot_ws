@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="igbt_module_plain">
+    <link name="link">
+      <inertial><mass>0.96</mass><inertia><ixx>0.01120</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.00256</iyy><iyz>0</iyz><izz>0.01344</izz></inertia></inertial>
+      <collision name="collision"><geometry><box><size>0.140 0.380 0.120</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction><contact><ode><kp>1e6</kp><kd>1.0</kd><min_depth>0.001</min_depth><max_vel>0.01</max_vel></ode></contact></surface></collision>
+      <visual name="imported_tool_mesh"><geometry><mesh><uri>model://igbt_module_plain/meshes/digital_caliper.dae</uri><scale>2 2 2</scale></mesh></geometry></visual>
+    </link>
+  </model>
+</sdf>

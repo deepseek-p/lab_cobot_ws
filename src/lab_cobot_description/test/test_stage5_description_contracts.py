@@ -230,15 +230,15 @@ def test_generated_urdf_loads_wheel_joint_mecanum_traction_plugin():
     assert plugin is not None
     assert plugin.attrib["filename"] == "liblab_cobot_mecanum_drive.so"
     assert plugin.findtext("control_mode") == "pose_from_wheel_commands"
-    assert plugin.findtext("wheel_command_topic") == "/wheel_velocity_controller/commands"
+    assert plugin.findtext("wheel_command_topic") == (
+        "/wheel_velocity_controller/commands"
+    )
     assert plugin.findtext("base_link") == "base_link"
     assert plugin.findtext("wheel_radius") == "0.08"
     assert plugin.findtext("wheelbase_radius") == "0.47000000000000003"
     assert float(plugin.findtext("max_linear_accel")) <= 1.0
     assert float(plugin.findtext("max_angular_accel")) <= 2.0
-    assert [
-        elem.text for elem in plugin.findall("wheel_joint")
-    ] == [
+    assert [element.text for element in plugin.findall("wheel_joint")] == [
         "wheel_fl_joint",
         "wheel_fr_joint",
         "wheel_rl_joint",
@@ -246,7 +246,7 @@ def test_generated_urdf_loads_wheel_joint_mecanum_traction_plugin():
     ]
 
 
-def test_default_mecanum_drive_uses_commanded_wheel_velocity_mode_for_headless_stability():
+def test_default_mecanum_drive_uses_commanded_wheel_velocity_mode():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
     urdf = subprocess.run(
         ["xacro", str(urdf_file)],
@@ -262,7 +262,7 @@ def test_default_mecanum_drive_uses_commanded_wheel_velocity_mode_for_headless_s
     assert float(plugin.findtext("max_angular_accel")) <= 2.0
 
 
-def test_commanded_velocity_drive_uses_ground_support_not_wheel_contact_traction():
+def test_commanded_velocity_drive_uses_ground_support_not_wheel_contact():
     urdf_file = Path(__file__).resolve().parents[1] / "urdf" / "lab_cobot.urdf.xacro"
     urdf = subprocess.run(
         ["xacro", str(urdf_file)],
@@ -272,10 +272,11 @@ def test_commanded_velocity_drive_uses_ground_support_not_wheel_contact_traction
     ).stdout
     root = ET.fromstring(urdf)
 
-    assert root.find(".//plugin[@name='lab_cobot_mecanum_traction']").findtext(
-        "control_mode"
-    ) == "pose_from_wheel_commands"
-    support = root.find("./link[@name='base_link']/collision[@name='base_ground_support']")
+    plugin = root.find(".//plugin[@name='lab_cobot_mecanum_traction']")
+    assert plugin.findtext("control_mode") == "pose_from_wheel_commands"
+    support = root.find(
+        "./link[@name='base_link']/collision[@name='base_ground_support']"
+    )
     assert support is not None
     support_z = float(support.find("origin").attrib["xyz"].split()[2])
     assert support_z < -0.10
@@ -374,7 +375,6 @@ def test_generated_urdf_renders_mecanum_roller_visuals():
             for visual in wheel.findall("visual")
             if "roller" in visual.attrib.get("name", "")
         ]
-
         assert len(roller_visuals) >= 10
 
 
@@ -486,19 +486,18 @@ def test_station_a_sample_projects_into_camera_image():
     assert abs(arm_y) <= base_width / 2.0
 
     station_a = waypoints.get_waypoint("station_a")
-    sample_map_x = 2.0
-    sample_map_y = 1.5
-    station_table_front_y = 1.20
+    sample_map_x = -4.16
+    sample_map_y = 3.46
+    station_table_front_y = 3.20
     inflation_radius = 0.55
-    sample_top_world_z = 0.82
+    sample_top_world_z = 0.81
 
-    assert station_a["x"] == sample_map_x
     assert math.isclose(station_a["yaw"], math.pi / 2.0)
     assert station_table_front_y - station_a["y"] > inflation_radius
 
     # Sample top center at station_a, expressed in base_link at the waypoint.
     sample_top_x = sample_map_y - station_a["y"]
-    sample_top_y = 0.0
+    sample_top_y = -(sample_map_x - station_a["x"])
     sample_top_z = sample_top_world_z - (wheel_radius + base_height / 2.0)
 
     camera_x = arm_x + cam_x
@@ -574,3 +573,27 @@ def test_wrist_refine_camera_contract_when_enabled():
     gazebo = root.find("./gazebo[@reference='wrist_camera_link']")
     assert gazebo is not None
     assert gazebo.findtext("material") == "Gazebo/DarkGrey"
+
+
+def test_arm_trajectory_controller_reports_success_only_after_settling():
+    config_path = (
+        _src_dir()
+        / "lab_cobot_description"
+        / "config"
+        / "lab_cobot_controllers.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    params = config["joint_trajectory_controller"]["ros__parameters"]
+    constraints = params["constraints"]
+
+    assert 0.0 < constraints["stopped_velocity_tolerance"] <= 0.02
+    assert 2.0 <= constraints["goal_time"] <= 8.0
+    for joint in params["joints"]:
+        assert constraints[joint]["trajectory"] >= 0.05
+        assert 0.0 < constraints[joint]["goal"] <= 0.005
+    assert constraints["ur_wrist_3_joint"]["trajectory"] == 0.12
+    for joint in params["joints"]:
+        if joint == "ur_wrist_3_joint":
+            continue
+        assert constraints[joint]["trajectory"] == 0.10
+        assert constraints[joint]["goal"] == 0.005

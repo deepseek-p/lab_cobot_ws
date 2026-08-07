@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from lab_cobot_bringup.task_state_machine import STEP_ORDER, TaskState
+from lab_cobot_navigation.waypoints import CRUISE_ROUTE, normalize_station_name
 
 MAX_PLAN_LENGTH = 12
 DEFAULT_API_BASE = "https://api.deepseek.com"
@@ -65,6 +66,14 @@ class PlanValidationError(ValueError):
     """动作序列违反合法性或前置约束."""
 
 
+class NavigationRequestError(ValueError):
+    """Navigation instruction names an invalid station."""
+
+    def __init__(self, station: str):
+        self.station = station
+        super().__init__(f"未知工位: {station}")
+
+
 @dataclass(frozen=True)
 class PlannerConfig:
     """规划器配置;api_key 由调用方从环境变量注入."""
@@ -83,6 +92,62 @@ class PlanResult:
     steps: list
     source: str  # "llm" | "fallback_rule" | "fallback_disabled"
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class NavigationRequest:
+    """Deterministic single-station or cruise navigation request."""
+
+    mode: str
+    stations: tuple[str, ...]
+
+
+_CRUISE_COMMANDS = frozenset(
+    (
+        "巡航所有工位",
+        "巡航全部工位",
+        "按顺序访问全部工位并回家",
+    )
+)
+_COMPOUND_MISSION_MARKERS = (
+    "然后",
+    "并且",
+    "检查",
+    "确认",
+    "识别",
+    "抓取",
+    "搬运",
+    "送到",
+    "放到",
+    "回来",
+    "回家",
+)
+
+
+def parse_navigation_request(instruction: str) -> Optional[NavigationRequest]:
+    """Parse deterministic navigation commands before the legacy planner."""
+    text = (instruction or "").strip().rstrip("。！？!?").strip()
+    compact = re.sub(r"\s+", "", text)
+    if compact in _CRUISE_COMMANDS:
+        return NavigationRequest(mode="cruise", stations=tuple(CRUISE_ROUTE))
+
+    direct = re.fullmatch(r"(?:请)?(?:导航到|前往|移动到|去)\s*(.+)", text)
+    if direct is None:
+        return None
+
+    target = direct.group(1).strip()
+    if any(marker in target for marker in _COMPOUND_MISSION_MARKERS):
+        return None
+    for suffix in ("看一下", "看看", "一下"):
+        if target.endswith(suffix):
+            target = target[:-len(suffix)].strip()
+            break
+
+    try:
+        station = normalize_station_name(target)
+    except KeyError as exc:
+        raise NavigationRequestError(target) from exc
+    return NavigationRequest(mode="single", stations=(station,))
 
 
 def validate_plan(action_names) -> list[TaskState]:

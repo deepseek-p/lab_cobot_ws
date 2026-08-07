@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="safety_probe_kit">
+    <link name="link">
+      <inertial><mass>0.64</mass><inertia><ixx>0.00160</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.00768</iyy><iyz>0</iyz><izz>0.00768</izz></inertia></inertial>
+      <collision name="collision"><pose>0 0 0.040 0 0 0</pose><geometry><box><size>0.340 0.070 0.080</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction><contact><ode><kp>1e6</kp><kd>1.0</kd><min_depth>0.001</min_depth><max_vel>0.01</max_vel></ode></contact></surface></collision>
+      <visual name="imported_tool_mesh"><geometry><mesh><uri>model://safety_probe_kit/meshes/screwdriver.dae</uri><scale>2 2 2</scale></mesh></geometry></visual>
+    </link>
+  </model>
+</sdf>

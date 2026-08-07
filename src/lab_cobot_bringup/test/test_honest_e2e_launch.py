@@ -23,10 +23,10 @@ from vision_msgs.msg import Detection3DArray
 
 
 TASK_TIMEOUT_SEC = 420.0
-STATION_B_TABLE_MIN_X = -2.4
-STATION_B_TABLE_MAX_X = -1.6
-STATION_B_TABLE_FRONT_Y = 1.2
-STATION_B_TABLE_BACK_Y = 1.8
+STATION_B_TABLE_MIN_X = -0.25
+STATION_B_TABLE_MAX_X = 0.55
+STATION_B_TABLE_FRONT_Y = -1.15
+STATION_B_TABLE_BACK_Y = -0.55
 TABLETOP_OBJECT_MIN_Z = 0.70
 DL_MODEL_PATH = Path("~/lab_cobot_models/yolo_world_lab_slim.pt").expanduser()
 
@@ -226,8 +226,16 @@ class TestHonestE2E(unittest.TestCase):
     def _assert_wrist_detector_running(self, node):
         # 2026-07-14 用户裁决:腕相机链为主路径默认常开;断言随默认值
         # 语义翻转(原为 assertNotIn),锁"默认启用"这一新状态。
-        names = {name for name, _namespace in node.get_node_names_and_namespaces()}
-        self.assertIn("wrist_aruco_detector", names)
+        deadline = time.monotonic() + 30.0
+        names = set()
+        while time.monotonic() < deadline:
+            names = {
+                name for name, _namespace in node.get_node_names_and_namespaces()
+            }
+            if "wrist_aruco_detector" in names:
+                return
+            rclpy.spin_once(node, timeout_sec=0.2)
+        self.fail(f"wrist_aruco_detector did not appear; nodes={sorted(names)}")
 
     def _assert_refine_detect_enabled(self, node):
         client = node.create_client(GetParameters, "/mission_node/get_parameters")
