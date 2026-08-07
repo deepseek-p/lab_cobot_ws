@@ -35,6 +35,8 @@
   <xacro:arg name="simulation_controllers" default="$(find lab_cobot_description)/config/lab_cobot_controllers.yaml"/>
   <xacro:arg name="require_finger_contact" default="false"/>
   <xacro:arg name="gazebo_tactile_probe" default="false"/>
+  <xacro:arg name="enable_contact_force" default="false"/>
+  <xacro:arg name="enable_lab_sensors" default="true"/>
   <xacro:arg name="wrist_refine_camera" default="false"/>
   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
 
@@ -45,7 +47,9 @@
   <xacro:mecanum_base base_mass="180.0"/>
   <!-- 立柱降低(0.30)以降低臂安装点与整机重心;仍足够 UR5e 够到 0.75 桌面 -->
   <xacro:base_pillar parent="base_link" column_height="0.30"/>
-  <xacro:lab_sensors/>
+  <xacro:if value="$(arg enable_lab_sensors)">
+    <xacro:lab_sensors/>
+  </xacro:if>
 
   <!-- ===== UR5e(装在立柱顶 arm_mount_link;Gazebo 仿真) ===== -->
   <xacro:ur_robot
@@ -196,12 +200,22 @@
       <release_threshold>0.003</release_threshold>
       <grip_count_threshold>1</grip_count_threshold>
       <require_finger_contact>$(arg require_finger_contact)</require_finger_contact>
+      <enable_contact_force>$(arg enable_contact_force)</enable_contact_force>
+      <!-- 稳定 A→B 默认使用非侵入式虚拟指尖力传感器:输出力曲线,
+           但不启用物理 probe 接触响应,避免把样块顶飞。 -->
+      <virtual_force_sensor>true</virtual_force_sensor>
+      <virtual_force_stiffness>4500.0</virtual_force_stiffness>
+      <virtual_force_baseline>0.3</virtual_force_baseline>
+      <virtual_force_max>20.0</virtual_force_max>
       <contact_count_threshold>1</contact_count_threshold>
-      <max_center_distance>0.090</max_center_distance>
-      <max_abs_x>0.065</max_abs_x>
-      <max_abs_y>0.055</max_abs_y>
+      <!-- grasp candidate is measured from stable_attach_link=ur_wrist_3_link.
+           The gripper TCP sits about 135 mm above that link in this model, so
+           the old TCP-based 90 mm envelope rejected a correctly aligned pick. -->
+      <max_center_distance>0.220</max_center_distance>
+      <max_abs_x>0.125</max_abs_x>
+      <max_abs_y>0.105</max_abs_y>
       <min_z>-0.060</min_z>
-      <max_z>0.085</max_z>
+      <max_z>0.220</max_z>
       <grasp_center_offset>-0.037 0.0 0.030</grasp_center_offset>
       <!-- 约束力保险丝保持默认禁用(0):位姿驱动底盘下正常搬运的
            fixed-joint ERP 校正力与压桌异常力同量级,阈值不可分离

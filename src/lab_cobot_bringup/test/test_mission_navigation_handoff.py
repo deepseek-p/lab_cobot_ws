@@ -299,6 +299,49 @@ def test_detect_state_preserves_bench_path_when_disabled_or_wrist_misses(enabled
     assert node._latest_task_detection == [0.82, 0.0, 0.79]
 
 
+def test_detect_state_uses_dock_cache_when_bench_fallback_jumps_too_far():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = True
+    node._latest_task_detection = None
+    node._last_pick_dock_detection = [0.827, 0.002, 0.635]
+    node._wrist_detect = lambda: None
+    node._detect = lambda: [0.785, 0.009, 0.600]
+    logger = _Logger()
+    node.get_logger = lambda: logger
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert node._latest_task_detection == [0.827, 0.002, 0.635]
+    assert any("outlier" in message for message in logger.messages)
+
+
+def test_detect_state_uses_dock_cache_when_perception_times_out():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = True
+    node._latest_task_detection = None
+    node._last_pick_dock_detection = [0.815, 0.045, 0.599]
+    node._wrist_detect = lambda: None
+    node._detect = lambda: None
+    logger = _Logger()
+    node.get_logger = lambda: logger
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert node._latest_task_detection == [0.815, 0.045, 0.599]
+    assert any("using_last_pick_dock_pose" in message for message in logger.messages)
+
+
+def test_detect_state_keeps_consistent_bench_fallback_near_dock_cache():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._use_wrist_detect = True
+    node._latest_task_detection = None
+    node._last_pick_dock_detection = [0.827, 0.002, 0.635]
+    node._wrist_detect = lambda: None
+    node._detect = lambda: [0.815, 0.009, 0.630]
+    node.get_logger = lambda: _Logger()
+
+    assert mission_node.MissionNode._execute(node, mission_node.TaskState.DETECT)
+    assert node._latest_task_detection == [0.815, 0.009, 0.630]
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 def test_pick_state_passes_refine_callback_only_when_enabled(enabled):
     calls = []
@@ -712,6 +755,13 @@ def test_place_dock_velocity_stops_when_base_is_aligned_for_table_place():
     assert cmd.linear.y == pytest.approx(0.0)
     assert cmd.angular.z == pytest.approx(0.0)
 
+    done, cmd = place_dock_velocity_for_base((-2.01, 0.72, math.radians(88.0)))
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
+
 
 def test_place_dock_velocity_keeps_docking_when_drop_point_is_near_front_edge():
     place_dock_velocity_for_base = _policy("place_dock_velocity_for_base")
@@ -727,6 +777,13 @@ def test_place_dock_velocity_accepts_gui_verified_table_pose():
     safe_y = mission_node.station_safe_base_y(math.radians(94.7), "station_b")
 
     done, cmd = place_dock_velocity_for_base((0.15, safe_y, math.radians(94.7)))
+
+    assert done
+    assert cmd.linear.x == pytest.approx(0.0)
+    assert cmd.linear.y == pytest.approx(0.0)
+    assert cmd.angular.z == pytest.approx(0.0)
+
+    done, cmd = place_dock_velocity_for_base((-1.995, 0.72, math.radians(94.7)))
 
     assert done
     assert cmd.linear.x == pytest.approx(0.0)
@@ -850,4 +907,149 @@ def test_wait_for_nav_active_times_out_when_never_active(monkeypatch):
 
     assert not mission_node.MissionNode._wait_for_nav_active(
         node, timeout_sec=1.5
+    )
+
+    _install_monotonic_wait_clock(monkeypatch)
+    client = _FakeBtStateClient(ready=True, state_id=2)
+    node = _make_wait_node(client)
+
+    assert not mission_node.MissionNode._wait_for_nav_active(node)
+
+
+def test_navigate_accepts_failed_nav_result_when_handoff_ready():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    logger = _Logger()
+    node.get_logger = lambda: logger
+    node._wait_for_nav_active = lambda: True
+    node._wait_for_navigation_tf = lambda station: True
+    node._navigation_handoff_ready = lambda station: True
+    node._stop_base = lambda duration: None
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: 0})()
+
+    class FakeActionClient:
+        def wait_for_server(self, timeout_sec):
+            return True
+
+    class FakeNav:
+        nav_to_pose_client = FakeActionClient()
+
+        def __init__(self):
+            self.goals = []
+
+        def get_clock(self):
+            return type(
+                "Clock",
+                (),
+                {"now": lambda self: type("Now", (), {"to_msg": lambda self: Time()})()},
+            )()
+
+        def goToPose(self, goal):
+            self.goals.append(goal)
+
+        def isTaskComplete(self):
+            return True
+
+        def getResult(self):
+            return mission_node.TaskResult.FAILED
+
+    node.nav = FakeNav()
+
+    assert mission_node.MissionNode._navigate(node, "station_a")
+    assert any("已满足任务交接条件" in message for message in logger.messages)
+
+
+def test_navigate_rejects_failed_nav_result_when_handoff_not_ready():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    logger = _Logger()
+    node.get_logger = lambda: logger
+    node._wait_for_nav_active = lambda: True
+    node._wait_for_navigation_tf = lambda station: True
+    node._navigation_handoff_ready = lambda station: False
+    node._stop_base = lambda duration: None
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: 0})()
+
+    class FakeActionClient:
+        def wait_for_server(self, timeout_sec):
+            return True
+
+    class FakeNav:
+        nav_to_pose_client = FakeActionClient()
+
+        def get_clock(self):
+            return type(
+                "Clock",
+                (),
+                {"now": lambda self: type("Now", (), {"to_msg": lambda self: Time()})()},
+            )()
+
+        def goToPose(self, goal):
+            pass
+
+        def isTaskComplete(self):
+            return True
+
+        def getResult(self):
+            return mission_node.TaskResult.FAILED
+
+    node.nav = FakeNav()
+
+    assert not mission_node.MissionNode._navigate(node, "station_a")
+    assert any("nav_result" in message for message in logger.messages)
+
+
+def test_navigate_continues_to_local_dock_after_failed_nav_with_map_tf():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    logger = _Logger()
+    node.get_logger = lambda: logger
+    node._wait_for_nav_active = lambda: True
+    node._wait_for_navigation_tf = lambda station: True
+    node._navigation_handoff_ready = lambda station: False
+    node._base_pose_in_map = lambda timeout_sec=2.0: [0.1, 0.2, 0.0]
+    node._stop_base = lambda duration: None
+    node.get_clock = lambda: type("Clock", (), {"now": lambda self: 0})()
+
+    class FakeActionClient:
+        def wait_for_server(self, timeout_sec):
+            return True
+
+    class FakeNav:
+        nav_to_pose_client = FakeActionClient()
+
+        def get_clock(self):
+            return type(
+                "Clock",
+                (),
+                {"now": lambda self: type("Now", (), {"to_msg": lambda self: Time()})()},
+            )()
+
+        def goToPose(self, goal):
+            pass
+
+        def isTaskComplete(self):
+            return True
+
+        def getResult(self):
+            return mission_node.TaskResult.FAILED
+
+    node.nav = FakeNav()
+
+    assert mission_node.MissionNode._navigate(node, "station_a")
+    assert any("地图精停兜底" in message for message in logger.messages)
+
+
+def test_local_dock_fallback_requires_known_station_and_map_tf():
+    node = mission_node.MissionNode.__new__(mission_node.MissionNode)
+    node._base_pose_in_map = lambda timeout_sec=2.0: [0.0, 0.0, 0.0]
+
+    assert mission_node.MissionNode._can_continue_with_local_dock(node, "station_a")
+    assert not mission_node.MissionNode._can_continue_with_local_dock(
+        node,
+        "unknown",
+    )
+
+    node._base_pose_in_map = lambda timeout_sec=2.0: None
+
+    assert not mission_node.MissionNode._can_continue_with_local_dock(
+        node,
+        "station_a",
     )

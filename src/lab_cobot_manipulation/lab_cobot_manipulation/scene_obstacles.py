@@ -26,12 +26,16 @@ SAMPLE_HALF_HEIGHT = 0.035
 # 两站台面同高,台顶在 base_link 系是常量——不从检测 z 推(检测 z 有误差)。
 BASE_LINK_WORLD_Z = 0.155
 TABLE_TOP_Z_IN_BASE = TABLE_HEIGHT - BASE_LINK_WORLD_Z
-# 方盒边长预算:停靠 yaw 容差 0.25rad 下 0.8x0.6 台面的轴对齐包络为
-# 0.8*cos(0.25)+0.6*sin(0.25)=0.924,加检测误差余量取 0.95。上限约束:
-# 名义车心-样件距离 0.88,盒前缘 0.88-0.475=0.405 必须大于车头半长
-# 0.28+停靠容差 0.12=0.40——0.95 已是极限,禁止加大,否则停靠偏近时
-# 起始位形陷入碰撞盒,所有规划直接失败。
-SURFACE_BOX_XY = 0.95
+# 局部台面碰撞盒:只覆盖样件附近的工作台实体,保留抓取点附近碰撞检测。
+# 旧 0.95m 方盒会向车侧伸到 x≈0.35m;实跑中抓取后 lift 的起始
+# 位形被误判为 ur_upper_arm_link 撞 station_surface,导致任务直接失败。
+# station A/B 台面真实 footprint 为 0.8x0.6m;机器人正对台面时 base_link
+# x 方向近似台面深度,取 0.62m;横向取 0.82m 覆盖样件附近宽度。
+SURFACE_BOX_X = 0.62
+SURFACE_BOX_Y = 0.82
+# Backward-compatible alias for older tests/docs that only cared about the
+# larger planar extent.
+SURFACE_BOX_XY = SURFACE_BOX_Y
 # 附着盒底部上收 0.02(与悬空释放余量同源):lift 起点样件底与台面零距,
 # 不收则持物笛卡尔路径首个路径点即报碰撞,抓取序列全灭。
 ATTACHED_SAMPLE_BOTTOM_TRIM = 0.02
@@ -41,6 +45,7 @@ HELD_SAMPLE_CENTER_FROM_TCP_Z = -0.015481
 
 STATION_SURFACE_BOX_ID = "station_surface"
 CARRIED_SAMPLE_BOX_ID = "carried_sample"
+DYNAMIC_ARM_OBSTACLE_BOX_ID = "g5_dynamic_arm_obstacle"
 GRIPPER_ATTACH_LINK = "gripper_tcp"
 # 与持物样件允许接触的机器人 link(URDF parallel_gripper.xacro 事实)。
 GRIPPER_TOUCH_LINKS = (
@@ -60,7 +65,7 @@ def station_surface_box(pos) -> dict:
     center_z = TABLE_TOP_Z_IN_BASE - TABLE_HEIGHT / 2.0
     return {
         "center": [float(pos[0]), float(pos[1]), center_z],
-        "size": [SURFACE_BOX_XY, SURFACE_BOX_XY, TABLE_HEIGHT],
+        "size": [SURFACE_BOX_X, SURFACE_BOX_Y, TABLE_HEIGHT],
     }
 
 
@@ -71,6 +76,21 @@ def carried_sample_box() -> dict:
     return {
         "center": [0.0, 0.0, center_z],
         "size": [2.0 * SAMPLE_HALF_HEIGHT, 2.0 * SAMPLE_HALF_HEIGHT, size_z],
+    }
+
+
+def dynamic_obstacle_box(center, size) -> dict:
+    """Return a dynamic arm obstacle box in a planning frame."""
+    if len(center) != 3:
+        raise ValueError("dynamic obstacle center must have 3 values")
+    if len(size) != 3:
+        raise ValueError("dynamic obstacle size must have 3 values")
+    box_size = [float(value) for value in size]
+    if any(value <= 0.0 for value in box_size):
+        raise ValueError("dynamic obstacle size values must be positive")
+    return {
+        "center": [float(value) for value in center],
+        "size": box_size,
     }
 
 
@@ -109,6 +129,35 @@ def make_world_box_scene(object_id, box, frame_id) -> PlanningScene:
     return scene
 
 
+def make_remove_world_box_scene(object_id) -> PlanningScene:
+    """Build a diff scene removing one world collision object."""
+    scene = PlanningScene()
+    scene.is_diff = True
+    scene.world.collision_objects = [_remove_collision_object(object_id)]
+    return scene
+
+
+def make_dynamic_obstacle_scene(
+    center,
+    size,
+    frame_id="base_link",
+    object_id=DYNAMIC_ARM_OBSTACLE_BOX_ID,
+) -> PlanningScene:
+    """Build a diff scene adding/updating the G5 dynamic arm obstacle box."""
+    return make_world_box_scene(
+        object_id,
+        dynamic_obstacle_box(center, size),
+        frame_id,
+    )
+
+
+def make_remove_dynamic_obstacle_scene(
+    object_id=DYNAMIC_ARM_OBSTACLE_BOX_ID,
+) -> PlanningScene:
+    """Build a diff scene removing the G5 dynamic arm obstacle box."""
+    return make_remove_world_box_scene(object_id)
+
+
 def make_attach_scene(object_id) -> PlanningScene:
     """Build a diff scene attaching the carried sample box to the TCP link."""
     attached = AttachedCollisionObject()
@@ -142,9 +191,28 @@ def make_detach_scene(object_id) -> PlanningScene:
 class PlanningSceneClient:
     """Thin ApplyPlanningScene client with startup race retries."""
 
-    def __init__(self, node, service_name=APPLY_SCENE_SERVICE):
+    def __init__(
+        self,
+        node,
+        service_name=APPLY_SCENE_SERVICE,
+        callback_group=None,
+    ):
         self._node = node
-        self._client = node.create_client(ApplyPlanningScene, service_name)
+        self._client = node.create_client(
+            ApplyPlanningScene,
+            service_name,
+            callback_group=callback_group,
+        )
+        self._service_ready = False
+
+    def wait_until_ready(self, timeout_sec=APPLY_SCENE_TIMEOUT_SEC) -> bool:
+        """Wait once for ApplyPlanningScene; future applies reuse the ready client."""
+        if self._service_ready:
+            return True
+        self._service_ready = bool(
+            self._client.wait_for_service(timeout_sec=float(timeout_sec))
+        )
+        return self._service_ready
 
     def apply(
         self,
@@ -156,7 +224,7 @@ class PlanningSceneClient:
         # DDS 启动竞态:节点刚起时单次 service call 会假超时,一律多次重试;
         # 响应由外部 executor 线程处理,这里只轮询 future,不再自旋节点。
         for _attempt in range(int(attempts)):
-            if not self._client.wait_for_service(timeout_sec=timeout_sec):
+            if not self.wait_until_ready(timeout_sec=timeout_sec):
                 continue
             request = ApplyPlanningScene.Request()
             request.scene = scene

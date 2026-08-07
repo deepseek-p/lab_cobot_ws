@@ -1,21 +1,50 @@
 # MoveIt 关节限制(ur_ 前缀,与 lab_cobot URDF/SRDF 一致)。
-# 加速度限制供时间参数化使用,保守取值。
+# URDF 的 shoulder/wrist 多个关节允许 +/-2pi；抓取专项只需要近零
+# 等价解。规划层收窄到 +/-pi，避免 IK/OMPL 选择多圈绕转轨迹。
+# 速度/加速度限制供时间参数化使用。
 joint_limits:
   ur_shoulder_pan_joint:
+    has_position_limits: true
+    min_position: -3.141592653589793
+    max_position: 3.141592653589793
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
     has_acceleration_limits: true
     max_acceleration: 5.0
   ur_shoulder_lift_joint:
+    has_position_limits: true
+    min_position: -3.141592653589793
+    max_position: 3.141592653589793
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
     has_acceleration_limits: true
     max_acceleration: 5.0
   ur_elbow_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
     has_acceleration_limits: true
     max_acceleration: 5.0
   ur_wrist_1_joint:
+    has_position_limits: true
+    min_position: -3.141592653589793
+    max_position: 3.141592653589793
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
     has_acceleration_limits: true
     max_acceleration: 5.0
   ur_wrist_2_joint:
+    has_position_limits: true
+    min_position: -3.141592653589793
+    max_position: 3.141592653589793
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
     has_acceleration_limits: true
     max_acceleration: 5.0
   ur_wrist_3_joint:
+    has_position_limits: true
+    min_position: -3.141592653589793
+    max_position: 3.141592653589793
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
     has_acceleration_limits: true
     max_acceleration: 5.0

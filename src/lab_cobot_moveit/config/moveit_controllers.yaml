@@ -16,3 +16,12 @@ moveit_simple_controller_manager:
       - ur_wrist_3_joint
 
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+# Gazebo 控制器报告轨迹完成后，个别关节仍可能有约 0.02 rad 的短暂收敛残差。
+# 保留有界校验，但避免将紧随其后的笛卡尔下降段误判为非法起点。
+trajectory_execution:
+  allowed_start_tolerance: 0.05
+  # Gazebo 在 WSL/无 GPU 加速环境中可能明显低于实时速率。不要因墙钟
+  # 调度抖动让 MoveIt 在控制器仍正常执行时提前取消轨迹。
+  allowed_execution_duration_scaling: 10.0
+  allowed_goal_duration_margin: 30.0

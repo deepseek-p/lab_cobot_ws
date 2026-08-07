@@ -7,16 +7,22 @@ import math
 from lab_cobot_manipulation.scene_obstacles import (
     ATTACHED_SAMPLE_BOTTOM_TRIM,
     CARRIED_SAMPLE_BOX_ID,
+    DYNAMIC_ARM_OBSTACLE_BOX_ID,
     GRIPPER_ATTACH_LINK,
     GRIPPER_TOUCH_LINKS,
     HELD_SAMPLE_CENTER_FROM_TCP_Z,
     SAMPLE_HALF_HEIGHT,
     STATION_SURFACE_BOX_ID,
+    SURFACE_BOX_X,
     SURFACE_BOX_XY,
+    SURFACE_BOX_Y,
     TABLE_HEIGHT,
     carried_sample_box,
+    dynamic_obstacle_box,
     make_attach_scene,
     make_detach_scene,
+    make_dynamic_obstacle_scene,
+    make_remove_dynamic_obstacle_scene,
     make_world_box_scene,
     station_surface_box,
 )
@@ -53,12 +59,14 @@ def test_surface_box_ignores_input_z():
     assert lifted == nominal
 
 
-def test_surface_box_covers_rotated_table_envelope():
-    # 停靠 yaw 容差 0.25rad 下,0.8x0.6 台面的轴对齐包络需求:
-    # w*cos(yaw)+h*sin(yaw);方盒边长必须覆盖再留检测误差余量。
-    yaw_tol = 0.25
-    envelope = 0.8 * math.cos(yaw_tol) + 0.6 * math.sin(yaw_tol)
-    assert SURFACE_BOX_XY >= envelope + 0.01
+def test_surface_box_covers_local_grasp_workspace_without_full_table_overreach():
+    # 局部台面盒覆盖样件附近即可;不再用 0.95m 方盒覆盖整张旋转台面,
+    # 否则实跑中会把 ur_upper_arm_link 初始位形误判进 station_surface。
+    assert SURFACE_BOX_X >= 0.60
+    assert SURFACE_BOX_Y >= 0.80
+    assert SURFACE_BOX_X < 0.70
+    assert SURFACE_BOX_Y < 0.90
+    assert SURFACE_BOX_XY == SURFACE_BOX_Y
 
 
 def test_surface_box_front_edge_clears_docked_footprint():
@@ -104,6 +112,47 @@ def test_make_world_box_scene_is_add_diff():
     assert obj.header.frame_id == "base_link"
     assert list(obj.primitives[0].dimensions) == list(box["size"])
     assert obj.primitive_poses[0].position.z == box["center"][2]
+
+
+def test_dynamic_obstacle_box_preserves_center_and_size():
+    box = dynamic_obstacle_box([0.35, 0.12, 0.5], [0.12, 0.12, 0.2])
+
+    assert box["center"] == [0.35, 0.12, 0.5]
+    assert box["size"] == [0.12, 0.12, 0.2]
+
+
+def test_dynamic_obstacle_box_rejects_non_positive_size():
+    try:
+        dynamic_obstacle_box([0.35, 0.12, 0.5], [0.12, 0.0, 0.2])
+    except ValueError as exc:
+        assert "positive" in str(exc)
+    else:
+        raise AssertionError("dynamic_obstacle_box should reject zero size")
+
+
+def test_make_dynamic_obstacle_scene_is_add_or_update_diff():
+    scene = make_dynamic_obstacle_scene(
+        [0.35, 0.12, 0.5],
+        [0.12, 0.12, 0.2],
+        frame_id="base_link",
+    )
+
+    assert scene.is_diff is True
+    obj = scene.world.collision_objects[0]
+    assert obj.id == DYNAMIC_ARM_OBSTACLE_BOX_ID
+    assert obj.operation == obj.ADD
+    assert obj.header.frame_id == "base_link"
+    assert list(obj.primitives[0].dimensions) == [0.12, 0.12, 0.2]
+    assert obj.primitive_poses[0].position.x == 0.35
+
+
+def test_make_remove_dynamic_obstacle_scene_is_remove_diff():
+    scene = make_remove_dynamic_obstacle_scene()
+
+    assert scene.is_diff is True
+    obj = scene.world.collision_objects[0]
+    assert obj.id == DYNAMIC_ARM_OBSTACLE_BOX_ID
+    assert obj.operation == obj.REMOVE
 
 
 def test_make_attach_scene_binds_to_tcp_with_touch_links():

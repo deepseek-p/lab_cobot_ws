@@ -410,6 +410,117 @@ PYTEST_ADDOPTS='-p no:anyio' pytest src/lab_cobot_bringup/test/test_mission_plan
 ```bash
 cd ~/lab_cobot_ws && source /opt/ros/humble/setup.bash
 PYTEST_ADDOPTS='-p no:anyio' colcon test --packages-select lab_cobot_description lab_cobot_gazebo lab_cobot_navigation lab_cobot_bringup --event-handlers console_direct+
+cd ~/projects/lab_cobot_ws
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+如果 `pymoveit2` 的 symlink-install 缓存污染导致符号链接创建失败，清理后重建：
+
+```bash
+rm -rf build install log
+colcon build --symlink-install
+```
+
+## 运行
+
+启动完整仿真：
+
+```bash
+cd ~/projects/lab_cobot_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py
+```
+
+该命令默认加载正式双工位 `lab.world`，不再需要切换到抓放专项
+`grasp_place.world`。G4/G5 结果旁路默认随完整流程启动：
+
+- G4：并行记录接触式夹爪的触碰/力曲线，任务结束或记录器退出时在
+  `g4_artifacts/g4_lab_ab_contact_force.csv` 与 `.png` 写出数据。
+- G5：启动 `/arm_dynamic_obstacle_box` → MoveIt PlanningScene 的动态障碍桥，
+  并在 `/g5/arm_dynamic_obstacle/status` 输出 ready/update/remove 状态。
+- 汇总：任务到 `DONE` 或 `FAILED` 时，`g4g5_result_node` 会在日志和
+  `/task/g4g5_result` 输出一行 `G4G5_RESULT ...`。
+
+另开终端发送任务：
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/projects/lab_cobot_ws/install/setup.bash
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
+```
+
+查看状态：
+
+```bash
+ros2 --no-daemon topic echo /task/status
+```
+
+查看 G4/G5 汇总：
+
+```bash
+ros2 --no-daemon topic echo --qos-durability transient_local /task/g4g5_result
+```
+
+`/task/g4g5_result` 是任务到 `DONE` 或 `FAILED` 后发布的一行终态汇总。
+如果 `ros2 topic echo` 报 XMLRPC/daemon timeout，先绕过或重启 CLI daemon：
+
+```bash
+ros2 --no-daemon topic list
+ros2 daemon stop
+ros2 daemon start
+```
+
+G4 力曲线文件会写到启动终端所在目录下的
+`g4_artifacts/g4_lab_ab_contact_force.csv` 和 `.png`。
+
+headless 运行：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false
+```
+
+关键可选参数：
+
+| 参数 | 默认值 | 作用 |
+|---|---|---|
+| `use_wrist_detect` | `true` | DETECT 阶段先移动到固定拍照位，使用腕相机顶面 ID=1 marker 定位；移动或检测失败时自动降级到 bench 相机。置 `false` 回退纯 bench 检测。 |
+| `use_refine_detect` | `true` | 启用腕部精修相机、`/perception/wrist` ArUco 检测实例和 PICK 悬停后的位姿精修；失败时自动沿用粗位姿。 |
+| `use_planning_scene_obstacles` | `true` | 向 MoveIt 规划场景注入工位台面碰撞盒与持物样件附着盒；置 `false` 回退规划对环境盲的旧行为。 |
+| `launch_g4g5_results` | `true` | 在正式 `lab.world` A→B 流程中启动 G4 接触力记录器、G5 动态障碍桥和 `/task/g4g5_result` 汇总节点。 |
+| `g4_force_duration` | `900.0` | G4 接触力记录器运行秒数；节点正常退出或收到中断时写出 CSV/PNG。 |
+| `g4_output_dir` | `g4_artifacts` | G4 接触力 CSV/PNG 输出目录。 |
+| `g4_stem` | `g4_lab_ab_contact_force` | G4 接触力 CSV/PNG 文件名前缀。 |
+
+只启动全栈但不启动任务节点：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false launch_mission:=false
+```
+
+分模块调试：
+
+```bash
+ros2 launch lab_cobot_description view_robot.launch.py
+ros2 launch lab_cobot_gazebo world.launch.py
+ros2 launch lab_cobot_moveit move_group.launch.py
+ros2 launch lab_cobot_navigation navigation.launch.py
+ros2 launch lab_cobot_navigation mapping.launch.py
+```
+
+## 验证
+
+本机如果存在 user-level `anyio` pytest 插件问题，给 pytest/colcon 测试命令加上 `PYTEST_ADDOPTS='-p no:anyio'`。
+
+完整构建和测试：
+
+```bash
+cd ~/projects/lab_cobot_ws
+source /opt/ros/humble/setup.bash
+PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
+PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure
 colcon test-result --verbose
 ```
 

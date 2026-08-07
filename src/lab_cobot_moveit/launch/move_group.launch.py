@@ -43,7 +43,18 @@ def generate_launch_description():
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
-        parameters=[moveit_config.to_dict(), {"use_sim_time": use_sim_time}],
+        parameters=[
+            moveit_config.to_dict(),
+            {
+                "use_sim_time": use_sim_time,
+                # Gazebo ros2_control publishes /joint_states as Best-Effort,
+                # while MoveIt's state monitor requires Reliable.  The relay
+                # republishes it on this dedicated reliable topic.
+                "planning_scene_monitor_options.joint_state_topic": (
+                    "/moveit_joint_states"
+                ),
+            },
+        ],
     )
 
     return LaunchDescription([

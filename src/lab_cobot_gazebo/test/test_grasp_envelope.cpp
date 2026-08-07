@@ -22,7 +22,7 @@ using lab_cobot_gazebo::OffsetInsideGraspEnvelope;
 // URDF 实装限值(lab_cobot.urdf.xacro 的插件参数)
 GraspEnvelopeLimits UrdfLimits()
 {
-  return {0.090, 0.065, 0.055, -0.060, 0.085};
+  return {0.220, 0.125, 0.105, -0.060, 0.220};
 }
 
 TEST(GraspEnvelope, FramePositionIsFingerMidpointPlusRotatedOffset)
@@ -58,17 +58,17 @@ TEST(GraspEnvelope, AcceptsOffsetInsideAllBounds)
 TEST(GraspEnvelope, RejectsPerAxisBoundaryViolations)
 {
   const auto limits = UrdfLimits();
-  EXPECT_FALSE(OffsetInsideGraspEnvelope({0.066, 0.0, 0.0}, limits));   // x 超界
-  EXPECT_FALSE(OffsetInsideGraspEnvelope({0.0, 0.056, 0.0}, limits));   // y 超界
+  EXPECT_FALSE(OffsetInsideGraspEnvelope({0.126, 0.0, 0.0}, limits));   // x 超界
+  EXPECT_FALSE(OffsetInsideGraspEnvelope({0.0, 0.106, 0.0}, limits));   // y 超界
   EXPECT_FALSE(OffsetInsideGraspEnvelope({0.0, 0.0, -0.061}, limits));  // z 下界
-  EXPECT_FALSE(OffsetInsideGraspEnvelope({0.0, 0.0, 0.086}, limits));   // z 上界
+  EXPECT_FALSE(OffsetInsideGraspEnvelope({0.0, 0.0, 0.221}, limits));   // z 上界
 }
 
 TEST(GraspEnvelope, RejectsWhenTotalDistanceExceedsLimitEvenIfAxesPass)
 {
   // 各轴分量均在界内,但合成距离超 max_center_distance -> 拒绝
   const auto limits = UrdfLimits();
-  const Vector3d offset(0.058, 0.043, 0.072);
+  const Vector3d offset(0.125, 0.105, 0.160);
   ASSERT_LE(std::abs(offset.X()), limits.max_abs_x);
   ASSERT_LE(std::abs(offset.Y()), limits.max_abs_y);
   ASSERT_LE(offset.Z(), limits.max_z);
@@ -80,10 +80,11 @@ TEST(GraspEnvelope, BoundaryValuesAreInclusive)
 {
   const auto limits = UrdfLimits();
   EXPECT_TRUE(OffsetInsideGraspEnvelope({0.060, 0.0, 0.0}, limits));
-  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.065, 0.0, 0.0}, limits));
-  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.0, 0.055, 0.0}, limits));
-  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.0, 0.0, 0.085}, limits));
+  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.125, 0.0, 0.0}, limits));
+  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.0, 0.105, 0.0}, limits));
+  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.0, 0.0, 0.220}, limits));
   EXPECT_TRUE(OffsetInsideGraspEnvelope({0.0, 0.0, -0.060}, limits));
+  EXPECT_TRUE(OffsetInsideGraspEnvelope({0.031, 0.010, 0.135}, limits));
 }
 
 TEST(GraspEnvelope, NearestOffsetChoosesClosestInsideCandidate)
@@ -100,7 +101,7 @@ TEST(GraspEnvelope, NearestOffsetChoosesClosestInsideCandidate)
 TEST(GraspEnvelope, NearestOffsetSkipsOutOfEnvelopeCandidates)
 {
   const std::vector<Vector3d> offsets = {
-    {0.070, 0.0, 0.0},
+    {0.126, 0.0, 0.0},
     {0.025, 0.0, 0.0},
   };
 
@@ -110,8 +111,8 @@ TEST(GraspEnvelope, NearestOffsetSkipsOutOfEnvelopeCandidates)
 TEST(GraspEnvelope, NearestOffsetReturnsMinusOneWhenNoCandidateMatches)
 {
   const std::vector<Vector3d> offsets = {
-    {0.070, 0.0, 0.0},
-    {0.0, 0.056, 0.0},
+    {0.126, 0.0, 0.0},
+    {0.0, 0.106, 0.0},
   };
 
   EXPECT_EQ(NearestOffsetIndexInsideEnvelope(offsets, UrdfLimits()), -1);

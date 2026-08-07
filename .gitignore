@@ -7,6 +7,7 @@ __pycache__/
 .claude/*
 
 # Local GUI/debug artifacts
+g4_artifacts/
 屏幕截图*.png
 src/lab_cobot_navigation/maps/*_backup.pgm
 .codex/*
@@ -17,3 +18,7 @@ CLAUDE.md
 AGENTS.md
 .gitattributes
 docs/
+.vscode/
+*.db
+*.db-shm
+*.db-wal

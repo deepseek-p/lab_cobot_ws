@@ -144,6 +144,26 @@ def test_navigation_include_pins_map_and_params_file(monkeypatch):
     assert args["params_file"].endswith("lab_cobot_navigation/config/nav2_params.yaml")
 
 
+def test_bringup_uses_world_launch_default_lab_world(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    includes = [
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+    ]
+    world = next(
+        include for include in includes
+        if set(_include_arguments(include)) == {
+            "gui",
+            "require_finger_contact",
+            "use_refine_detect",
+            "use_wrist_detect",
+        }
+    )
+
+    assert "world" not in _include_arguments(world)
+
+
 def test_bringup_disables_nav2_rviz_by_default_for_low_memory_runs(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)
@@ -177,6 +197,57 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
 
 
 def test_bringup_uses_main_mecanum_visualizer_and_world_plugin(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    executables = [node.node_executable for node in _nodes(launch_description)]
+    includes = [
+        entity
+        for entity in _entities(launch_description)
+        if isinstance(entity, IncludeLaunchDescription)
+    ]
+    worlds = [
+        include
+        for include in includes
+        if _text(getattr(
+            include.launch_description_source,
+            "_LaunchDescriptionSource__location",
+        )).endswith("world.launch.py")
+    ]
+
+    assert len(worlds) == 1
+    assert list(executables).count("mecanum_wheel_visualizer") == 1
+    assert "mecanum_gazebo_kinematic_drive" not in executables
+    assert "gazebo_odom_bridge" not in executables
+
+
+def test_mission_waits_for_navigation_lifecycle_delay(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    mission = _node("lab_cobot_bringup", "mission_node", launch_description)
+    stage3 = next(
+        entity for entity in launch_description.entities
+        if isinstance(entity, TimerAction) and mission in entity.actions
+    )
+    period = float(_text(getattr(stage3, "_TimerAction__period")))
+
+    assert period >= 50.0
+
+
+def test_bringup_starts_joint_state_relay_for_moveit(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    relay = _node(
+        "lab_cobot_manipulation",
+        "joint_state_qos_relay",
+        launch_description,
+    )
+    stage2 = next(
+        entity for entity in launch_description.entities
+        if isinstance(entity, TimerAction) and relay in entity.actions
+    )
+    period = float(_text(getattr(stage2, "_TimerAction__period")))
+
+    assert period <= 10.0
+
+
+def test_bringup_drives_mecanum_wheel_visuals_from_cmd_vel(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     executables = [node.node_executable for node in _nodes(launch_description)]
     includes = [
@@ -284,6 +355,54 @@ def test_bringup_keeps_sim_attach_bridge_as_explicit_debug_option(monkeypatch):
 
 
 def test_bringup_defaults_to_truth_pose_for_environment_regression(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+
+    assert defaults["use_truth_pose"] == "false"
+
+
+def test_bringup_launches_g4g5_result_sidecar_by_default(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+    nodes = _active_nodes(launch_description)
+    executables = {node.node_executable for node in nodes}
+
+    assert defaults["launch_g4g5_results"] == "true"
+    assert "dynamic_arm_obstacle_node" in executables
+    assert "contact_force_recorder" in executables
+    assert "g4g5_result_node" in executables
+
+
+def test_bringup_can_disable_g4g5_result_sidecar(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    nodes = _active_nodes(launch_description, {"launch_g4g5_results": "false"})
+    executables = {node.node_executable for node in nodes}
+
+    assert "dynamic_arm_obstacle_node" not in executables
+    assert "contact_force_recorder" not in executables
+    assert "g4g5_result_node" not in executables
+
+
+def test_g4_recorder_uses_launch_configured_artifact_arguments(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    recorder = _node(
+        "lab_cobot_manipulation",
+        "contact_force_recorder",
+        launch_description,
+    )
+    args = getattr(recorder, "_Node__arguments")
+
+    assert "--duration" in args
+    assert isinstance(args[args.index("--duration") + 1], LaunchConfiguration)
+    assert "--target-object" in args
+    assert isinstance(args[args.index("--target-object") + 1], LaunchConfiguration)
+    assert "--output-dir" in args
+    assert isinstance(args[args.index("--output-dir") + 1], LaunchConfiguration)
+    assert "--stem" in args
+    assert isinstance(args[args.index("--stem") + 1], LaunchConfiguration)
+
+
+def test_bringup_defaults_to_camera_aruco_with_truth_as_debug_option(monkeypatch):
     launch_description = _load_bringup_launch(monkeypatch)
     defaults = _declared_defaults(launch_description)
 

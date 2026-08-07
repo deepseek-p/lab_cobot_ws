@@ -170,6 +170,17 @@ def test_world_launch_spawns_wheel_velocity_controller():
     assert any("wheel_velocity_controller" in args for args in spawner_args)
 
 
+def test_world_launch_starts_serial_controller_bootstrap():
+    actions = _all_actions(_load_world_launch())
+    bootstraps = [
+        node
+        for node in _nodes(actions)
+        if getattr(node, "node_executable", "") == "controller_bootstrap"
+    ]
+    assert len(bootstraps) == 1
+    assert getattr(bootstraps[0], "node_package", "") == "lab_cobot_gazebo"
+
+
 def test_world_launch_does_not_start_asynchronous_pose_service_driver():
     launch_description, _module = _load_world_launch()
     actions = _all_actions(launch_description)
@@ -235,6 +246,13 @@ def test_world_launch_gzclient_inherits_complete_model_path():
 def test_world_robot_description_disables_wrist_camera_by_default():
     command = _robot_description_command_text()
     assert "wrist_refine_camera:=false" in command
+    assert "enable_lab_sensors:=true" in command
+
+
+def test_world_robot_description_can_disable_lab_sensors_for_fast_grasp_runs():
+    command = _robot_description_command_text({"enable_lab_sensors": "false"})
+
+    assert "enable_lab_sensors:=false" in command
 
 
 def test_world_robot_description_enables_wrist_camera_from_shared_switch():
