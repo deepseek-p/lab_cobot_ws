@@ -41,6 +41,8 @@ def generate_launch_description():
     dl_imgsz = LaunchConfiguration("dl_imgsz")
     target_object = LaunchConfiguration("target_object")
     require_finger_contact = LaunchConfiguration("require_finger_contact")
+    enable_contact_force = LaunchConfiguration("enable_contact_force")
+    enable_lab_sensors = LaunchConfiguration("enable_lab_sensors")
     use_tactile_grasp = LaunchConfiguration("use_tactile_grasp")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
     use_wrist_detect = LaunchConfiguration("use_wrist_detect")
@@ -259,12 +261,12 @@ def generate_launch_description():
         DeclareLaunchArgument("gui", default_value="true", description="Gazebo GUI"),
         DeclareLaunchArgument(
             "robot_x",
-            default_value="0.0",
+            default_value="4.50",
             description="Gazebo world robot x",
         ),
         DeclareLaunchArgument(
             "robot_y",
-            default_value="0.0",
+            default_value="-4.20",
             description="Gazebo world robot y",
         ),
         DeclareLaunchArgument(

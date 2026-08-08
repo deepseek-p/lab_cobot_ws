@@ -2,6 +2,7 @@
 """Bridge simple obstacle-box commands into MoveIt PlanningScene."""
 
 import rclpy
+import time
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -18,6 +19,7 @@ from lab_cobot_manipulation.scene_obstacles import (
 DEFAULT_TOPIC = "/arm_dynamic_obstacle_box"
 DEFAULT_FRAME_ID = "base_link"
 DEFAULT_STATUS_TOPIC = "/g5/arm_dynamic_obstacle/status"
+DEFAULT_MIN_UPDATE_PERIOD_SEC = 0.25
 
 
 def parse_obstacle_box(data):
@@ -42,6 +44,10 @@ class DynamicArmObstacleNode(Node):
         self.declare_parameter("frame_id", DEFAULT_FRAME_ID)
         self.declare_parameter("object_id", DYNAMIC_ARM_OBSTACLE_BOX_ID)
         self.declare_parameter("service_timeout_sec", 5.0)
+        self.declare_parameter(
+            "min_update_period_sec",
+            DEFAULT_MIN_UPDATE_PERIOD_SEC,
+        )
 
         self.topic = str(self.get_parameter("topic").value)
         self.status_topic = str(self.get_parameter("status_topic").value)
@@ -49,6 +55,9 @@ class DynamicArmObstacleNode(Node):
         self.object_id = str(self.get_parameter("object_id").value)
         self.service_timeout_sec = float(
             self.get_parameter("service_timeout_sec").value
+        )
+        self.min_update_period_sec = float(
+            self.get_parameter("min_update_period_sec").value
         )
 
         self._callback_group = ReentrantCallbackGroup()
@@ -58,6 +67,8 @@ class DynamicArmObstacleNode(Node):
         )
         self.scene_client.wait_until_ready(timeout_sec=self.service_timeout_sec)
         self._status_pub = self.create_publisher(String, self.status_topic, 10)
+        self._last_scene_signature = None
+        self._last_scene_update_time = 0.0
         self.create_subscription(
             Float32MultiArray,
             self.topic,
@@ -93,10 +104,29 @@ class DynamicArmObstacleNode(Node):
             self._publish_status(f"{label}_failed id={self.object_id}")
         return ok
 
+    def _scene_signature(self, center, size, removed: bool) -> tuple:
+        return (
+            bool(removed),
+            self.frame_id,
+            self.object_id,
+            tuple(round(float(value), 4) for value in center),
+            tuple(round(float(value), 4) for value in size),
+        )
+
     def _on_obstacle_box(self, msg) -> None:
         if len(msg.data) == 0:
+            signature = self._scene_signature((), (), True)
+            now = time.monotonic()
+            if (
+                getattr(self, "_last_scene_signature", None) == signature
+                and now - float(getattr(self, "_last_scene_update_time", 0.0))
+                < float(getattr(self, "min_update_period_sec", 0.0))
+            ):
+                return
             scene = make_remove_dynamic_obstacle_scene(self.object_id)
             if self._apply_scene(scene, "remove"):
+                self._last_scene_signature = signature
+                self._last_scene_update_time = now
                 self.get_logger().info(
                     "dynamic arm obstacle removed id=%s" % self.object_id
                 )
@@ -109,6 +139,14 @@ class DynamicArmObstacleNode(Node):
             self._publish_status("invalid %s" % str(exc))
             return
 
+        signature = self._scene_signature(center, size, False)
+        now = time.monotonic()
+        if (
+            getattr(self, "_last_scene_signature", None) == signature
+            and now - float(getattr(self, "_last_scene_update_time", 0.0))
+            < float(getattr(self, "min_update_period_sec", 0.0))
+        ):
+            return
         scene = make_dynamic_obstacle_scene(
             center,
             size,
@@ -116,6 +154,8 @@ class DynamicArmObstacleNode(Node):
             object_id=self.object_id,
         )
         if self._apply_scene(scene, "update"):
+            self._last_scene_signature = signature
+            self._last_scene_update_time = now
             self.get_logger().info(
                 "dynamic arm obstacle updated center=%s size=%s"
                 % (center, size)

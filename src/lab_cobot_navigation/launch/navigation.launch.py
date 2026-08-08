@@ -216,6 +216,8 @@ def generate_launch_description():
         "FASTRTPS_DEFAULT_PROFILES_FILE",
         os.path.join(nav_pkg, "config", "fastdds_no_shm.xml"),
     )
+    fastdds_udp_only = SetEnvironmentVariable("RMW_FASTRTPS_USE_SHM", "0")
+    fastdds_builtin_udp = SetEnvironmentVariable("FASTDDS_BUILTIN_TRANSPORTS", "UDPv4")
 
     # lifecycle_manager 等待节点就绪后再编排,避免 change_state 竞态超时。
     # localization 的 map_server 加载大图需时,也需要延后。
@@ -225,10 +227,12 @@ def generate_launch_description():
     # 此时 gzserver 仍在加载(gzclient 抢资源),首次 change_state 服务调用 20ms 内
     # 失败,nav2 humble 的 manager 对此零重试直接弃栈(bt_navigator 永远 unconfigured)。
     # 延后 manager 启动,等全部 lifecycle 节点服务稳定后再编排,消灭竞态窗口。
-    lifecycle_delayed = TimerAction(period=45.0, actions=[lifecycle])
+    lifecycle_delayed = TimerAction(period=60.0, actions=[lifecycle])
 
     navigation = [
         fastdds_no_shm,
+        fastdds_udp_only,
+        fastdds_builtin_udp,
         stdout_linebuf,
         controller,
         smoother,

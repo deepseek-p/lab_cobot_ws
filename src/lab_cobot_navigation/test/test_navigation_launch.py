@@ -197,4 +197,4 @@ def test_lifecycle_manager_startup_is_delayed_past_boot_race(monkeypatch):
     ]
 
     assert len(timers) == 1
-    assert float(timers[0]._TimerAction__period) >= 15.0
+    assert float(timers[0]._TimerAction__period) >= 60.0

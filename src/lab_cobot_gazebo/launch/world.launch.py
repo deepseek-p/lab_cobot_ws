@@ -63,8 +63,8 @@ def generate_launch_description():
     plugin_path = os.path.join(os.path.dirname(os.path.dirname(gz_pkg)), "lib")
 
     gui = LaunchConfiguration("gui")
-    robot_x = LaunchConfiguration("robot_x", default="0.0")
-    robot_y = LaunchConfiguration("robot_y", default="0.0")
+    robot_x = LaunchConfiguration("robot_x", default="4.50")
+    robot_y = LaunchConfiguration("robot_y", default="-4.20")
     robot_yaw = LaunchConfiguration("robot_yaw", default="0.0")
 
     # 让 Gazebo 能解析 world 里的 model://aruco_sample
@@ -129,10 +129,10 @@ def generate_launch_description():
             description="Gazebo world 文件",
         ),
         DeclareLaunchArgument(
-            "robot_x", default_value="0.0", description="机器人初始世界 x 坐标"
+            "robot_x", default_value="4.50", description="机器人初始世界 x 坐标"
         ),
         DeclareLaunchArgument(
-            "robot_y", default_value="0.0", description="机器人初始世界 y 坐标"
+            "robot_y", default_value="-4.20", description="机器人初始世界 y 坐标"
         ),
         DeclareLaunchArgument(
             "robot_yaw", default_value="0.0", description="机器人初始世界偏航角"

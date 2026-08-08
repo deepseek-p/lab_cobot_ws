@@ -87,6 +87,11 @@ TACTILE_PLACE_RELEASE_CLEARANCE = 0.025
 # 过低目标会让放置下降/抬升 Cartesian path 被台面碰撞截断,随后触发 OMPL
 # fallback,在 B 端产生多余关节绕行。
 TACTILE_PLACE_TCP_Z_COMPENSATION = 0.025
+# 放置阶段固定保持末端姿态,避免沿用当前 TCP 姿态造成 release/lift 偏转。
+PLACE_TCP_QUAT = DOWN_QUAT
+# 放置 TCP 目标保持在机械臂稳定工作范围内;B 工位精确停靠由 Nav2 负责。
+STATION_B_TABLE_FORWARD_OFFSET = 0.82
+DEFAULT_PLACE_POSE = [STATION_B_TABLE_FORWARD_OFFSET, 0.0, 0.650]
 TACTILE_PLACE_DROP_SETTLE_SEC = 0.6
 TACTILE_PLACE_POST_OPEN_SETTLE_SEC = 0.25
 GRIPPER_OPEN_SETTLE_SEC = 0.2
@@ -117,6 +122,7 @@ WRIST_PATH_CONSTRAINT_TOLERANCES = [2.4, 2.4, 1.6]
 PRE_GRASP_SETTLE_SEC = 0.25
 POST_GRASP_SETTLE_SEC = 0.35
 POST_ATTACH_HOLD_CONFIRM_TIMEOUT_SEC = 2.0
+PLACE_CARTESIAN_RETRY_ATTEMPTS = 3
 
 
 def configure_moveit_for_pick_place(moveit2, use_tactile_grasp=False) -> None:
@@ -824,6 +830,7 @@ class PickPlace(Node):
         local_speed=False,
         fallback_to_ompl=True,
         tolerance_orientation=DEFAULT_APPROACH_TOLERANCE_ORIENTATION,
+        stabilize_wrist=True,
     ) -> bool:
         for attempt in range(APPROACH_MOVE_MAX_ATTEMPTS):
             restore_scaling = None
@@ -844,6 +851,7 @@ class PickPlace(Node):
                 tolerance_orientation=tolerance_orientation,
                 timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
                 cartesian=cartesian,
+                stabilize_wrist=stabilize_wrist,
                 local_speed=local_speed,
                 fallback_to_ompl=fallback_to_ompl,
             ):
@@ -889,17 +897,52 @@ class PickPlace(Node):
                 time.sleep(GO_HOME_RETRY_DELAY_SEC)
         return False
 
-    def _move_place_descent(self, above, release, quat):
-        ok = self._move(
+    def _move_cartesian_with_retry(
+        self,
+        pos,
+        quat=DOWN_QUAT,
+        frame_id="base_link",
+        target_link=GRIPPER_TCP_LINK,
+        tolerance_position=DEFAULT_APPROACH_TOLERANCE_POSITION,
+        tolerance_orientation=DEFAULT_APPROACH_TOLERANCE_ORIENTATION,
+        timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
+        local_speed=True,
+        retries=PLACE_CARTESIAN_RETRY_ATTEMPTS,
+        label="Cartesian move",
+    ) -> bool:
+        retry_count = max(int(retries), 1)
+        for attempt in range(retry_count):
+            if self._move(
+                pos,
+                quat=quat,
+                frame_id=frame_id,
+                target_link=target_link,
+                tolerance_position=tolerance_position,
+                tolerance_orientation=tolerance_orientation,
+                timeout_sec=timeout_sec,
+                cartesian=True,
+                stabilize_wrist=False,
+                local_speed=local_speed,
+                fallback_to_ompl=False,
+            ):
+                return True
+            if attempt + 1 < retry_count:
+                self.get_logger().warn(
+                    "%s transient failure, retrying (%d/%d)"
+                    % (label, attempt + 1, retry_count)
+                )
+                time.sleep(GO_HOME_RETRY_DELAY_SEC)
+        return False
+
+    def _move_place_descent(self, release, quat):
+        ok = self._move_cartesian_with_retry(
             release,
             quat=quat,
             target_link=GRIPPER_TCP_LINK,
             tolerance_position=DEFAULT_GRASP_TOLERANCE_POSITION,
             tolerance_orientation=DEFAULT_GRASP_TOLERANCE_ORIENTATION,
-            timeout_sec=DEFAULT_MOVE_TIMEOUT_SEC,
-            cartesian=True,
             local_speed=True,
-            fallback_to_ompl=False,
+            label="Place descent",
         )
         return ok, list(release) if ok else None
 
@@ -1113,15 +1156,19 @@ class PickPlace(Node):
         self.get_logger().info("Pick complete")
         return "ok"
 
-    def place(self, pos) -> bool:
+    def place(self, pos=None) -> bool:
         """Approach → descend to release height → detach/open → lift."""
         # 下降只到 pos.z + PLACE_RELEASE_CLEARANCE 即释放(悬空释放),
         # 物块自由落到台面,避免带焊下压引发固定关节 vs 接触约束冲突。
+        if pos is None:
+            pos = list(DEFAULT_PLACE_POSE)
         target = list(pos)
         if not self._holding_is_healthy():
             self._handle_hold_lost()
             self.get_logger().warn("Place failed: carried object is no longer held")
             return False
+        pre_place = [target[0], target[1], target[2] + self.approach_height]
+        place_quat = PLACE_TCP_QUAT
         # B 台盒同样先于 approach 注入(place_pose 只取 xy,z 为常量台顶)。
         self._inject_station_surface(pos)
         release_clearance = PLACE_RELEASE_CLEARANCE
@@ -1137,32 +1184,32 @@ class PickPlace(Node):
                 target[2] + release_clearance - tcp_z_compensation,
             ),
         ]
-        above = [target[0], target[1], target[2] + self.approach_height]
         self.get_logger().info(
-            "Place start target=%s release=%s approach=%s"
+            "Place start target=%s pre_place=%s release=%s"
             % (
                 _format_pose_target(target),
+                _format_pose_target(pre_place),
                 _format_pose_target(release),
-                _format_pose_target(above),
             )
         )
-        # B 点携物段保持纯笛卡尔分段，任何失败都直接返回，不回退 OMPL。
+        # 先用 OMPL 到达预放置点，近距离的下降/抬升再用 Cartesian。
         if not self._move_approach(
-            above,
-            cartesian=True,
-            local_speed=True,
-            fallback_to_ompl=False,
+            pre_place,
+            quat=place_quat,
+            cartesian=False,
+            local_speed=False,
+            fallback_to_ompl=True,
+            stabilize_wrist=False,
         ):
             self._handle_hold_lost()
-            self.get_logger().warn("Place failed: approach move failed")
+            self.get_logger().warn("Place failed: pre-place move failed")
             return False
         if self.use_tactile_grasp:
             # Gazebo 插件仍保持真实样件夹持;这里只移除 MoveIt 中的保守
             # 附着盒,避免 release 附近与台面盒共同截断竖直 Cartesian path。
             self._detach_carried_sample()
-        place_quat = self._current_tcp_quat()
         # 持物下降段笛卡尔直线:横向弧会带着焊接物块扫掠台面(同 pick 根因)
-        descended, _stable_release = self._move_place_descent(above, release, place_quat)
+        descended, _stable_release = self._move_place_descent(release, place_quat)
         if not descended:
             self._handle_hold_lost()
             self.get_logger().warn("Place failed: descent move failed")
@@ -1184,13 +1231,14 @@ class PickPlace(Node):
             return False
         if self.use_tactile_grasp and TACTILE_PLACE_POST_OPEN_SETTLE_SEC > 0.0:
             time.sleep(TACTILE_PLACE_POST_OPEN_SETTLE_SEC)
-        lift_quat = self._current_tcp_quat()
-        lifted = self._move_approach(
-            above,
-            quat=lift_quat,
-            cartesian=True,
+        lifted = self._move_cartesian_with_retry(
+            pre_place,
+            quat=place_quat,
+            target_link=GRIPPER_TCP_LINK,
+            tolerance_position=DEFAULT_APPROACH_TOLERANCE_POSITION,
+            tolerance_orientation=DEFAULT_APPROACH_TOLERANCE_ORIENTATION,
             local_speed=True,
-            fallback_to_ompl=False,
+            label="Place retreat",
         )
         if not lifted:
             self.get_logger().warn("Place failed: lift move failed")

@@ -47,7 +47,7 @@ RETREAT_PUBLISH_PERIOD_SEC = 0.05
 RETREAT_STOP_SEC = 0.5
 # base_link 系 TCP 放置点。触觉放置会低速小步下探到该高度释放,
 # 让样件底面几乎贴到台面后再松爪,形成“放上去”而不是“落下去”。
-DEFAULT_PLACE_POSE = [0.82, 0.20, 0.650]
+DEFAULT_PLACE_POSE = [0.82, 0.0, 0.650]
 PLACE_BASE_TARGET_POSE = (-2.0, 0.72, math.pi / 2.0)
 DOCK_TARGET_X = 0.78
 DOCK_TARGET_Y = 0.0
@@ -407,6 +407,7 @@ class MissionNode(Node):
         self._latest_task_detection = None
         self._last_pick_dock_detection = None
         self._last_failed_state = None
+        self._last_transit_arm_home_result = None
         self.create_subscription(Odometry, RAW_ODOM_TOPIC, self._on_odom, 10)
         self.create_subscription(
             PoseStamped,
@@ -532,13 +533,13 @@ class MissionNode(Node):
                     # 退避完成后、启动导航前持物收臂:PLACE→RETURN_HOME 已有
                     # go_home 先收臂再返航的对称设计,唯独 PICK→NAV_TO_PLACE
                     # 缺此步,前伸臂+样件随调头旋转横扫工位(用户 GUI 实测穿模)。
-                    self._tuck_arm_for_transit()
+                    ok = self._tuck_arm_for_transit()
                 return ok
             if state == TaskState.NAV_TO_PLACE:
+                self._log_transit_state(start_navigation=True)
                 return (
                     self._navigate("station_b")
                     and self._dock_to_station_pose("station_b")
-                    and self._dock_to_place_target()
                 )
             if state == TaskState.PLACE:
                 ok = self.pp.place(self.place_pose)
@@ -557,15 +558,38 @@ class MissionNode(Node):
             return self._retreat_from_station()
         return ok
 
-    def _tuck_arm_for_transit(self) -> None:
-        """Tuck the arm to the home configuration before base transit."""
-        # 收臂失败仅告警降级为旧行为(伸展位形导航),
-        # 不把新增步骤变成任务级失败点。
+    def _transit_holding_object(self) -> bool:
+        gripper = getattr(self.pp, "gripper", None)
+        checker = getattr(gripper, "is_holding_object", None)
+        if checker is None:
+            return False
         try:
-            if not self.pp.go_home():
-                self.get_logger().warn("持物收臂失败,按伸展位形继续导航")
+            return bool(checker())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _log_transit_state(self, start_navigation: bool) -> None:
+        holding_object = self._transit_holding_object()
+        arm_home_result = getattr(self, "_last_transit_arm_home_result", None)
+        self.get_logger().info(
+            "[TRANSIT] holding_object: %s arm_home_result: %s start_navigation: %s"
+            % (holding_object, arm_home_result, bool(start_navigation))
+        )
+
+    def _tuck_arm_for_transit(self) -> bool:
+        """Tuck the arm to the home configuration before base transit."""
+        # 收臂失败直接阻断后续 NAV_TO_PLACE,避免携物转场时继续导航。
+        arm_home_result = False
+        try:
+            arm_home_result = bool(self.pp.go_home())
+            if not arm_home_result:
+                self.get_logger().warn("持物收臂失败,阻断后续携物导航")
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f"持物收臂异常: {e}")
+        finally:
+            self._last_transit_arm_home_result = arm_home_result
+            self._log_transit_state(start_navigation=False)
+        return arm_home_result
 
     def _duration_elapsed(self, start, duration_sec: float) -> bool:
         elapsed = self.get_clock().now() - start
@@ -697,41 +721,8 @@ class MissionNode(Node):
         return False
 
     def _dock_to_place_target(self) -> bool:
-        self.get_logger().info("放置停靠到B工位")
-        start = self.get_clock().now()
-        last_pose = None
-        target_pose = PLACE_BASE_TARGET_POSE
-        while not self._duration_elapsed(start, PLACE_DOCK_TIMEOUT_SEC):
-            pose = self._base_pose_in_map(timeout_sec=0.05)
-            if pose is not None:
-                last_pose = pose
-                done, cmd = place_dock_velocity_for_base(
-                    pose,
-                    target_pose,
-                    self.place_pose,
-                )
-                if done:
-                    self._stop_base(PLACE_DOCK_STOP_SEC)
-                    place_x, place_y = _base_target_to_map(pose, self.place_pose[:2])
-                    self.get_logger().info(
-                        "放置停靠完成 "
-                        f"base=({pose[0]:.3f},{pose[1]:.3f},{math.degrees(pose[2]):.1f}deg) "
-                        f"place_map=({place_x:.3f},{place_y:.3f})"
-                    )
-                    return True
-                self.retreat_pub.publish(cmd)
-            time.sleep(PLACE_DOCK_PUBLISH_PERIOD_SEC)
-
-        self._stop_base(PLACE_DOCK_STOP_SEC)
-        if last_pose is None:
-            self.get_logger().warn("放置停靠失败: 未获取 base_link map 位姿")
-        else:
-            self.get_logger().warn(
-                "放置停靠超时: "
-                f"base=({last_pose[0]:.3f},{last_pose[1]:.3f},"
-                f"{math.degrees(last_pose[2]):.1f}deg)"
-            )
-        return False
+        self.get_logger().info("放置停靠由 station_b 导航完成,跳过二次底盘重定位")
+        return True
 
     def _stop_base(self, duration_sec: float) -> None:
         stop = Twist()

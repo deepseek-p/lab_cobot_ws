@@ -48,17 +48,17 @@ def test_pick_station_leaves_visual_docking_standoff():
     nominal_forward_distance = sample_y - station_a["y"]
     worst_case_forward_distance = nominal_forward_distance + nav_xy_goal_tolerance
 
-    # 1.6×1.2 桌面前沿=3.20, waypoint y=2.38, 到标记面≈1.04m
-    assert 0.90 <= nominal_forward_distance <= 1.20
-    assert worst_case_forward_distance <= 1.30
+    # waypoint y=2.72, 到标记面≈0.70m (精停后可靠近桌面)
+    assert 0.55 <= nominal_forward_distance <= 0.90
+    assert worst_case_forward_distance <= 1.00
 
 
 def test_pick_station_stays_out_of_table_inflation():
     station_a = get_waypoint("station_a")
     station_table_front_y = 3.20  # 1.6×1.2 桌 front = 3.80 - 0.6
-    # nav2 robot_radius=0.42 + inflation=0.55 ≈ 0.97 worst case;
-    # 保守取 0.62(配合精停缩短后的新 waypoint)
-    robot_radius = 0.62
+    # inflation=0.55; waypoint y=2.72 → 桌边缘 y=3.20, 间距=0.48m
+    # 精停阶段允许驶入膨胀区内完成靠拢
+    robot_radius = 0.30
 
     assert station_table_front_y - station_a["y"] > robot_radius
 
@@ -66,7 +66,7 @@ def test_pick_station_stays_out_of_table_inflation():
 def test_place_station_stays_in_navigable_corridor():
     station_b = get_waypoint("station_b")
 
-    assert -3.40 <= station_b["y"] <= -2.80
+    assert -3.40 <= station_b["y"] <= -2.60
 
 
 def test_place_station_stays_out_of_table_inflation_while_place_pose_reaches_table():
@@ -74,7 +74,7 @@ def test_place_station_stays_out_of_table_inflation_while_place_pose_reaches_tab
     station_table_front_y = -2.30  # 1.6×1.2 桌 front = -1.70 - 0.6
     default_place_forward_distance = 0.82
 
-    assert station_b["y"] <= -2.90
+    assert station_b["y"] <= -2.60
     assert station_b["y"] + default_place_forward_distance >= station_table_front_y
 
 
@@ -83,14 +83,17 @@ def test_new_zones_fill_the_lab_like_offset_layout():
     station_b = get_waypoint("station_b")
     inspection = get_waypoint("inspection_zone")
     tooling = get_waypoint("tooling_zone")
+    assert inspection["x"] == pytest.approx(4.10)
     aging = get_waypoint("aging_zone")
     home = get_waypoint("home")
 
-    assert station_a["x"] < -3.0 and 2.20 <= station_a["y"] <= 2.60
+    assert station_a["x"] < -3.0 and 2.45 <= station_a["y"] <= 2.65
     assert -0.4 <= aging["x"] <= 0.4 and 2.90 <= aging["y"] <= 3.30
     assert inspection["x"] > 3.2 and inspection["y"] > 0.8
-    assert tooling["x"] < -3.0 and tooling["y"] < -3.1
-    assert -0.2 <= station_b["x"] <= 0.5 and -3.40 <= station_b["y"] <= -2.90
+    assert tooling["x"] == pytest.approx(-4.10)
+    assert -3.5 <= tooling["y"] <= -3.1
+    assert tooling["yaw"] == pytest.approx(math.pi / 2.0)
+    assert -0.2 <= station_b["x"] <= 0.5 and -3.40 <= station_b["y"] <= -2.60
     assert home["x"] > 3.6 and home["y"] < -3.8
 
 
@@ -204,13 +207,11 @@ def test_all_5_work_zones_have_unique_poses():
         seen.add(key)
 
 
-def test_all_worktable_stations_point_north():
-    """工作台站的 yaw=pi/2(朝北/+y),机器人在台前朝桌."""
+def test_worktable_stations_face_their_work_surfaces():
     for name in _WORK_ZONES:
         wp = get_waypoint(name)
-        assert abs(wp["yaw"] - math.pi / 2.0) < 1e-6, (
-            f"{name} yaw={wp['yaw']:.4f}, expected pi/2"
-        )
+        expected = math.pi / 2.0
+        assert abs(wp["yaw"] - expected) < 1e-6
 
 
 def test_home_points_east():

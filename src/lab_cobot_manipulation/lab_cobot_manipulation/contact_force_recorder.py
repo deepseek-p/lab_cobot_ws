@@ -7,6 +7,7 @@ import csv
 import math
 import sys
 import time
+from threading import Thread
 from pathlib import Path
 
 import rclpy
@@ -334,9 +335,12 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        csv_path, png_path = node.write_artifacts(Path(args.output_dir), args.stem)
-        node.get_logger().info(f"contact-force CSV: {csv_path}")
-        node.get_logger().info(f"contact-force plot: {png_path}")
+        writer = Thread(
+            target=node.write_artifacts,
+            args=(Path(args.output_dir), args.stem),
+            daemon=False,
+        )
+        writer.start()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

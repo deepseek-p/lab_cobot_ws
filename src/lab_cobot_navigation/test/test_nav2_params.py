@@ -182,20 +182,26 @@ def test_dwb_uses_actor_aware_obstacle_critics():
     assert follow_path["BaseObstacle.scale"] >= 10.0
 
 
-def test_actor_cloud_is_local_only_and_does_not_poison_global_plans():
+def test_lidar_is_the_only_dynamic_obstacle_source_so_old_actor_cells_clear():
     params = _nav2_params()
     local = params["local_costmap"]["local_costmap"]["ros__parameters"]
     global_params = params["global_costmap"]["global_costmap"]["ros__parameters"]
 
-    assert local["plugins"] == ["voxel_layer", "actor_obstacle_layer", "inflation_layer"]
-    assert "static_layer" not in local
-    actor_cloud = local["actor_obstacle_layer"]["actor_cloud"]
-    assert actor_cloud["clearing"] is True
-    assert actor_cloud["marking"] is True
-    assert actor_cloud["observation_persistence"] <= 0.1
-    assert actor_cloud["raytrace_max_range"] >= 6.0
-    assert actor_cloud["expected_update_rate"] == 0.0
-    assert "actor_cloud" not in global_params["obstacle_layer"]["observation_sources"]
+    assert local["plugins"] == ["voxel_layer", "inflation_layer"]
+    assert "actor_obstacle_layer" not in local
+    scan = local["voxel_layer"]["scan"]
+    assert scan["topic"] == "/scan"
+    assert scan["clearing"] is True
+    assert scan["marking"] is True
+    assert "obstacle_layer" not in global_params
+    assert global_params["plugins"] == ["static_layer", "inflation_layer"]
+
+
+def test_voxel_layer_stays_within_nav2_supported_depth():
+    params = _nav2_params()
+    voxel = params["local_costmap"]["local_costmap"]["ros__parameters"]["voxel_layer"]
+
+    assert voxel["z_voxels"] <= 16
 
 
 def test_costmaps_match_git_main_box_mecanum_footprint():
@@ -206,7 +212,7 @@ def test_costmaps_match_git_main_box_mecanum_footprint():
     assert local["footprint"] == (
         "[ [0.28, 0.31], [0.28, -0.31], [-0.28, -0.31], [-0.28, 0.31] ]"
     )
-    assert local["inflation_layer"]["inflation_radius"] == 0.55
+    assert local["inflation_layer"]["inflation_radius"] == 0.25
     assert global_params["robot_radius"] == 0.42
     assert global_params["inflation_layer"]["inflation_radius"] >= 0.55
 
