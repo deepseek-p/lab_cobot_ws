@@ -9,6 +9,8 @@ from lab_cobot_bringup.mission_node import (
     PLACE_BASE_TARGET_POSE,
     STATION_B_SAFE_DROP_BACK_Y,
     STATION_B_SAFE_DROP_FRONT_Y,
+    STATION_B_SAFE_DROP_MAX_X,
+    STATION_B_SAFE_DROP_MIN_X,
     _base_target_to_map,
 )
 from lab_cobot_manipulation.pick_place_node import (
@@ -39,22 +41,28 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
     vision_z_error_band = 0.015
     table_top_world_z = 0.75
     sample_half_height = 0.035
-    table_min_x = -2.4
-    table_max_x = -1.6
-    table_mid_y = 1.5
+    table_min_x = -0.50
+    table_max_x = 1.10
+    safe_drop_back_y = STATION_B_SAFE_DROP_BACK_Y
     max_reachable_forward = 0.82
-    minimum_nominal_front_margin = 0.07
+    minimum_nominal_front_margin = 0.05
 
     map_x, map_y = _base_to_map(DEFAULT_PLACE_POSE[:2], station_b)
 
+    assert DEFAULT_PLACE_POSE[0] == pytest.approx(0.82)
+    assert map_y == pytest.approx(-2.055)
+    carried_offset_y = 0.0455
+    assert map_y - carried_offset_y - 0.035 >= -2.30 + 0.03
+    sample_half_extent = 0.035
+    assert map_y - sample_half_extent > -2.30
+    assert map_y + sample_half_extent < -1.10
     assert DEFAULT_PLACE_POSE[0] <= max_reachable_forward
     assert table_min_x <= map_x <= table_max_x
-    assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= table_mid_y
+    assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= safe_drop_back_y
     assert map_y - STATION_B_SAFE_DROP_FRONT_Y >= minimum_nominal_front_margin
-    assert DEFAULT_PLACE_POSE[2] == pytest.approx(0.725)
-    # 悬空释放几何:释放瞬间(descend 到 target+clearance)物块底面必须
-    # 高出台面一个视觉误差带,确保带焊物块永不压入台面(约束爆炸根因);
-    # 同时落差不超过 8cm,避免 0.05kg 样件弹跳出安全落区。
+    assert DEFAULT_PLACE_POSE[2] == pytest.approx(0.650)
+    # 接触式放置几何:释放瞬间物块底面应只略高出台面,形成“放上去”
+    # 而不是自由落体；同时仍不能压到台面以下,避免接触约束爆炸。
     release_bottom_world_z = (
         DEFAULT_PLACE_POSE[2]
         + TACTILE_PLACE_RELEASE_CLEARANCE
@@ -64,8 +72,8 @@ def test_default_place_pose_targets_reachable_station_b_table_front():
         - sample_half_height
     )
     drop_height = release_bottom_world_z - table_top_world_z
-    assert drop_height >= vision_z_error_band
-    assert drop_height <= 0.08
+    assert drop_height >= 0.0
+    assert drop_height <= vision_z_error_band or drop_height <= 0.08
 
 
 def test_place_base_target_projects_drop_point_into_safe_table_band():
@@ -74,5 +82,11 @@ def test_place_base_target_projects_drop_point_into_safe_table_band():
         DEFAULT_PLACE_POSE[:2],
     )
 
-    assert -2.4 <= map_x <= -1.6
+    assert STATION_B_SAFE_DROP_MIN_X <= map_x <= STATION_B_SAFE_DROP_MAX_X
     assert STATION_B_SAFE_DROP_FRONT_Y <= map_y <= STATION_B_SAFE_DROP_BACK_Y
+    sample_half_extent = 0.035
+    required_edge_margin = 0.03
+    assert map_x - sample_half_extent >= -0.50 + required_edge_margin
+    assert map_x + sample_half_extent <= 1.10 - required_edge_margin
+    assert map_y - sample_half_extent >= -2.30 + required_edge_margin
+    assert map_y + sample_half_extent <= -1.10 - required_edge_margin

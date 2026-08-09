@@ -18,6 +18,7 @@ import numpy as np
 import rclpy
 from gazebo_msgs.msg import ModelStates
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import TransformStamped, PoseStamped
 
@@ -189,9 +190,13 @@ class ArucoDetector(Node):
         self.rgb_stamp = None
         self.depth_img = None
 
-        self.create_subscription(CameraInfo, info, self._info_cb, 10)
-        self.create_subscription(Image, rgb, self._rgb_cb, 10)
-        self.create_subscription(Image, depth, self._depth_cb, 10)
+        self.create_subscription(
+            CameraInfo, info, self._info_cb, qos_profile_sensor_data
+        )
+        self.create_subscription(Image, rgb, self._rgb_cb, qos_profile_sensor_data)
+        self.create_subscription(
+            Image, depth, self._depth_cb, qos_profile_sensor_data
+        )
         self._create_process_timer()
         self.get_logger().info("aruco_detector 启动")
 

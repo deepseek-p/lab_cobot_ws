@@ -14,6 +14,11 @@ from lab_cobot_perception import object_detector  # noqa: E402
 from lab_cobot_perception.yolo_backend import Detection2D  # noqa: E402
 
 
+def test_camera_stream_subscriptions_use_sensor_data_qos():
+    source = Path(object_detector.__file__).read_text(encoding="utf-8")
+    assert source.count("qos_profile_sensor_data") >= 4
+
+
 class FakeLogger:
     def __init__(self):
         self.errors = []

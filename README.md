@@ -1,214 +1,439 @@
 # CS-202618 实验室移动协作机器人
 
-面向实验室智能管理的移动协作机器人仿真系统。项目基于 ROS 2 Humble、Gazebo Classic、Nav2、MoveIt 2 和 ArUco 感知，完成一体化麦克纳姆底盘 + UR5e + 平行双指夹爪在双工位场景中的识别、抓取、搬运、放置和返航。
+面向实验室智能管理的移动协作机器人仿真系统。当前版本整合导航、稳定抓取和视觉
+双后端三条开发链，三方代码基线为 `b09171e`。
 
-赛题：CS-202618 中车株洲电力机车有限公司「面向实验室智能管理的协作机器人环境感知与动作规划方法研究」。
+- **ROS 2 Humble + Gazebo Classic 11**，Nav2 导航 + MoveIt 2 操作
+- **麦克纳姆底盘**（0.55×0.50m）+ **UR5e** + 平行双指夹爪
+- **五功能区、六工位** 14×14m 实验室场景，支持巡航、动态人员避让和 A→B 搬运
+- **双深度学习视觉后端**：默认 diagnostic YOLO-World，可切换 eight_class YOLO +
+  腕部 RGB-D 点云定位
+- 赛题：CS-202618 中车株洲「面向实验室智能管理的协作机器人环境感知与动作规划方法研究」
 
-## 当前状态
+---
 
-当前实现已完成导航地图、任务编排、抓取失败恢复、contact grasp 抓取、ArUco 相机位姿、MoveIt 等运行链路的修复和加固，默认路径不读 Gazebo 真值、不使用瞬移吸附。
+## 当前能力与边界
 
-- `colcon build`：8 个包构建通过
-- `colcon test`：562 个测试（含 1 个禁真值 Gazebo 端到端与 36 个插件 gtest 行为用例），15 跳过（其中 13 个为 cppcheck 环境性跳过，对应源码均有 gtest 覆盖）
-- 静态地图为 `slam_toolbox` 实跑产物（来源与质量门见 `maps/map_provenance.yaml`）
-- 默认 `use_truth_pose=false`、`use_sim_attach=false`：视觉走相机检测，抓取走 contact grasp 插件
-- 默认 `use_tactile_grasp=true`、`require_finger_contact=true`：抓取 attach 需几何封套命中且左右指触觉探针均上报真实接触对（两开关必须同值）
-- 默认 `use_wrist_detect=true`、`use_refine_detect=true`：腕相机 eye-in-hand 链为主路径——DETECT 移动到固定拍照位用腕相机定位（手眼变换经 Tsai 标定管线仿真验证），PICK 悬停后二次精修；任一环节失败自动降级 bench 全景相机/粗位姿
-- 默认 `use_planning_scene_obstacles=true`：机械臂规划场景注入工位台面碰撞盒与持物样件附着盒，PICK 完成后先收臂再导航（消除持物横扫工位的穿模）
-- headless 端到端（禁真值/禁吸附桥）已多次验证到 `DONE`
-- `mission_node` 是正式任务入口；旧的 `pick_place` console entry point 已移除
-- 末端执行器是平行双指夹爪；样件固定由 contact grasp 插件的 fixed-joint 实现
+| 子系统 | 已实现 | 当前边界 |
+|---|---|---|
+| 导航 | AMCL + EKF + DWB、六工位导航、固定巡航、actor 动态避让 | 底盘施加层是有界 `SetWorldPose` 位姿积分，不是麦轮滚子接触动力学 |
+| 操作 | MoveIt 规划、台面/持物碰撞盒、触觉步进闭合、A→B 抓放返航 | 抓取由接触门控后的 fixed joint 保持，不是真实摩擦力或力反馈 |
+| 视觉 | bench/腕部 ArUco；diagnostic 与 eight_class 两套 DL 后端启动时互斥切换 | mission 抓取仍使用 ArUco 位姿；eight_class 当前只可靠输出 XYZ |
+| 任务 | 搬运、单站导航、全工位巡航、失败清理、可选 LLM/语音入口 | 默认只验证 `aruco_sample` 抓取，其余七类只声明检测和定位 |
 
-### 仿真保真度边界（诚实声明）
+## 对外接口
 
-- **底盘**：默认由自定义插件按"cmd_vel → 麦轮逆解 → 轮速命令 → 正解"驱动，运动学链真实，但施加层是**有界位姿积分（`SetWorldPose`）**——底盘不受碰撞阻挡、`/odom` 为插件自身积分（零漂移）。不是麦轮滚子接触动力学。
-- **抓取**：默认路径为触觉门控——attach 需要**几何封套命中且左右指触觉探针均上报真实几何接触对**（步进闭合，非一步到位）；接触判定是传感器上报的接触对，**不是力反馈**。物块全程保留质量/重力；fixed-joint 持有期样件碰撞响应被挂起、release 时原子恢复（消除固定关节与台面接触约束冲突）。放置采用悬空释放（名义落差约 5cm）避免约束冲突。不是真实摩擦力闭合。回退路径 `use_tactile_grasp:=false require_finger_contact:=false` 仍为"靠近即焊"，引用其行为时须注明。
-- **机械臂避障**：规划场景中的工位台面碰撞盒为**名义几何**（检测/放置点定中心 + 已知台面尺寸放大裕度），不是感知重建；只约束 MoveIt 规划的臂轨迹，底盘仍不受碰撞阻挡（见底盘边界）。
-- **视觉**：默认走 RGB-D + solvePnP 真实检测管线；`/gazebo/model_states` 仅保留为 `use_truth_pose:=true` 显式调试路径。腕相机拍照位检测为"拍一帧→手眼变换→开环执行"，不是接近过程闭环视觉伺服。
+**任务指令（输入）**：
+```bash
+# 单站导航
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '去检测区'}"
 
-## 系统流程
+# A→B 搬运
+ros2 topic pub --once /task/instruction std_msgs/msg/String \
+  "{data: '把样件从A工位搬运到B工位，然后返回原点'}"
 
-```text
-/task/instruction
-  -> mission_node
-  -> Nav2 AMCL/EKF + DWB
-  -> /cmd_vel -> mecanum_wheel_visualizer(麦轮逆解)
-  -> /wheel_velocity_controller/commands -> lab_cobot_mecanum_drive(正解+位姿积分)
-  -> aruco_detector(bench RGB-D solvePnP) + wrist_aruco_detector(腕相机拍照位/精修) -> TF/PoseStamped
-  -> MoveIt 2 + pymoveit2(规划场景含台面碰撞盒+持物样件附着盒)
-  -> ContactGripperDriver
-  -> /gripper_position_controller/commands
-  -> lab_cobot_grasp_fix(几何封套+双指接触门控 -> fixed joint attach/detach)
-  -> /task/status
+# 全工位巡航
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '巡航所有工位'}"
 ```
 
-任务状态机：
+**任务状态（输出）**：`/task/status`（`std_msgs/String`，TRANSIENT_LOCAL QoS，
+1Hz），late joiner 可收到最新状态。
 
-```text
-NAV_TO_PICK -> DETECT -> PICK -> NAV_TO_PLACE -> PLACE -> RETURN_HOME -> DONE
+**指令别名**：`A工位` `B工位` `检测区` `工具区` `工装区` `老化区` `起始点` `home` `station_a` `station_b` `inspection_zone` `tooling_zone` `aging_zone`
+
+| 话题 | 类型 | 说明 |
+|---|---|---|
+| `/cmd_vel` | `geometry_msgs/Twist` | 底盘最终速度指令 |
+| `/odom` | `nav_msgs/Odometry` | mecanum drive 插件积分里程计 |
+| `/perception/objects` | `vision_msgs/Detection3DArray` | 当前所选 DL 后端的互斥标准输出 |
+| `/perception/target_pose` | `geometry_msgs/PoseStamped` | eight_class 后端的单目标输出，尚未接入 mission |
+
+---
+
+## 快速启动
+
+### 环境
+
+- Ubuntu 22.04 / ROS 2 Humble / Gazebo Classic 11
+- Nav2、MoveIt 2、robot_localization、slam_toolbox、gazebo_ros2_control
+- Python 3.10、OpenCV/cv_bridge、NumPy
+- DL/语音运行环境已验证版本：`ultralytics==8.4.90`、`open3d==0.19.0`、
+  `torch==2.12.1+cu130`、`faster_whisper==1.2.1`
+
+模型权重不进入 Git，也不会在测试中下载：
+
+| 后端 | 默认外部权重路径 |
+|---|---|
+| diagnostic | `~/lab_cobot_models/yolo_world_lab_slim.pt` |
+| eight_class | `~/lab_cobot_models/lab_cobot_eight_class.pt` |
+
+### 构建
+
+```bash
+cd ~/lab_cobot_ws
+source /opt/ros/humble/setup.bash
+export PYTEST_ADDOPTS='-p no:anyio'
+colcon build --symlink-install
+source install/setup.bash
 ```
 
-失败时会执行退让、停止底盘、释放夹爪持有对象等清理动作，避免任务失败后留下不一致的仿真状态。
+### 全栈启动
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py
+```
+
+默认使用 `vision_backend:=diagnostic`，同时启动 Nav2、MoveIt、ArUco、触觉抓取、
+mission、G4 接触记录和 G5 动态障碍结果链。
+
+### 视觉后端
+
+```bash
+# 默认：bench RGB-D + YOLO-World/点云聚类
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  vision_backend:=diagnostic
+
+# 八类：腕部 RGB-D + 八类 YOLO + 有组织点云逐像素定位
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  vision_backend:=eight_class
+
+# 八类后端固定使用 CPU
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  vision_backend:=eight_class dl_device:=cpu
+```
+
+两套 DL 后端都发布 `/perception/objects`，主 launch 保证二者互斥。
+`launch_perception:=false` 会关闭全部感知；`use_dl_perception:=false` 只关闭 DL
+后端，ArUco 链仍可保留。
+
+### 常用变体
+
+```bash
+# 导航独立验证（跳过视觉精停，保留机械臂）
+ros2 launch lab_cobot_bringup lab_cobot.launch.py skip_visual_dock:=true
+
+# 纯导航模式（跳过所有机械臂操作 — 推荐导航独立调试用）
+ros2 launch lab_cobot_bringup lab_cobot.launch.py nav_only:=true
+
+# 带动态人员避障
+ros2 launch lab_cobot_bringup lab_cobot.launch.py enable_actor:=true
+
+# 暗室 / 反光地面
+ros2 launch lab_cobot_bringup lab_cobot.launch.py lighting_profile:=dark
+ros2 launch lab_cobot_bringup lab_cobot.launch.py lighting_profile:=reflective
+
+# Headless（CI / 批量测试）
+ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false
+
+# 关闭 G4/G5 结果记录旁路
+ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_g4g5_results:=false
+
+# 只启 Gazebo 环境（调试模型用）
+ros2 launch lab_cobot_gazebo world.launch.py
+
+# 只启导航栈
+ros2 launch lab_cobot_navigation navigation.launch.py
+```
+
+### Launch 参数速查
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `gui` | true | Gazebo GUI |
+| `use_rviz` | false | RViz 导航可视化 |
+| `skip_visual_dock` | false | true=用地图坐标停靠，false=ArUco 视觉精停 |
+| `nav_only` | false | true=跳过所有机械臂收臂/回退/go_home |
+| `enable_actor` | false | true=启动人员幽灵碰撞 + 动态避障 |
+| `lighting_profile` | normal | `normal`、`dark` 或 `reflective` |
+| `llm_enabled` | false | true=DeepSeek 自然语言→导航序列（需 API key） |
+| `launch_navigation` | true | 启动 Nav2 导航栈 |
+| `launch_moveit` | true | 启动 MoveIt 2 |
+| `launch_perception` | true | 启动 ArUco 与所选 DL 感知 |
+| `use_dl_perception` | true | 启动所选 DL 后端 |
+| `vision_backend` | diagnostic | `diagnostic` 或 `eight_class` |
+| `dl_device` | auto | `auto`、`cpu` 或 CUDA device id |
+| `eight_class_model_path` | `~/lab_cobot_models/lab_cobot_eight_class.pt` | 八类权重路径 |
+| `target_object` | aruco_sample | 任务与单目标输出的目标标签 |
+| `use_wrist_detect` | true | DETECT 阶段腕相机拍照位检测 |
+| `use_refine_detect` | true | PICK 悬停后的腕相机精修 |
+| `use_tactile_grasp` | true | 使用触觉步进闭合 |
+| `require_finger_contact` | true | attach 必须左右指均接触；须与上一参数同值 |
+| `use_planning_scene_obstacles` | true | 注入台面和持物碰撞盒 |
+| `launch_mission` | true | 启动任务编排 |
+| `launch_g4g5_results` | true | 启动 G4 接触记录、G5 障碍桥与终态汇总 |
+
+---
+
+## 五功能区环境
+
+### 布局（14×14m）
+
+```
+         +y (北)
+         |
+    [station_a]         [aging_zone]        [inspection_zone]
+    (-4.30, 3.80)       (0.20, 4.20)        (4.10, 1.10)
+     桌面: 1.6×1.2m       桌面: 1.6×1.2m       地面高压区 + 围栏
+     物品: 3 件           物品: 1 件             物品: 2 件
+         |                    |                    |
+    -----+--------------------+--------------------+-----> +x (东)
+         |                    |                    |
+    [tooling_zone]                            [home]
+    (-4.10, -2.30)                            (4.50, -4.20)
+     桌面: 1.6×1.2m                            发车/归位区
+     物品: 2 件
+         |                    |
+         |              [station_b]
+         |              (0.30, -1.70)
+         |              桌面: 1.6×1.2m
+         |              物品: 1 件
+         |
+         -y (南)
+```
+
+所有工作台：**1.6m(x) × 1.2m(y) × 0.75m(z)**（桌面高 0.75m）。
+
+### 六工位 Waypoint 表
+
+| 站 | x | y | yaw | 朝向 | 对应桌面 |
+|---|---|---|---|---|---|
+| `home` | 4.50 | -4.20 | 0 (东) | +x | — |
+| `station_a` | -4.30 | 2.48 | π/2 (北) | +y | (-4.30, 3.80) |
+| `inspection_zone` | 4.10 | 1.10 | π/2 (北) | +y | — |
+| `tooling_zone` | -3.70 | -5.05 | π/2 (北) | +y | (-4.10, -2.30) |
+| `aging_zone` | 0.20 | 3.20 | π/2 (北) | +y | (0.20, 4.20) |
+| `station_b` | 0.30 | -3.01 | π/2 (北) | +y | (0.30, -1.70) |
+
+> 五站 yaw 统一 π/2（朝北），home 为 0（朝东）。tooling_zone 走多段导航（走廊入口 → 工位前停）。
+
+### 巡航路线
+
+```
+home → station_a → inspection_zone → tooling_zone → aging_zone → station_b → home
+```
+
+---
+
+## 各工位物品清单（视觉/操作组协作参考）
+
+### Station A（3 件）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `aruco_sample` | `aruco_sample` | (-4.16, 3.46, 0.785, 0.10) | **是（默认目标）** | ArUco 标记方块 |
+| `material_spare_igbt` | `igbt_module_plain` | (-4.62, 3.92, 0.78, 0.38) | 否 | 已支持八类检测，未进入默认抓取候选 |
+| `material_grease_can` | `thermal_grease_can` | (-3.90, 3.96, 0.75, 0) | 否 | 导热硅脂罐（道具） |
+
+### Tooling Zone（2 件）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `tooling_fixture_box` | `fixture_box_plain` | (-3.88, -2.04, 0.80, -0.28) | 否 | 已支持八类检测，未进入默认抓取候选 |
+| `tooling_hand_tools` | `tooling_hand_tools` | (-4.36, -1.96, 0.75, 0.12) | 否 | 手工工具（道具） |
+
+### Aging Zone（1 件）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `aging_rack` | `aging_rack` | (0.20, 4.26, 0.80, 0) | 否 | 老化架，3 槽位 + 状态指示灯 |
+
+### Station B（1 件）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `board_test_fixture` | `pcb_test_fixture` | (0.02, -1.44, 0.75, 0.22) | 否 | PCB 测试夹具（道具） |
+
+### Inspection Zone（2 件，地面）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `high_voltage_probe_kit` | `safety_probe_kit` | (4.04, 2.44, 0.0, -0.18) | 否 | 高压探头套件，非静态 |
+| `high_voltage_zone` | `high_voltage_zone` | (4.36, 2.90, 0.0, 0.12) | 否 | 围栏，4 墙 + 4 柱 |
+
+### 抓取范围
+
+当前 URDF 中 `lab_cobot_grasp_fix` 的候选表只包含 `aruco_sample`。八类后端可以检测
+并定位另外七类实体，但不能据此宣称任务已经支持抓取它们。
+
+八类标签为：`material_spare_igbt`、`aruco_sample`、`material_grease_can`、
+`aging_rack`、`board_test_fixture`、`tooling_fixture_box`、
+`tooling_hand_tools`、`high_voltage_probe_kit`。
+
+---
+
+## 导航系统
+
+### 数据流
+
+```
+/task/instruction → mission_node（LLM拆解 → 状态机）
+  → Nav2（AMCL + EKF + DWB + actor_obstacle_layer）
+  → /cmd_vel_nav + /cmd_vel_dock
+  → cmd_vel_safety_mux → /cmd_vel
+  → mecanum_wheel_visualizer（麦轮逆解）
+  → /wheel_velocity_controller/commands
+  → lab_cobot_mecanum_drive（正解积分 → /odom）
+  → bench/腕部 ArUco（mission 抓取位姿）
+  → diagnostic 或 eight_class（互斥发布 /perception/objects）
+  → MoveIt 2（台面碰撞盒 + 持物附着盒）
+  → ContactGripperDriver（步进闭合）
+  → lab_cobot_grasp_fix（几何封套 + 双指接触门控）
+  → /task/status
+```
+
+### 状态机
+
+```
+搬运：NAV_TO_PICK → DETECT → PICK → NAV_TO_PLACE → PLACE → RETURN_HOME → DONE
+单站：NAV_TO_STATION:<站> → ARRIVED:<站> → DONE
+巡航：home → station_a → inspection_zone → tooling_zone → aging_zone → station_b → home
+纯导航：NAV_TO_STATION:<站> → ARRIVED:<站> → DONE（跳过收臂/回退）
+```
+
+### 视觉双后端
+
+| 项目 | diagnostic（默认） | eight_class |
+|---|---|---|
+| ROS 包 | `lab_cobot_perception` | `image_pkg` |
+| 相机 | bench RGB-D | wrist RGB-D |
+| 模型 | YOLO-World slim | 项目八类 YOLO |
+| 三维方法 | 点云分割、聚类、2D 分类关联、ArUco 门控 | 2D 框与同时间戳有组织点云逐像素关联 |
+| 标准输出 | `/perception/objects` | `/perception/objects` |
+| 单目标输出 | — | `/perception/target_pose` |
+| 已验证边界 | 聚类尺寸和三维语义 | XYZ；姿态为单位四元数，未估计真实朝向和 bbox 尺寸 |
+
+后端只支持在 launch 启动时选择；运行中切换需要停止当前 launch 后重新启动。
+
+### 导航栈组件
+
+| 组件 | 说明 |
+|---|---|
+| 底盘链路 | `cmd_vel → mecanum_wheel_visualizer → wheel_velocity_controller → mecanum_drive → /odom` |
+| AMCL | 800 粒子，激光匹配，initial_pose=(4.50, -4.20, 0) |
+| EKF | robot_localization 融合 odom + IMU |
+| DWB | 20Hz 控制，max_vel_x=0.55m/s，sim_time=2.5s |
+| 代价地图 | 全局 15×15m + 局部 7×7m，voxel + inflation + actor_obstacle 三层 |
+| 地图 | `map.pgm` (300×300px, 0.05m/pixel), origin=(-7.5, -7.5) |
+
+### 动态避障（N3）
+
+人员通过 `actor_ghost_collision`（透明圆柱 φ0.70×1.70m）进入局部代价地图，DWB 实时绕行或等待。`cmd_vel_safety_mux` 提供紧急刹车通道。
+
+| 参数 | 值 |
+|---|---|
+| ghost 碰撞云半径 | 0.60m |
+| 安全避让启动距离 | 2.50m |
+| 强制避让距离 | 2.00m（0.50 m/s 远离） |
+| actor 巡逻周期 | 45s，13 路径点，覆盖全部走廊 |
+
+### 导航关键参数
+
+| 参数 | 值 | 说明 |
+|---|---|---|
+| `max_vel_x` / `max_vel_y` | 0.55 / 0.30 m/s | 最高线速度 / 横移 |
+| `acc_lim_x` / `acc_lim_y` | 1.5 / 1.5 m/s² | 加减速 |
+| `controller_frequency` | 20.0 Hz | DWB 控制频率 |
+| `min_speed_xy` | 0.02 m/s | 蠕动门限 |
+| 局部 costmap 尺寸 | 7×7m | 障碍感知窗口 |
+| 全局 inflation_radius | 0.75m | 路径安全距离 |
+| `STATION_DOCK_TOLERANCE_X/Y` | 0.08m | 精停到位容差 |
+
+---
+
+## 精停 Docking（操作组协作参考）
+
+导航到位后，可选用 ArUco 视觉精停进行厘米级对准。跳过视觉精停时，导航到位偏差约 7.5cm。
+
+| 参数 | 值 | 说明 |
+|---|---|---|
+| `DOCK_SAFE_HANDOFF_MAX_X` | 0.87m | 视觉精停→机械臂安全切换距离 |
+| `PICK_NAV_HANDOFF_MAX_X` | 0.87m | 导航→抓取收臂切换距离 |
+| `WORKTABLE_CLEARANCE` | 0.18m | 底盘前沿到桌面前沿安全距离 |
+
+> 机械臂到桌面物品距离约 0.87m，在 UR5e 名义可达范围 0.85m 附近。
+
+---
 
 ## 包结构
 
 | 包 | 职责 |
 |---|---|
-| `lab_cobot_description` | 一体化机器人 URDF/SRDF：麦克纳姆底盘、立柱、UR5e、平行双指夹爪、激光、IMU、相机 |
-| `lab_cobot_gazebo` | 双工位实验室 world、样件模型、自定义麦轮驱动/抓取插件、Gazebo spawn 和控制器启动 |
-| `lab_cobot_navigation` | Nav2、AMCL、EKF、地图、工位 waypoints、导航 launch |
-| `lab_cobot_moveit` | UR5e MoveIt 2 配置、controller 配置、`move_group` launch |
-| `lab_cobot_perception` | ArUco 检测、相机反投影、Gazebo model pose fallback、TF/PoseStamped 输出 |
-| `lab_cobot_manipulation` | pick/place 执行逻辑、MoveIt 调用、平行夹爪驱动边界和抓取序列 |
-| `lab_cobot_bringup` | 一键全栈 launch、跨工位任务状态机、mission 编排、调试用软附着 bridge（默认关闭） |
-| `pymoveit2` | vendored MoveIt 2 Python 接口，第三方许可见 `THIRD_PARTY_LICENSES.md` |
+| `lab_cobot_description` | 一体化 URDF/SRDF、麦克纳姆底盘、UR5e、夹爪和传感器 |
+| `lab_cobot_gazebo` | 五区 world（6 变体）、模型、底盘/抓取插件、actor 和安全多路器 |
+| `lab_cobot_navigation` | Nav2、AMCL、EKF、地图、waypoints、SLAM 和动态避让配置 |
+| `lab_cobot_moveit` | UR5e MoveIt 2、controller、规划场景初始化 |
+| `lab_cobot_perception` | bench/腕部 ArUco 与默认 diagnostic YOLO-World 点云后端 |
+| `image_pkg` | 八类 YOLO、腕部 RGB-D 有组织点云和三维目标定位 |
+| `lab_cobot_manipulation` | pick/place、夹爪驱动、持物监控、G4/G5 记录与机械臂动态障碍 |
+| `lab_cobot_bringup` | 分阶段一键 launch、任务状态机、LLM/语音入口和结果汇总 |
+| `pymoveit2` | vendored MoveIt 2 Python 接口；不要修改 |
 
-## 环境要求
-
-- Ubuntu 22.04
-- ROS 2 Humble
-- Gazebo Classic 11
-- Nav2、MoveIt 2、robot_localization、slam_toolbox
-- Python 3.10，OpenCV/cv_bridge/numpy
-- 深度学习感知手动验证环境：ultralytics==8.4.90、open3d==0.19.0、
-  torch==2.12.1+cu130、faster_whisper==1.2.1
-- YOLO-World 离线权重路径：`~/lab_cobot_models/yolo_world_lab_slim.pt`
-  （用 `tools/prepare_yolo_world_model.py` 制备，权重不进 git）
-
-示例依赖安装：
-
-```bash
-sudo apt update
-sudo apt install -y \
-  ros-humble-navigation2 \
-  ros-humble-nav2-bringup \
-  ros-humble-moveit \
-  ros-humble-robot-localization \
-  ros-humble-slam-toolbox \
-  ros-humble-gazebo-ros-pkgs \
-  ros-humble-gazebo-ros2-control \
-  ros-humble-cv-bridge \
-  python3-opencv
-```
-
-## 构建
-
-```bash
-cd ~/projects/lab_cobot_ws
-source /opt/ros/humble/setup.bash
-colcon build --symlink-install
-source install/setup.bash
-```
-
-如果 `pymoveit2` 的 symlink-install 缓存污染导致符号链接创建失败，清理后重建：
-
-```bash
-rm -rf build install log
-colcon build --symlink-install
-```
-
-## 运行
-
-启动完整仿真：
-
-```bash
-cd ~/projects/lab_cobot_ws
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-ros2 launch lab_cobot_bringup lab_cobot.launch.py
-```
-
-另开终端发送任务：
-
-```bash
-source /opt/ros/humble/setup.bash
-source ~/projects/lab_cobot_ws/install/setup.bash
-ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把样件从A送到B'}"
-```
-
-查看状态：
-
-```bash
-ros2 topic echo /task/status
-```
-
-headless 运行：
-
-```bash
-ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false
-```
-
-关键可选参数：
-
-| 参数 | 默认值 | 作用 |
-|---|---|---|
-| `use_wrist_detect` | `true` | DETECT 阶段先移动到固定拍照位，使用腕相机顶面 ID=1 marker 定位；移动或检测失败时自动降级到 bench 相机。置 `false` 回退纯 bench 检测。 |
-| `use_refine_detect` | `true` | 启用腕部精修相机、`/perception/wrist` ArUco 检测实例和 PICK 悬停后的位姿精修；失败时自动沿用粗位姿。 |
-| `use_planning_scene_obstacles` | `true` | 向 MoveIt 规划场景注入工位台面碰撞盒与持物样件附着盒；置 `false` 回退规划对环境盲的旧行为。 |
-
-只启动全栈但不启动任务节点：
-
-```bash
-ros2 launch lab_cobot_bringup lab_cobot.launch.py gui:=false use_rviz:=false launch_mission:=false
-```
-
-分模块调试：
-
-```bash
-ros2 launch lab_cobot_description view_robot.launch.py
-ros2 launch lab_cobot_gazebo world.launch.py
-ros2 launch lab_cobot_moveit move_group.launch.py
-ros2 launch lab_cobot_navigation navigation.launch.py
-ros2 launch lab_cobot_navigation mapping.launch.py
-```
+---
 
 ## 验证
 
-本机如果存在 user-level `anyio` pytest 插件问题，给 pytest/colcon 测试命令加上 `PYTEST_ADDOPTS='-p no:anyio'`。
-
-完整构建和测试：
+视觉移植与 bringup 回归：
 
 ```bash
-cd ~/projects/lab_cobot_ws
 source /opt/ros/humble/setup.bash
-PYTEST_ADDOPTS='-p no:anyio' colcon build --cmake-force-configure
-PYTEST_ADDOPTS='-p no:anyio' colcon test --event-handlers console_direct+ --return-code-on-test-failure
-colcon test-result --verbose
+export PYTEST_ADDOPTS='-p no:anyio'
+colcon build --symlink-install --packages-select image_pkg lab_cobot_bringup
+source install/setup.bash
+
+colcon test --packages-select image_pkg --event-handlers console_direct+
+colcon test --packages-select lab_cobot_bringup \
+  --event-handlers console_direct+ --ctest-args -E honest_e2e
+ROS_LOCALHOST_ONLY=1 colcon test --packages-select lab_cobot_bringup \
+  --event-handlers console_direct+ --ctest-args -R honest_e2e
+
+colcon test-result --test-result-base build/image_pkg --verbose
+colcon test-result --test-result-base build/lab_cobot_bringup --verbose
 ```
 
-地图检查：
+地图质量门：
 
 ```bash
 python3 src/lab_cobot_navigation/maps/check_map.py
 ```
 
-期望汇总：
+三方整合提交记录的验证证据：
 
-```text
-Summary: 562 tests, 0 errors, 0 failures, 15 skipped
-PASS: map covers four walls, has low obstacle noise, and key points are free
-```
+| 基线 | 结果 |
+|---|---|
+| 导航 + 抓取合并 `0ee8783` | 7 个第一方包构建成功；常规测试通过；`gui:=true` 完整运行至 `DONE`；honest E2E 250.26s |
+| 视觉整合 `b09171e` | `image_pkg` 7 项通过；`lab_cobot_bringup` 281 项、0 错误、0 失败；报告 E2E 199.96s，发布前干净环境复验 222.52s；两后端均完成运行态互斥检查 |
+
+长时动态避障测试和 GUI 仿真应单独运行，执行前必须清理残留 Gazebo/ROS 进程。
+
+## 尚未宣称的能力
+
+- 除 `aruco_sample` 外的七类实体尚未接入抓取插件和任务序列。
+- eight_class 已证明模型、话题、点云与 TF 链可运行，但未完成分类精度、XYZ 误差和
+  朝向估计的系统标定验收。
+- 双视觉后端只支持启动时切换，不支持 mission 运行中的热切换。
+- LLM 和真人语音路径依赖外部 API key、音频与人工演示，不属于离线测试结论。
+- 报告只证明干净环境中的通过记录，不据此声明无限次连续运行稳定率。
 
 ## 运行注意
 
-- `lab_cobot.launch.py` 默认延迟启动 MoveIt/Nav2/感知/mission，以等待 Gazebo、spawn 和控制器就绪。
-- 向刚启动的栈发布任务建议用连发模式（`timeout 4 ros2 topic pub -r 2 /task/instruction ...`）；`--once` 单发可能因 DDS discovery 未完成而丢失。
-- 平行夹爪通过 `gripper_position_controller` 驱动手指开合；样件固定由 `lab_cobot_grasp_fix` 插件在几何封套命中且双指触觉探针均上报接触对时创建 fixed joint 实现（接触判定为几何接触对，非力反馈，也非 SetEntityState 瞬移）；旧的 `gripper_attach_bridge` 仅在 `use_sim_attach:=true` 时作为调试后端启动。
-- WSLg 下 launch 会设置 D3D12 和 Qt 相关环境变量以提高 Gazebo/RViz 稳定性。
-- headless 结束 launch 时，MoveIt/rclpy 可能输出 SIGINT/shutdown 噪声；判断任务结果以 `/task/status` 是否到 `DONE` 为准。
-- Gazebo GUI、物理步进和渲染性能会影响端到端任务耗时。
+- **底盘**走 `SetWorldPose` 位姿积分，不受碰撞阻挡；`/odom` 是插件自身积分。
+- **抓取**是几何封套和双指接触对门控后的 fixed joint，不是真实摩擦力或触觉力反馈。
+- `use_tactile_grasp` 与 `require_finger_contact` 必须保持同值；默认均为 `true`。
+- 默认 `use_truth_pose=false`、`use_sim_attach=false`，不读取 Gazebo 目标真值，也不
+  启动调试吸附 bridge。
+- WSLg 下 launch 自动设置 D3D12/Qt 环境变量；FastDDS 配置禁用共享内存。
+- headless 结束时 MoveIt/rclpy 可能输出 SIGINT 噪声，以 `/task/status` 是否到
+  `DONE` 为任务判据。
+- Actor 幽灵碰撞体透明不可见，但可被 costmap/LiDAR 感知。
 
-## 文档
+## 发布内容索引
 
-以下为内部工作区文档（不随发布快照分发，发布仓库中不存在 `docs/` 目录）：
-
-- `docs/HANDOVER.md`：项目交接和运行记录
-- `docs/STATUS_HONEST.md`：阶段性状态说明
-- `docs/plans/2026-06-28-mobile-manipulator-cross-station-design.md`：系统设计
-- `docs/plans/2026-06-28-mobile-manipulator-cross-station-plan.md`：实现计划
-- `docs/notes/eyrc-smoke-test.md`：参考工程冒烟测试
-- `docs/notes/overnight-progress.md`：历史推进记录
+| 路径 | 说明 |
+|---|---|
+| `src/lab_cobot_navigation/maps/map_provenance.yaml` | SLAM 地图来源与质量门 |
+| `benchmarks/README.md` | 可重复 benchmark 入口 |
+| `THIRD_PARTY_LICENSES.md` | vendored `pymoveit2` 等第三方许可 |
 
 ## 许可
 
-本仓库自有代码采用 Apache-2.0；第三方组件许可见 `THIRD_PARTY_LICENSES.md`。
+本仓库第一方代码采用 Apache-2.0；第三方组件许可见 `THIRD_PARTY_LICENSES.md`。

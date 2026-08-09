@@ -7,15 +7,21 @@
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
   <depend>gazebo_dev</depend>
+  <depend>gazebo_msgs</depend>
   <depend>gazebo_ros</depend>
+  <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
 
   <exec_depend>gazebo_ros2_control</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>controller_manager</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>lab_cobot_description</exec_depend>
 

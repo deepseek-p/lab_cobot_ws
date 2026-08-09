@@ -83,6 +83,59 @@ def test_departure_retreat_uses_mecanum_driver_command_topic_and_backs_up():
     assert RETREAT_DURATION_SEC >= 5.0
 
 
+def test_finish_station_step_only_retreats_before_transit_tuck():
+    events = []
+
+    class FakePickPlace:
+        def go_home(self):
+            events.append("arm_home")
+            return True
+
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakePickPlace()
+    node._retreat_from_station = lambda: events.append("retreat") or True
+
+    assert MissionNode._finish_station_step(node, TaskState.PICK, True)
+    assert events == ["retreat"]
+
+
+def test_transit_tuck_blocks_navigation_when_arm_home_fails():
+    events = []
+
+    class FakePickPlace:
+        def go_home(self):
+            events.append("arm_home")
+            return False
+
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakePickPlace()
+    node.get_logger = lambda: FakeLogger()
+
+    assert not MissionNode._tuck_arm_for_transit(node)
+    assert events == ["arm_home"]
+    assert node._last_transit_arm_home_result is False
+
+
+def test_transit_tuck_clears_station_surface_before_arm_home():
+    events = []
+
+    class FakePickPlace:
+        def clear_station_surface(self):
+            events.append("clear_surface")
+            return False
+
+        def go_home(self):
+            events.append("arm_home")
+            return True
+
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakePickPlace()
+    node.get_logger = lambda: FakeLogger()
+
+    assert MissionNode._tuck_arm_for_transit(node)
+    assert events == ["clear_surface", "arm_home"]
+
+
 def test_departure_retreat_runs_after_manipulation_steps_only():
     assert requires_departure_retreat(TaskState.PICK)
     assert not requires_departure_retreat(TaskState.PLACE)
@@ -149,6 +202,120 @@ def test_navigate_fails_fast_when_action_server_unavailable():
     assert MissionNode._navigate(node, "station_a") is False
     assert goto_calls == []  # 服务不可用时绝不发送目标
     assert node.nav.nav_to_pose_client.wait_calls  # 确实做了有界探测
+
+
+def test_mission_waits_for_navigation_readiness_before_starting_task():
+    """Cold-start infrastructure must not consume a business-state retry."""
+    events = []
+    node = MissionNode.__new__(MissionNode)
+    node._instruction = "把样件从A送到B"
+    node._planner_config = None
+    node._busy = True
+    node._wait_for_navigation_ready = lambda: events.append("ready") or False
+    node._execute = lambda state: events.append(("execute", state)) or False
+    node._publish = lambda state: events.append(("publish", state))
+    node._publish_failure = (
+        lambda reason, station=None: events.append(("failure", reason, station))
+    )
+    node._failsafe_cleanup = lambda: events.append("cleanup")
+    node.get_logger = lambda: FakeLogger()
+
+    MissionNode._run_mission(node)
+
+    assert events == ["ready", ("failure", "nav_not_ready", None)]
+    assert node._busy is False
+
+
+def test_navigation_readiness_waits_through_initial_action_unavailability(
+    monkeypatch,
+):
+    clock = FakeClock()
+
+    class DelayedActionClient:
+        def __init__(self):
+            self.calls = 0
+
+        def wait_for_server(self, timeout_sec=None):
+            self.calls += 1
+            clock.advance(float(timeout_sec))
+            return self.calls >= 3
+
+    node = MissionNode.__new__(MissionNode)
+    node.nav = type("FakeNav", (), {})()
+    node.nav.nav_to_pose_client = DelayedActionClient()
+    node._wait_for_nav_active = lambda timeout_sec=None: True
+    node.get_logger = lambda: FakeLogger()
+    monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+    assert MissionNode._wait_for_navigation_ready(node, timeout_sec=10.0)
+    assert node.nav.nav_to_pose_client.calls == 3
+
+
+def test_nav_active_probe_recovers_from_future_result_exception(monkeypatch):
+    clock = FakeClock()
+
+    class FailedFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            raise RuntimeError("DDS response failed")
+
+    class ActiveFuture:
+        def done(self):
+            return True
+
+        def result(self):
+            state = type(
+                "State",
+                (),
+                {"id": mission_node.LifecycleState.PRIMARY_STATE_ACTIVE},
+            )()
+            return type("Response", (), {"current_state": state})()
+
+    futures = [FailedFuture(), ActiveFuture()]
+
+    class FakeStateClient:
+        def service_is_ready(self):
+            return True
+
+        def call_async(self, _request):
+            return futures.pop(0)
+
+    node = MissionNode.__new__(MissionNode)
+    node._bt_state_client = FakeStateClient()
+    node.get_logger = lambda: FakeLogger()
+    monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+    monkeypatch.setattr(
+        mission_node.time, "sleep", lambda seconds: clock.advance(seconds)
+    )
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+    assert MissionNode._wait_for_nav_active(node, timeout_sec=2.0)
+    assert futures == []
+
+
+def test_navigation_ready_clamps_last_action_probe_to_deadline(monkeypatch):
+    clock = FakeClock()
+    probes = []
+
+    class UnavailableActionClient:
+        def wait_for_server(self, timeout_sec=None):
+            probes.append(timeout_sec)
+            clock.advance(timeout_sec)
+            return False
+
+    node = MissionNode.__new__(MissionNode)
+    node.nav = type("FakeNav", (), {})()
+    node.nav.nav_to_pose_client = UnavailableActionClient()
+    node.get_logger = lambda: FakeLogger()
+    monkeypatch.setattr(mission_node.time, "monotonic", lambda: clock.seconds)
+    monkeypatch.setattr(mission_node.rclpy, "ok", lambda: True)
+
+    assert not MissionNode._wait_for_navigation_ready(node, timeout_sec=2.4)
+    assert probes[:2] == [1.0, 1.0]
+    assert abs(probes[2] - 0.4) < 1e-9
 
 
 def test_navigate_waits_for_map_tf_before_sending_goal(monkeypatch):
@@ -225,6 +392,7 @@ def test_navigate_cancels_nav_task_when_timeout_expires(monkeypatch):
             return FakeStamp(next(self.times))
 
     monkeypatch.setattr(mission_node.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(mission_node, "NAV_TIMEOUT_SEC", 60.0)
 
     node = MissionNode.__new__(MissionNode)
     timeout_clock = TimeoutClock()
@@ -293,6 +461,7 @@ def test_failed_mission_releases_object_stops_base_and_goes_home(monkeypatch):
     node = MissionNode.__new__(MissionNode)
     node._busy = True
     node.pp = FakePickPlace()
+    node._wait_for_navigation_ready = lambda: True
     node._execute = lambda _state: False
     node._publish = lambda state: events.append(("publish", state))
     node._stop_base = lambda duration: events.append(("stop", duration))
@@ -301,6 +470,39 @@ def test_failed_mission_releases_object_stops_base_and_goes_home(monkeypatch):
     MissionNode._run_mission(node)
 
     assert "release" in events
+    assert ("stop", mission_node.DOCK_STOP_SEC) in events
+    assert "home" in events
+
+
+def test_place_failure_cleanup_does_not_release_when_object_is_still_held():
+    events = []
+
+    class FakeGripper:
+        def release_object(self):
+            events.append("release")
+
+    class FakePickPlace:
+        def __init__(self):
+            self.gripper = FakeGripper()
+
+        def _holding_is_healthy(self):
+            return True
+
+        def _detach_carried_sample(self):
+            events.append("scene_detach")
+
+        def go_home(self):
+            events.append("home")
+
+    node = MissionNode.__new__(MissionNode)
+    node.pp = FakePickPlace()
+    node._last_failed_state = TaskState.PLACE
+    node._stop_base = lambda duration: events.append(("stop", duration))
+    node.get_logger = lambda: FakeLogger()
+
+    MissionNode._failsafe_cleanup(node)
+
+    assert "release" not in events
     assert ("stop", mission_node.DOCK_STOP_SEC) in events
     assert "home" in events
 
@@ -324,6 +526,35 @@ def test_retreat_and_stop_base_use_ros_clock(monkeypatch):
     assert clock.now_calls > 0
     assert any(msg.linear.x == RETREAT_LINEAR_X for msg in publisher.messages)
     assert publisher.messages[-1].linear.x == 0.0
+
+
+def test_route_station_retreat_stops_after_reaching_map_clearance(monkeypatch):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    station = "tooling_zone"
+    yaw = mission_node.get_waypoint(station)["yaw"]
+    safe_y = mission_node.station_safe_base_y(yaw, station)
+    poses = [
+        [-2.05, safe_y, yaw],
+        [-2.05, safe_y - 0.20, yaw],
+        [-2.05, safe_y - 0.40, yaw],
+        [-2.05, safe_y - 0.55, yaw],
+    ]
+    stops = []
+    monkeypatch.setattr(mission_node.time, "sleep", clock.advance)
+
+    node = MissionNode.__new__(MissionNode)
+    node.retreat_pub = publisher
+    node.get_clock = lambda: clock
+    node.get_logger = lambda: FakeLogger()
+    node._base_pose_in_map = lambda timeout_sec=2.0: poses.pop(0)
+    node._stop_base = lambda duration: stops.append(duration)
+
+    assert MissionNode._retreat_from_route_station(node, station)
+
+    assert publisher.messages
+    assert all(msg.linear.x == RETREAT_LINEAR_X for msg in publisher.messages)
+    assert stops == [mission_node.STATION_DOCK_STOP_SEC]
 
 
 def test_pick_docking_timeout_uses_ros_clock(monkeypatch):

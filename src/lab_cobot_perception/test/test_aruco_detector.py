@@ -19,6 +19,11 @@ from geometry_msgs.msg import TransformStamped  # noqa: E402
 from sensor_msgs.msg import CameraInfo, Image  # noqa: E402
 
 
+def test_camera_stream_subscriptions_use_sensor_data_qos():
+    source = Path(aruco_detector.__file__).read_text(encoding="utf-8")
+    assert source.count("qos_profile_sensor_data") >= 4
+
+
 class FakeBridge:
     def __init__(self, image):
         self.image = image

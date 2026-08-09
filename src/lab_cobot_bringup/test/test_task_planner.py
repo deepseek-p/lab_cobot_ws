@@ -6,9 +6,11 @@ import pytest
 from lab_cobot_bringup.task_planner import (
     DEFAULT_FULL_PLAN,
     MAX_PLAN_LENGTH,
+    NavigationRequestError,
     PlanValidationError,
     PlannerConfig,
     plan_actions,
+    parse_navigation_request,
     rule_based_plan,
     SYSTEM_PROMPT,
     validate_plan,
@@ -106,6 +108,55 @@ def test_rule_sample_transport_still_maps_to_full_sequence():
 def test_system_prompt_declares_only_aruco_sample_is_graspable():
     assert "只有贴 ArUco 码的白色样件可抓取搬运" in SYSTEM_PROMPT
     assert "试剂瓶/工具盒等器具只能识别查看" in SYSTEM_PROMPT
+
+
+# ---- parse_navigation_request: 多工位导航确定性入口 ----
+
+@pytest.mark.parametrize(
+    "instruction,station",
+    [
+        ("去检测区", "inspection_zone"),
+        ("导航到 tooling_zone", "tooling_zone"),
+        ("去B工位", "station_b"),
+        ("前往老化区。", "aging_zone"),
+    ],
+)
+def test_parse_single_station_navigation(instruction, station):
+    request = parse_navigation_request(instruction)
+
+    assert request.mode == "single"
+    assert request.stations == (station,)
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "巡航所有工位",
+        "按顺序访问全部工位并回家",
+    ],
+)
+def test_parse_full_station_cruise(instruction):
+    request = parse_navigation_request(instruction)
+
+    assert request.mode == "cruise"
+    assert request.stations == (
+        "home",
+        "station_a",
+        "inspection_zone",
+        "tooling_zone",
+        "aging_zone",
+        "station_b",
+        "home",
+    )
+
+
+def test_compound_existing_mission_is_not_truncated_to_single_navigation():
+    assert parse_navigation_request("去A工位检查一下样件然后回家") is None
+
+
+def test_explicit_unknown_navigation_station_is_rejected():
+    with pytest.raises(NavigationRequestError, match="充电区"):
+        parse_navigation_request("导航到充电区")
 
 
 # ---- plan_actions: LLM 编排与回退 ----

@@ -1,10 +1,8 @@
 <?xml version="1.0"?>
 <!--
-  轨道交通实验室仿真场景(Gazebo Classic):双工位布局。
-  纯几何(不依赖外部 mesh / 在线模型),便于 headless 加载与可复现。
-  - 工位 A(取件)位于 (2.0, 1.5),棕色台面
-  - 工位 B(放置)位于 (-2.0, 1.5),蓝色台面
-  - 机器人初始在原点 (0,0),沿 x 轴在两工位间导航
+  Lab standard environment (Gazebo Classic): five functional zones plus
+  a dedicated home bay. The semantic layout follows the traction-drive
+  laboratory brief rather than a single-row toy staging.
 -->
 <sdf version="1.6">
   <world name="lab">
@@ -20,92 +18,235 @@
       </ros>
     </plugin>
 
-    <!-- 光照 -->
     <light name="sun" type="directional">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.8 0.8 0.8 1</diffuse>
-      <specular>0.2 0.2 0.2 1</specular>
-      <direction>-0.3 0.3 -0.9</direction>
+      <diffuse>0.82 0.82 0.82 1</diffuse>
+      <specular>0.25 0.25 0.25 1</specular>
+      <direction>-0.28 0.24 -0.93</direction>
     </light>
     <scene>
-      <ambient>0.5 0.5 0.5 1</ambient>
-      <background>0.85 0.87 0.9 1</background>
+      <ambient>0.52 0.52 0.52 1</ambient>
+      <background>0.85 0.87 0.90 1</background>
       <shadows>true</shadows>
     </scene>
 
-    <!-- 地面 -->
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
-          <material><ambient>0.8 0.8 0.8 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material>
+          <geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
+          <material>
+            <ambient>0.78 0.79 0.80 1</ambient>
+            <diffuse>0.88 0.89 0.90 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+            <shininess>80</shininess>
+          </material>
         </visual>
       </link>
     </model>
 
-    <!-- 实验室边界墙(7x7m,高1,厚0.1) -->
     <model name="walls">
       <static>true</static>
       <link name="link">
-        <collision name="c_n"><pose>0 3.5 0.5 0 0 0</pose><geometry><box><size>7 0.1 1</size></box></geometry></collision>
-        <visual name="v_n"><pose>0 3.5 0.5 0 0 0</pose><geometry><box><size>7 0.1 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
-        <collision name="c_s"><pose>0 -3.5 0.5 0 0 0</pose><geometry><box><size>7 0.1 1</size></box></geometry></collision>
-        <visual name="v_s"><pose>0 -3.5 0.5 0 0 0</pose><geometry><box><size>7 0.1 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
-        <collision name="c_e"><pose>3.5 0 0.5 0 0 0</pose><geometry><box><size>0.1 7 1</size></box></geometry></collision>
-        <visual name="v_e"><pose>3.5 0 0.5 0 0 0</pose><geometry><box><size>0.1 7 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
-        <collision name="c_w"><pose>-3.5 0 0.5 0 0 0</pose><geometry><box><size>0.1 7 1</size></box></geometry></collision>
-        <visual name="v_w"><pose>-3.5 0 0.5 0 0 0</pose><geometry><box><size>0.1 7 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_n"><pose>0 7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry></collision>
+        <visual name="v_n"><pose>0 7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_s"><pose>0 -7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry></collision>
+        <visual name="v_s"><pose>0 -7 0.5 0 0 0</pose><geometry><box><size>14 0.1 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_e"><pose>7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry></collision>
+        <visual name="v_e"><pose>7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
+        <collision name="c_w"><pose>-7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry></collision>
+        <visual name="v_w"><pose>-7 0 0.5 0 0 0</pose><geometry><box><size>0.1 14 1</size></box></geometry><material><diffuse>0.70 0.72 0.78 1</diffuse></material></visual>
       </link>
     </model>
 
-    <!-- 工位 A 工作台(取件,台面高 0.75) -->
-    <model name="station_a_table">
-      <static>true</static>
-      <pose>2.0 1.5 0 0 0 0</pose>
-      <link name="link">
-        <collision name="collision"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.8 0.6 0.75</size></box></geometry></collision>
-        <visual name="visual"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.8 0.6 0.75</size></box></geometry><material><ambient>0.4 0.27 0.13 1</ambient><diffuse>0.6 0.4 0.2 1</diffuse></material></visual>
-      </link>
-    </model>
 
-    <!-- 工位 B 工作台(放置) -->
-    <model name="station_b_table">
-      <static>true</static>
-      <pose>-2.0 1.5 0 0 0 0</pose>
-      <link name="link">
-        <collision name="collision"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.8 0.6 0.75</size></box></geometry></collision>
-        <visual name="visual"><pose>0 0 0.375 0 0 0</pose><geometry><box><size>0.8 0.6 0.75</size></box></geometry><material><ambient>0.13 0.27 0.4 1</ambient><diffuse>0.2 0.4 0.6 1</diffuse></material></visual>
-      </link>
-    </model>
+        <model name="station_a_table">
+          <static>true</static>
+          <pose>-4.30 3.80 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.22 0.28 0.33 1</ambient>
+                <diffuse>0.34 0.44 0.50 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
 
-    <!-- 工位 A 桌面上的待抓取样件(贴 ArUco DICT_4X4_50 id=0;台面高 0.75 + 样件半高 0.035) -->
+        <model name="tooling_zone_table">
+          <static>true</static>
+          <pose>-4.10 -2.30 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.36 0.24 0.10 1</ambient>
+                <diffuse>0.62 0.38 0.16 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="aging_zone_table">
+          <static>true</static>
+          <pose>0.20 4.20 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.33 0.16 0.12 1</ambient>
+                <diffuse>0.60 0.25 0.20 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="station_b_table">
+          <static>true</static>
+          <pose>0.30 -1.70 0 0 0 0</pose>
+          <link name="link">
+            <collision name="collision">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+            </collision>
+            <visual name="visual">
+              <pose>0 0 0.375 0 0 0</pose>
+              <geometry><box><size>1.6 1.2 0.75</size></box></geometry>
+              <material>
+                <ambient>0.10 0.25 0.18 1</ambient>
+                <diffuse>0.16 0.48 0.30 1</diffuse>
+                <specular>0.06 0.06 0.06 1</specular>
+                <shininess>8</shininess>
+              </material>
+            </visual>
+          </link>
+        </model>
+
+        <model name="home_zone_pad">
+          <static>true</static>
+          <pose>4.50 -4.20 0 0 0 0</pose>
+          <link name="link">
+            <visual name="pad_fill">
+              <pose>0 0 0.002 0 0 0</pose>
+              <geometry><box><size>1.00 0.90 0.004</size></box></geometry>
+              <material>
+                <ambient>0.09 0.18 0.25 0.95</ambient>
+                <diffuse>0.14 0.28 0.38 0.95</diffuse>
+                <specular>0.04 0.04 0.04 1</specular>
+              </material>
+            </visual>
+            <visual name="pad_border_n">
+              <pose>0 0.44 0.004 0 0 0</pose>
+              <geometry><box><size>1.00 0.02 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_border_s">
+              <pose>0 -0.44 0.004 0 0 0</pose>
+              <geometry><box><size>1.00 0.02 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_border_e">
+              <pose>0.49 0 0.004 0 0 0</pose>
+              <geometry><box><size>0.02 0.86 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_border_w">
+              <pose>-0.49 0 0.004 0 0 0</pose>
+              <geometry><box><size>0.02 0.86 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+            <visual name="pad_centerline">
+              <pose>0 0 0.004 0 0 0</pose>
+              <geometry><box><size>0.14 0.56 0.008</size></box></geometry>
+              <material><ambient>0.92 0.92 0.94 1</ambient><diffuse>0.96 0.96 0.98 1</diffuse></material>
+            </visual>
+          </link>
+        </model>
+
+
     <include>
       <uri>model://aruco_sample</uri>
       <name>aruco_sample</name>
-      <pose>2.0 1.5 0.785 0 0 0</pose>
+      <pose>-4.16 3.46 0.785 0 0 0.10</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle</name>
-      <pose>2.28 1.62 0.83 0 0 0</pose>
+      <uri>model://igbt_module_plain</uri>
+      <name>material_spare_igbt</name>
+      <pose>-4.62 3.92 0.78 0 0 0.38</pose>
     </include>
     <include>
-      <uri>model://toolbox_yellow</uri>
-      <name>toolbox_yellow</name>
-      <pose>1.72 1.62 0.80 0 0 0</pose>
+      <uri>model://thermal_grease_can</uri>
+      <name>material_grease_can</name>
+      <pose>-3.90 3.96 0.75 0 0 0</pose>
     </include>
+    <include>
+      <uri>model://fixture_box_plain</uri>
+      <name>tooling_fixture_box</name>
+      <pose>-3.88 -2.04 0.80 0 0 -0.28</pose>
+    </include>
+    <include>
+      <uri>model://tooling_hand_tools</uri>
+      <name>tooling_hand_tools</name>
+      <pose>-4.36 -1.96 0.75 0 0 0.12</pose>
+    </include>
+    <include>
+      <uri>model://aging_rack</uri>
+      <name>aging_rack</name>
+      <pose>0.20 4.26 0.80 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://pcb_test_fixture</uri>
+      <name>board_test_fixture</name>
+      <pose>0.02 -1.44 0.75 0 0 0.22</pose>
+    </include>
+    <include>
+      <uri>model://safety_probe_kit</uri>
+      <name>high_voltage_probe_kit</name>
+      <pose>4.04 2.44 0.0 0 0 -0.18</pose>
+    </include>
+    <include>
+      <uri>model://high_voltage_zone</uri>
+      <name>high_voltage_zone</name>
+      <pose>4.36 2.90 0 0 0 0.12</pose>
+    </include>
+
+
 
     <physics name="default_physics" type="ode">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
       <real_time_update_rate>1000</real_time_update_rate>
     </physics>
-
   </world>
 </sdf>

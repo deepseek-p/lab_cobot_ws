@@ -20,6 +20,7 @@
   <exec_depend>lab_cobot_navigation</exec_depend>
   <exec_depend>lab_cobot_manipulation</exec_depend>
   <exec_depend>lab_cobot_perception</exec_depend>
+  <exec_depend>image_pkg</exec_depend>
   <exec_depend>lab_cobot_moveit</exec_depend>
   <exec_depend>lab_cobot_gazebo</exec_depend>
 

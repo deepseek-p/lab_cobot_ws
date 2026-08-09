@@ -1,27 +1,73 @@
 """
 Launch the Gazebo Classic lab world and spawn the mobile manipulator.
 
-需 GUI/运行时(用户收尾验证):
+运行示例:
     ros2 launch lab_cobot_gazebo world.launch.py
-headless(仅 gzserver,验证物理/话题):
     ros2 launch lab_cobot_gazebo world.launch.py gui:=false
+    ros2 launch lab_cobot_gazebo world.launch.py lighting_profile:=dark enable_actor:=true
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
+    AppendEnvironmentVariable,
     DeclareLaunchArgument,
+    EmitEvent,
     ExecuteProcess,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
-    AppendEnvironmentVariable,
+    SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+
+
+def _continue_on_success(event, next_actions, controller_name):
+    if event.returncode == 0:
+        return next_actions
+    return [EmitEvent(event=Shutdown(
+        reason=f"controller {controller_name} failed with code {event.returncode}"
+    ))]
+
+
+def _world_filename_from_profile(lighting_profile: str, enable_actor: bool) -> str:
+    profile = str(lighting_profile).strip().lower()
+    actor_suffix = "_actor" if enable_actor else ""
+    mapping = {
+        "normal": f"lab{actor_suffix}.world",
+        "dark": f"lab_dark{actor_suffix}.world",
+        "reflective": f"lab_reflective{actor_suffix}.world",
+    }
+    if profile not in mapping:
+        supported = ", ".join(sorted(mapping))
+        raise ValueError(
+            f"unsupported lighting_profile={lighting_profile!r}; "
+            f"supported: {supported}"
+        )
+    return mapping[profile]
+
+
+def _gzserver_action(context, gazebo_ros, gz_pkg):
+    lighting_profile = LaunchConfiguration("lighting_profile").perform(context)
+    enable_actor = LaunchConfiguration("enable_actor").perform(context).lower() == "true"
+    world = os.path.join(
+        gz_pkg,
+        "worlds",
+        _world_filename_from_profile(lighting_profile, enable_actor),
+    )
+    gzserver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gazebo_ros, "launch", "gzserver.launch.py")
+        ),
+        launch_arguments={"world": world, "verbose": "true"}.items(),
+    )
+    return [gzserver]
 
 
 def generate_launch_description():
@@ -29,9 +75,10 @@ def generate_launch_description():
     gz_pkg = get_package_share_directory("lab_cobot_gazebo")
     gazebo_ros = get_package_share_directory("gazebo_ros")
 
-    world = os.path.join(gz_pkg, "worlds", "lab.world")
     urdf_xacro = os.path.join(desc_pkg, "urdf", "lab_cobot.urdf.xacro")
     require_finger_contact = LaunchConfiguration("require_finger_contact")
+    enable_contact_force = LaunchConfiguration("enable_contact_force")
+    enable_lab_sensors = LaunchConfiguration("enable_lab_sensors")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
     use_wrist_detect = LaunchConfiguration("use_wrist_detect")
     use_wrist_camera = PythonExpression([
@@ -48,6 +95,10 @@ def generate_launch_description():
             " require_finger_contact:=",
             require_finger_contact,
             " gazebo_tactile_probe:=true",
+            " enable_contact_force:=",
+            enable_contact_force,
+            " enable_lab_sensors:=",
+            enable_lab_sensors,
             " wrist_refine_camera:=",
             use_wrist_camera,
         ])
@@ -56,7 +107,17 @@ def generate_launch_description():
 
     gui = LaunchConfiguration("gui")
 
-    # 让 Gazebo 能解析 world 里的 model://aruco_sample
+    gazebo_resources = AppendEnvironmentVariable(
+        "GAZEBO_RESOURCE_PATH", "/usr/share/gazebo-11"
+    )
+    gazebo_builtin_models = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", "/usr/share/gazebo-11/models"
+    )
+    description_package_models = AppendEnvironmentVariable(
+        "GAZEBO_MODEL_PATH", os.path.dirname(desc_pkg)
+    )
+    gazebo_offline = SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", "")
+
     model_path = AppendEnvironmentVariable(
         "GAZEBO_MODEL_PATH", os.path.join(gz_pkg, "models")
     )
@@ -64,17 +125,13 @@ def generate_launch_description():
         "GAZEBO_PLUGIN_PATH", plugin_path
     )
 
-    gzserver = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(gazebo_ros, "launch", "gzserver.launch.py")
-        ),
-        launch_arguments={"world": world, "verbose": "true"}.items(),
+    gzserver = OpaqueFunction(
+        function=lambda context: _gzserver_action(context, gazebo_ros, gz_pkg)
     )
     gzclient = ExecuteProcess(
         cmd=["gzclient", "--gui-client-plugin=libgazebo_ros_eol_gui.so"],
         output="screen",
         additional_env={
-            "GAZEBO_MODEL_PATH": os.path.join(gz_pkg, "models"),
             "GAZEBO_MODEL_DATABASE_URI": "",
         },
         condition=IfCondition(gui),
@@ -94,10 +151,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "0.0", "-y", "0.0", "-z", "0.0",
-            # 注:Gazebo Classic 的 spawn_entity.py 不支持 -J 设初始关节;
-            # 臂初始姿态由 URDF ros2_control 的 initial_value(=home 收拢)
-            # 经 gazebo_ros2_control 设置,见 config/initial_positions.yaml
+            "-x", "4.50", "-y", "-4.20", "-z", "0.0",
         ],
         output="screen",
     )
@@ -122,43 +176,88 @@ def generate_launch_description():
         executable="spawner",
         arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
     )
-
-    # spawn 完成后顺序激活控制器
+    controller_bootstrap = Node(
+        package="lab_cobot_gazebo",
+        executable="controller_bootstrap",
+        output="screen",
+    )
     delay_jsb = RegisterEventHandler(
         OnProcessExit(target_action=spawn_entity, on_exit=[joint_state_broadcaster])
     )
     delay_jtc = RegisterEventHandler(
         OnProcessExit(
-            target_action=joint_state_broadcaster, on_exit=[joint_trajectory_controller]
+            target_action=joint_state_broadcaster,
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [joint_trajectory_controller], "joint_state_broadcaster"
+            ),
         )
     )
     delay_gripper = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_trajectory_controller,
-            on_exit=[gripper_position_controller],
-        )
-    )
-    delay_wheel_velocity = RegisterEventHandler(
-        OnProcessExit(
-            target_action=gripper_position_controller,
-            on_exit=[wheel_velocity_controller],
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [gripper_position_controller], "joint_trajectory_controller"
+            ),
         )
     )
 
+    actor_collision_shadow = Node(
+        package="lab_cobot_gazebo",
+        executable="actor_collision_shadow",
+        name="actor_collision_shadow",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("enable_actor")),
+    )
+    obstacle_avoidance_metrics = Node(
+        package="lab_cobot_gazebo",
+        executable="obstacle_avoidance_metrics",
+        name="obstacle_avoidance_metrics",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("enable_actor")),
+    )
+
+    delay_wheel_velocity = RegisterEventHandler(
+        OnProcessExit(
+            target_action=gripper_position_controller,
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [wheel_velocity_controller], "gripper_position_controller"
+            ),
+        )
+    )
+    delay_controller_bootstrap = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wheel_velocity_controller,
+            on_exit=lambda event, _context: _continue_on_success(
+                event, [controller_bootstrap], "wheel_velocity_controller"
+            ),
+        )
+    )
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
-        # 2026-07-10 T-5 翻默认:与 bringup 一致,单独起 world 调试时同样门控 attach。
+        DeclareLaunchArgument("lighting_profile", default_value="normal"),
+        DeclareLaunchArgument("enable_actor", default_value="false"),
         DeclareLaunchArgument("require_finger_contact", default_value="true"),
+        DeclareLaunchArgument("enable_contact_force", default_value="false"),
+        DeclareLaunchArgument("enable_lab_sensors", default_value="true"),
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
         DeclareLaunchArgument("use_wrist_detect", default_value="false"),
+        gazebo_resources,
+        gazebo_builtin_models,
+        description_package_models,
+        gazebo_offline,
         model_path,
         gazebo_plugin_path,
         gzserver,
         gzclient,
         robot_state_publisher,
         spawn_entity,
+        actor_collision_shadow,
+        obstacle_avoidance_metrics,
         delay_jsb,
         delay_jtc,
         delay_gripper,
         delay_wheel_velocity,
+        delay_controller_bootstrap,
     ])
