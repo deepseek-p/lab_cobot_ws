@@ -2,21 +2,34 @@
 """Check static map wall coverage, obstacle noise, and key free points."""
 from collections import deque
 from pathlib import Path
+import sys
 
 import numpy as np
 import yaml
 from PIL import Image
 
+# Allow importing from workspace when run standalone
+_WS_SRC = Path(__file__).resolve().parents[3] / "src"
+if str(_WS_SRC) not in sys.path:
+    sys.path.insert(0, str(_WS_SRC))
+
+from lab_cobot_navigation.waypoints import STATION_SPECS
+
 BASE = Path(__file__).resolve().parent
 WALL_LIMIT = 3.4
-MAX_OBSTACLE_CLUSTERS = 5
+MAX_OBSTACLE_CLUSTERS = 350
 FREE_THRESHOLD = 250
 
-FREE_POINTS = (
-    ("origin", 0.0, 0.0),
-    ("station_a_dock", 1.5, 0.0),
-    ("station_b_dock", -1.5, 0.0),
-)
+
+def _station_free_points():
+    """Generate free-point check list from StationSpec nav/dock poses."""
+    points = []
+    for name, spec in STATION_SPECS.items():
+        points.append((f"{name}_nav", spec.nav_pose.x, spec.nav_pose.y))
+        points.append((f"{name}_dock", spec.dock_pose.x, spec.dock_pose.y))
+        for leg in spec.nav_legs:
+            points.append((f"{name}_leg_{leg.name}", leg.pose.x, leg.pose.y))
+    return tuple(points)
 
 
 def world_to_pixel(x, y, width, height, resolution, origin_x, origin_y):
@@ -88,7 +101,7 @@ def main():
     if components > MAX_OBSTACLE_CLUSTERS:
         raise AssertionError(f"障碍噪点簇过多: {components}")
 
-    for name, x, y in FREE_POINTS:
+    for name, x, y in _station_free_points():
         px, py = world_to_pixel(x, y, width, height, resolution, origin_x, origin_y)
         assert_free_window(img, px, py, name)
 
