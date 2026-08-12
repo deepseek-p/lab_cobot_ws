@@ -41,7 +41,12 @@ from lab_cobot_bringup.task_state_machine import (
     StationRouteTask,
     TaskState,
 )
-from lab_cobot_navigation.waypoints import get_waypoint, yaw_to_quat
+from lab_cobot_navigation.waypoints import (
+    STATION_SPECS,
+    get_station_spec,
+    get_waypoint,
+    yaw_to_quat,
+)
 from lab_cobot_manipulation.pick_place_node import PickPlace
 from lab_cobot_manipulation.gripper_driver import DEFAULT_TARGET_OBJECT
 
@@ -132,14 +137,24 @@ PLACE_DOCK_STOP_SEC = 0.3
 HOME_NAV_HANDOFF_MAX_DISTANCE = 0.25
 HOME_NAV_HANDOFF_MAX_ABS_YAW = 0.40
 WORKTABLE_STATIONS = frozenset(
-    ("station_a", "tooling_zone", "aging_zone", "station_b")
+    name for name, spec in STATION_SPECS.items()
+    if spec.work_surface is not None
 )
-WORKTABLE_FRONT_Y = {
-    "station_a": 3.20,
-    "tooling_zone": -1.70,
-    "aging_zone": 3.60,
-    "station_b": -2.30,
-}
+def _worktable_front_y(station: str) -> float:
+    """Return the map-Y of the worktable front edge (the dock-face edge)."""
+    spec = get_station_spec(station)
+    if spec.work_surface is None:
+        raise ValueError(f"{station} is not a worktable station")
+    ws = spec.work_surface
+    if spec.approach_side == "south":
+        return ws.center_y - ws.size_y / 2.0
+    if spec.approach_side == "north":
+        return ws.center_y + ws.size_y / 2.0
+    if spec.approach_side == "east":
+        return ws.center_x + ws.size_x / 2.0
+    if spec.approach_side == "west":
+        return ws.center_x - ws.size_x / 2.0
+    raise ValueError(f"{station}: unsupported approach_side={spec.approach_side}")
 CHASSIS_LENGTH = 0.55
 CHASSIS_WIDTH = 0.50
 WORKTABLE_CLEARANCE = 0.18
@@ -193,14 +208,14 @@ def _chassis_map_y_half_extent(yaw: float) -> float:
 def station_safe_base_y(yaw: float, station: str) -> float:
     if station not in WORKTABLE_STATIONS:
         raise ValueError(f"{station} is not a worktable station")
-    return WORKTABLE_FRONT_Y[station] - WORKTABLE_CLEARANCE - _chassis_map_y_half_extent(yaw)
+    return _worktable_front_y(station) - WORKTABLE_CLEARANCE - _chassis_map_y_half_extent(yaw)
 
 
 def worktable_clearance(base_pose, station: str) -> float:
     if station not in WORKTABLE_STATIONS:
         return math.inf
     _x, y, yaw = [float(v) for v in base_pose]
-    return WORKTABLE_FRONT_Y[station] - (y + _chassis_map_y_half_extent(yaw))
+    return _worktable_front_y(station) - (y + _chassis_map_y_half_extent(yaw))
 
 
 def _limit_worktable_approach(cmd: Twist, base_pose, station: str) -> Twist:
@@ -305,34 +320,20 @@ def _station_b_safe_drop_contains(map_x: float, map_y: float) -> bool:
 
 
 def _station_base_pose(station: str):
-    wp = get_waypoint(station)
-    return (float(wp["x"]), float(wp["y"]), float(wp["yaw"]))
+    spec = get_station_spec(station)
+    return (spec.nav_pose.x, spec.nav_pose.y, spec.nav_pose.yaw)
 
 
 def navigation_goals_for_station(station: str):
-    waypoint = get_waypoint(station)
-    if station == "inspection_zone":
-        entry = {"x": 2.00, "y": float(waypoint["y"]), "yaw": float(waypoint["yaw"])}
-        return [
-            ("inspection_zone_south_corridor_entry", entry, None),
-            (station, waypoint, station),
-        ]
-
-    if station == "tooling_zone":
-        entry = {"x": 1.90, "y": float(waypoint["y"]), "yaw": float(waypoint["yaw"])}
-        return [
-            ("tooling_zone_corridor_entry", entry, None),
-            (station, waypoint, station),
-        ]
-    if station == "aging_zone":
-        south_entry = {"x": 2.00, "y": -5.05, "yaw": float(waypoint["yaw"])}
-        east_corridor = {"x": 2.00, "y": float(waypoint["y"]), "yaw": float(waypoint["yaw"])}
-        return [
-            ("aging_zone_south_entry", south_entry, None),
-            ("aging_zone_east_corridor", east_corridor, None),
-            (station, waypoint, station),
-        ]
-    return [(station, waypoint, station)]
+    spec = get_station_spec(station)
+    return [
+        (
+            leg.name,
+            {"x": leg.pose.x, "y": leg.pose.y, "yaw": leg.pose.yaw},
+            leg.dock_station,
+        )
+        for leg in spec.nav_legs
+    ]
 
 
 def axis_aligned_navigation_goals(station: str, current_pose):
