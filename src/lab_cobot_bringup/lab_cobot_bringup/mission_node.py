@@ -140,6 +140,8 @@ WORKTABLE_STATIONS = frozenset(
     name for name, spec in STATION_SPECS.items()
     if spec.work_surface is not None
 )
+
+
 def _worktable_front_y(station: str) -> float:
     """Return the map-Y of the worktable front edge (the dock-face edge)."""
     spec = get_station_spec(station)
@@ -155,6 +157,8 @@ def _worktable_front_y(station: str) -> float:
     if spec.approach_side == "west":
         return ws.center_x - ws.size_x / 2.0
     raise ValueError(f"{station}: unsupported approach_side={spec.approach_side}")
+
+
 CHASSIS_LENGTH = 0.55
 CHASSIS_WIDTH = 0.50
 WORKTABLE_CLEARANCE = 0.18

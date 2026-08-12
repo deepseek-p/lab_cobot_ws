@@ -1,4 +1,4 @@
-"""Map/world contract tests: every StationSpec pose must be free in committed map."""
+"""Map/world contract: every StationSpec pose must be free in committed map."""
 import math
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import pytest
 import yaml
 from PIL import Image
 
-from lab_cobot_navigation.waypoints import STATION_SPECS, Pose2D
+from lab_cobot_navigation.waypoints import STATION_SPECS
 
 _MAP_DIR = Path(__file__).resolve().parents[1] / "maps"
 _MAP_META = _MAP_DIR / "map.yaml"
@@ -78,10 +78,10 @@ def test_all_declared_route_poses_are_free(label, x, y, loaded_map):
         f"{label} ({x:.2f}, {y:.2f}) 超出地图边界"
     )
     px, py = px_py
+    win = img[max(0, py - 2):py + 3, max(0, px - 2):px + 3]
     assert _is_free_window(img, px, py), (
         f"{label} ({x:.2f},{y:.2f}) -> 像素({px},{py}) "
-        f"值={img[py,px]}, 5x5 min={img[max(0,py-2):py+3,max(0,px-2):px+3].min()} "
-        f"— 不是可靠 free 区域"
+        f"值={img[py,px]}, 5x5 min={win.min()} — 不是可靠 free 区域"
     )
 
 
@@ -126,11 +126,15 @@ def test_worktable_dock_standoff_from_table_edge():
         table_y_min = ws.center_y - ws.size_y / 2.0
         table_y_max = ws.center_y + ws.size_y / 2.0
 
-        chassis_overlaps = (
-            (dp.x - half_width < table_x_max and dp.x + half_width > table_x_min)
-            and (dp.y - half_length < table_y_max
-                 and dp.y + half_length > table_y_min)
+        x_overlap = (
+            dp.x - half_width < table_x_max
+            and dp.x + half_width > table_x_min
         )
+        y_overlap = (
+            dp.y - half_length < table_y_max
+            and dp.y + half_length > table_y_min
+        )
+        chassis_overlaps = x_overlap and y_overlap
         assert not chassis_overlaps, (
             f"{name}: dock_pose chassis footprint ({dp.x},{dp.y}) "
             f"与台面碰撞体重叠"

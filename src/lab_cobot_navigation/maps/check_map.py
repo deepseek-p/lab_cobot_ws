@@ -13,7 +13,7 @@ _WS_SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_WS_SRC) not in sys.path:
     sys.path.insert(0, str(_WS_SRC))
 
-from lab_cobot_navigation.waypoints import STATION_SPECS
+from lab_cobot_navigation.waypoints import STATION_SPECS  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
 WALL_LIMIT = 3.4
