@@ -347,7 +347,7 @@ home → station_a → inspection_zone → tooling_zone → aging_zone → stati
 | `min_speed_xy` | 0.02 m/s | 蠕动门限 |
 | 局部 costmap 尺寸 | 7×7m | 障碍感知窗口 |
 | 全局 inflation_radius | 0.55m | 路径安全距离 |
-| 局部 inflation_radius | 0.25m | 局部避障距离 |
+| 局部 inflation_radius | 0.30m | 局部避障距离（≥ 内切半径 0.29m） |
 | `STATION_DOCK_TOLERANCE_X/Y` | 0.08m | 精停到位容差 |
 
 ---
