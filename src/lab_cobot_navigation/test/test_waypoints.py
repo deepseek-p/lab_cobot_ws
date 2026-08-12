@@ -6,11 +6,24 @@ import pytest
 from lab_cobot_navigation.waypoints import (
     CRUISE_ROUTE,
     WAYPOINTS,
+    get_station_spec,
     get_waypoint,
     list_stations,
     normalize_station_name,
     yaw_to_quat,
 )
+
+STATION_SPECS = None
+_STATION_SPECS_LOADED = False
+
+
+def _load_specs():
+    global STATION_SPECS, _STATION_SPECS_LOADED
+    if _STATION_SPECS_LOADED:
+        return
+    from lab_cobot_navigation.waypoints import STATION_SPECS as _s
+    STATION_SPECS = _s
+    _STATION_SPECS_LOADED = True
 
 
 def test_known_stations_present():
@@ -311,3 +324,142 @@ def test_routing_table_20_paths_statistics():
 
     # 所有 20 条路径的朝向差应该接近 0(都是 pi/2 朝北),允许 pi 翻转
     assert avg <= 10.0, f"平均路径距离过大: {avg:.2f}m"
+
+
+# ── StationSpec 语义测试 ──────────────────────────────────────
+
+
+def _station_specs():
+    _load_specs()
+    return dict(STATION_SPECS)
+
+
+def _station_names():
+    return set(_station_specs().keys())
+
+
+def test_station_specs_covers_all_legacy_waypoints():
+    specs = _station_specs()
+    legacy = set(WAYPOINTS.keys())
+    spec_names = set(specs.keys())
+    missing_from_spec = legacy - spec_names
+    missing_from_legacy = spec_names - legacy
+    assert not missing_from_spec, f"StationSpec 缺少: {missing_from_spec}"
+    assert not missing_from_legacy, f"WAYPOINTS 缺少: {missing_from_legacy}"
+
+
+def test_each_station_declares_navigation_and_docking_semantics():
+    for name, spec in _station_specs().items():
+        assert spec.nav_pose.frame_id == "map", f"{name}: nav_pose 缺少 frame_id"
+        assert spec.dock_pose.frame_id == "map", f"{name}: dock_pose 缺少 frame_id"
+        assert spec.nav_legs[-1].pose == spec.nav_pose, (
+            f"{name}: 末段 leg pose 应等于 nav_pose"
+        )
+        assert spec.nav_legs[-1].dock_station == name, (
+            f"{name}: 末段 leg dock_station 应等于自身名称"
+        )
+        assert spec.approach_side in {"south", "north", "east", "west", "none"}, (
+            f"{name}: 无效 approach_side={spec.approach_side}"
+        )
+
+
+def test_station_a_south_side_dock_faces_north():
+    spec = get_station_spec("station_a")
+    assert spec.approach_side == "south", (
+        f"station_a approach_side={spec.approach_side}, expected south"
+    )
+    assert spec.dock_pose.yaw == pytest.approx(math.pi / 2.0)
+
+
+def test_worktable_stations_have_work_surface():
+    for name in ("station_a", "tooling_zone", "aging_zone", "station_b"):
+        spec = get_station_spec(name)
+        assert spec.work_surface is not None, f"{name} 应有 work_surface"
+        assert spec.work_surface.size_x > 0
+        assert spec.work_surface.size_y > 0
+
+
+def test_inspection_zone_no_work_surface_outside_fence():
+    spec = get_station_spec("inspection_zone")
+    assert spec.work_surface is None, "inspection_zone 不应有 work_surface"
+    # 所有 pose 在高压围栏外
+    for leg in spec.nav_legs:
+        assert not _hv_contains(leg.pose.x, leg.pose.y), (
+            f"inspection leg {leg.name} 在高压围栏内"
+        )
+    assert not _hv_contains(spec.dock_pose.x, spec.dock_pose.y), (
+        "inspection dock_pose 在高压围栏内"
+    )
+
+
+def test_home_no_work_surface_approach_none():
+    spec = get_station_spec("home")
+    assert spec.work_surface is None
+    assert spec.approach_side == "none"
+
+
+@pytest.mark.parametrize("name", ["station_a", "tooling_zone", "aging_zone", "station_b"])
+def test_worktable_dock_pose_outside_table(name):
+    spec = get_station_spec(name)
+    ws = spec.work_surface
+    half_length = 0.55 / 2.0  # chassis semi-length
+    clearance = spec.clearance_m
+
+    # dock pose y 必须在桌面外(即从桌边后退 half_length + clearance)
+    if spec.approach_side == "south":
+        min_safe_y = ws.center_y - ws.size_y / 2.0 - half_length - clearance
+        assert spec.dock_pose.y <= min_safe_y + 0.02, (
+            f"{name}: dock_pose.y={spec.dock_pose.y:.3f}, "
+            f"min_safe={min_safe_y:.3f}"
+        )
+    elif spec.approach_side == "north":
+        max_safe_y = ws.center_y + ws.size_y / 2.0 + half_length + clearance
+        assert spec.dock_pose.y >= max_safe_y - 0.02, (
+            f"{name}: dock_pose.y={spec.dock_pose.y:.3f}, "
+            f"max_safe={max_safe_y:.3f}"
+        )
+
+
+def test_station_spec_clearance_positive():
+    for name, spec in _station_specs().items():
+        assert spec.clearance_m >= 0.0, f"{name}: clearance 不应为负"
+
+
+def test_cruise_route_unchanged_with_specs():
+    from lab_cobot_navigation.waypoints import CRUISE_ROUTE
+    assert CRUISE_ROUTE == (
+        "home", "station_a", "inspection_zone",
+        "tooling_zone", "aging_zone", "station_b", "home",
+    )
+
+
+def test_legacy_get_waypoint_matches_spec_nav_pose():
+    for name in _station_names():
+        wp = get_waypoint(name)
+        spec = get_station_spec(name)
+        assert wp["x"] == pytest.approx(spec.nav_pose.x)
+        assert wp["y"] == pytest.approx(spec.nav_pose.y)
+        assert wp["yaw"] == pytest.approx(spec.nav_pose.yaw)
+
+
+def test_legacy_waypoints_dict_matches_spec():
+    _load_specs()
+    for name, spec in STATION_SPECS.items():
+        assert name in WAYPOINTS, f"{name} 应在 WAYPOINTS 中"
+        assert WAYPOINTS[name]["x"] == pytest.approx(spec.nav_pose.x)
+        assert WAYPOINTS[name]["y"] == pytest.approx(spec.nav_pose.y)
+        assert WAYPOINTS[name]["yaw"] == pytest.approx(spec.nav_pose.yaw)
+
+
+def test_every_station_has_at_least_one_nav_leg():
+    for name, spec in _station_specs().items():
+        assert len(spec.nav_legs) >= 1, f"{name}: 缺少 nav_legs"
+
+
+def test_route_leg_dock_station_only_on_terminal_leg():
+    for name, spec in _station_specs().items():
+        for i, leg in enumerate(spec.nav_legs):
+            if i < len(spec.nav_legs) - 1:
+                assert leg.dock_station is None, (
+                    f"{name}: 非末段 leg '{leg.name}' dock_station 应为 None"
+                )
