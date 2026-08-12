@@ -14,7 +14,7 @@ _MAP_META = _MAP_DIR / "map.yaml"
 _MAP_IMAGE = None
 _MAP_METADATA = None
 
-FREE_THRESHOLD = 250
+FREE_THRESHOLD = 200  # ROS free_thresh=0.25 → pixel ≥191 = free
 
 
 def _load_map():

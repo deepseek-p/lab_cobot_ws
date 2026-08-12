@@ -18,7 +18,7 @@ from lab_cobot_navigation.waypoints import STATION_SPECS  # noqa: E402
 BASE = Path(__file__).resolve().parent
 WALL_LIMIT = 3.4
 MAX_OBSTACLE_CLUSTERS = 350
-FREE_THRESHOLD = 250
+FREE_THRESHOLD = 200  # ROS free_thresh=0.25 → pixel ≥191 = free; 200 keeps margin
 
 
 def _station_free_points():
