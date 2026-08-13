@@ -2,7 +2,11 @@
 工位 waypoint 表与查询(纯逻辑,可单元测试).
 
 坐标为 map 系下的机器人停靠位姿:停在工作台前、朝向工作台(+y).
-五功能区沿北侧共享走廊排布,其中 station_a / station_b 保持原有任务语义。
+五功能区沿北侧共享走廊排布。规范键(station_a / tooling_zone / aging_zone /
+station_b / inspection_zone / home)保持稳定以兼容 mission 代码;物理语义
+(2026-08-13 起)为:station_a=物料区, tooling_zone=工装工具区,
+aging_zone=板卡测试台(原老化桌), station_b=老化实验台(原板卡桌),
+inspection_zone=高压试验区。
 
 自 2026-08-12 起,STATION_SPECS 是路线、dock、方向和 clearance 的唯一运行时来源。
 WAYPOINTS 从 nav_pose 派生,保持向后兼容。
@@ -219,16 +223,21 @@ _STATION_ALIASES = {
     "station_a": "station_a",
     "a工位": "station_a",
     "工位a": "station_a",
+    "物料区": "station_a",
     "inspection_zone": "inspection_zone",
     "检测区": "inspection_zone",
+    "高压试验区": "inspection_zone",
     "tooling_zone": "tooling_zone",
     "工具区": "tooling_zone",
     "工装区": "tooling_zone",
+    "工装工具区": "tooling_zone",
     "aging_zone": "aging_zone",
-    "老化区": "aging_zone",
+    "板卡测试台": "aging_zone",
     "station_b": "station_b",
     "b工位": "station_b",
     "工位b": "station_b",
+    "老化实验台": "station_b",
+    "老化区": "station_b",
     "home": "home",
     "起始点": "home",
 }

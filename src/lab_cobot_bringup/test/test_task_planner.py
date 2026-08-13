@@ -118,7 +118,11 @@ def test_system_prompt_declares_only_aruco_sample_is_graspable():
         ("去检测区", "inspection_zone"),
         ("导航到 tooling_zone", "tooling_zone"),
         ("去B工位", "station_b"),
-        ("前往老化区。", "aging_zone"),
+        ("前往老化区。", "station_b"),
+        ("去物料区", "station_a"),
+        ("去板卡测试台", "aging_zone"),
+        ("去老化实验台", "station_b"),
+        ("去高压试验区", "inspection_zone"),
     ],
 )
 def test_parse_single_station_navigation(instruction, station):

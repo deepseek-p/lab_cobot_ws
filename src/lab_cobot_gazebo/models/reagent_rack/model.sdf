@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <!-- 试剂架(静态环境道具):底座托盘 + 3 块分隔壁 + 后挡板,形成 4 个试剂瓶格。 -->
+  <model name="reagent_rack">
+    <static>true</static>
+    <link name="link">
+      <!-- 底座托盘 -->
+      <collision name="collision_base">
+        <pose>0 0 0.0075 0 0 0</pose>
+        <geometry><box><size>0.40 0.16 0.015</size></box></geometry>
+        <surface>
+          <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+        </surface>
+      </collision>
+      <visual name="visual_base">
+        <pose>0 0 0.0075 0 0 0</pose>
+        <geometry><box><size>0.40 0.16 0.015</size></box></geometry>
+        <material>
+          <ambient>0.22 0.22 0.25 1</ambient>
+          <diffuse>0.36 0.38 0.42 1</diffuse>
+          <specular>0.15 0.15 0.15 1</specular>
+          <shininess>24</shininess>
+        </material>
+      </visual>
+      <!-- 3 块分隔壁,形成 4 格 -->
+      <collision name="collision_divider_1">
+        <pose>-0.10 0 0.0325 0 0 0</pose>
+        <geometry><box><size>0.015 0.15 0.065</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <visual name="visual_divider_1">
+        <pose>-0.10 0 0.0325 0 0 0</pose>
+        <geometry><box><size>0.015 0.15 0.065</size></box></geometry>
+        <material>
+          <ambient>0.85 0.85 0.88 1</ambient>
+          <diffuse>0.92 0.92 0.95 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision_divider_2">
+        <pose>0 0 0.0325 0 0 0</pose>
+        <geometry><box><size>0.015 0.15 0.065</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <visual name="visual_divider_2">
+        <pose>0 0 0.0325 0 0 0</pose>
+        <geometry><box><size>0.015 0.15 0.065</size></box></geometry>
+        <material>
+          <ambient>0.85 0.85 0.88 1</ambient>
+          <diffuse>0.92 0.92 0.95 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision_divider_3">
+        <pose>0.10 0 0.0325 0 0 0</pose>
+        <geometry><box><size>0.015 0.15 0.065</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <visual name="visual_divider_3">
+        <pose>0.10 0 0.0325 0 0 0</pose>
+        <geometry><box><size>0.015 0.15 0.065</size></box></geometry>
+        <material>
+          <ambient>0.85 0.85 0.88 1</ambient>
+          <diffuse>0.92 0.92 0.95 1</diffuse>
+        </material>
+      </visual>
+      <!-- 后挡板 -->
+      <collision name="collision_back">
+        <pose>0 -0.0725 0.0325 0 0 0</pose>
+        <geometry><box><size>0.40 0.015 0.065</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <visual name="visual_back">
+        <pose>0 -0.0725 0.0325 0 0 0</pose>
+        <geometry><box><size>0.40 0.015 0.065</size></box></geometry>
+        <material>
+          <ambient>0.85 0.85 0.88 1</ambient>
+          <diffuse>0.92 0.92 0.95 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

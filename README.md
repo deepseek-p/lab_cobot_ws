@@ -39,7 +39,7 @@ ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '巡航所�
 **任务状态（输出）**：`/task/status`（`std_msgs/String`，TRANSIENT_LOCAL QoS，
 1Hz），late joiner 可收到最新状态。
 
-**指令别名**：`A工位` `B工位` `检测区` `工具区` `工装区` `老化区` `起始点` `home` `station_a` `station_b` `inspection_zone` `tooling_zone` `aging_zone`
+**指令别名**：`物料区` `工装工具区` `板卡测试台` `老化实验台` `高压试验区` `A工位` `B工位` `检测区` `工具区` `工装区` `老化区` `起始点` `home` `station_a` `station_b` `inspection_zone` `tooling_zone` `aging_zone`
 
 | 话题 | 类型 | 说明 |
 |---|---|---|
@@ -176,25 +176,57 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_g4g5_results:=false
          |
     [station_a]         [aging_zone]        [inspection_zone]
     (-4.30, 3.80)       (0.20, 4.20)        (4.10, 1.10)
+     物料区              板卡测试台            高压试验区
      桌面: 1.6×1.2m       桌面: 1.6×1.2m       地面高压区 + 围栏
-     物品: 3 件           物品: 1 件             物品: 2 件
+     物品: 5 件           物品: 2 件             物品: 1 件
          |                    |                    |
     -----+--------------------+--------------------+-----> +x (东)
          |                    |                    |
     [tooling_zone]                            [home]
     (-4.10, -2.30)                            (4.50, -4.20)
-     桌面: 1.6×1.2m                            发车/归位区
-     物品: 2 件
+     工装工具区                                发车/归位区
+     桌面: 1.6×1.2m
+     物品: 5 件
          |                    |
          |              [station_b]
          |              (0.30, -1.70)
+         |              老化实验台
          |              桌面: 1.6×1.2m
-         |              物品: 1 件
+         |              物品: 8 件 (试剂架+4瓶+烧杯/锥形瓶/量筒)
          |
          -y (南)
 ```
 
 所有工作台：**1.6m(x) × 1.2m(y) × 0.75m(z)**（桌面高 0.75m）。
+
+### 工位命名与导航命令速查（交接用）
+
+> 规范键是代码硬编码的唯一标识，**不可修改**；中文名是用户层别名，可扩展。
+> 完整别名见 `waypoints.py` 的 `_STATION_ALIASES`。
+
+| 规范键 | 中文名 | 物理桌位置 (x,y) | 桌面物品（件） | 导航命令示例 |
+|---|---|---|---|---|
+| `station_a` | 物料区 | (-4.30, 3.80) | ArUco 主样件 + 4 彩色方块（5） | `去物料区` / `去A工位` |
+| `tooling_zone` | 工装工具区 | (-4.10, -2.30) | 扳手/钳子/电钻/螺丝刀/卡尺（5） | `去工装工具区` / `去工具区` |
+| `aging_zone` | 板卡测试台 | (0.20, 4.20) | 卡槽架 + 板卡（2） | `去板卡测试台` |
+| `station_b` | 老化实验台 | (0.30, -1.70) | 试剂架 + 4 瓶 + 烧杯/锥形瓶/量筒（8） | `去老化实验台` / `去B工位` |
+| `inspection_zone` | 高压试验区 | (4.10, 1.10) | 围栏 + 地面警示（1） | `去高压试验区` / `去检测区` |
+| `home` | 起始点 / 归位区 | (4.50, -4.20) | — | `回家` / `去起始点` |
+
+导航命令统一通过 `/task/instruction` 话题（`std_msgs/String`）下发：
+
+```bash
+# 单站导航（去任意工位，支持 导航到/前往/移动到/去 前缀）
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '去物料区'}"
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '去板卡测试台'}"
+
+# 全工位巡航
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '巡航所有工位'}"
+
+# 回家
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '回家'}"
+```
+
 ### 机器人路线表
 
 > **唯一运行时来源**: `src/lab_cobot_navigation/lab_cobot_navigation/waypoints.py` 中的
@@ -226,48 +258,77 @@ home → station_a → inspection_zone → tooling_zone → aging_zone → stati
 
 ## 各工位物品清单（视觉/操作组协作参考）
 
-### Station A（3 件）
+### 物料区（station_a，5 件）
 
 | Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
 |---|---|---|---|---|
-| `aruco_sample` | `aruco_sample` | (-4.16, 3.46, 0.785, 0.10) | **是（默认目标）** | ArUco 标记方块 |
-| `material_spare_igbt` | `igbt_module_plain` | (-4.62, 3.92, 0.78, 0.38) | 否 | 已支持八类检测，未进入默认抓取候选 |
-| `material_grease_can` | `thermal_grease_can` | (-3.90, 3.96, 0.75, 0) | 否 | 导热硅脂罐（道具） |
+| `aruco_sample` | `aruco_sample` | (-4.16, 3.46, 0.785, 0.10) | **是（默认目标）** | ArUco 主样件 (id 0/1) |
+| `material_cube_red` | `material_cube_red` | (-4.50, 3.30, 0.785, 0) | 是（物理） | 彩色物料方块, ArUco id=2 |
+| `material_cube_green` | `material_cube_green` | (-4.30, 3.30, 0.785, 0) | 是（物理） | 彩色物料方块, ArUco id=3 |
+| `material_cube_blue` | `material_cube_blue` | (-4.50, 3.52, 0.785, 0) | 是（物理） | 彩色物料方块, ArUco id=4 |
+| `material_cube_yellow` | `material_cube_yellow` | (-4.30, 3.52, 0.785, 0) | 是（物理） | 彩色物料方块, ArUco id=5 |
 
-### Tooling Zone（2 件）
-
-| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
-|---|---|---|---|---|
-| `tooling_fixture_box` | `fixture_box_plain` | (-3.88, -2.04, 0.80, -0.28) | 否 | 已支持八类检测，未进入默认抓取候选 |
-| `tooling_hand_tools` | `tooling_hand_tools` | (-4.36, -1.96, 0.75, 0.12) | 否 | 手工工具（道具） |
-
-### Aging Zone（1 件）
+### 工装工具区（tooling_zone，5 件）
 
 | Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
 |---|---|---|---|---|
-| `aging_rack` | `aging_rack` | (0.20, 4.26, 0.80, 0) | 否 | 老化架，3 槽位 + 状态指示灯 |
+| `tooling_fixture_box` | `fixture_box_plain` | (-3.88, -2.04, 0.80, -0.28) | 是（物理） | 活动扳手 |
+| `tooling_hand_tools` | `tooling_hand_tools` | (-4.36, -1.96, 0.75, 0.12) | 是（物理） | 手钳 |
+| `board_test_fixture` | `pcb_test_fixture` | (-4.70, -2.60, 0.75, 0.05) | 是（物理） | 电钻（自原板卡桌移入） |
+| `high_voltage_probe_kit` | `safety_probe_kit` | (-4.30, -2.60, 0.75, -0.15) | 是（物理） | 螺丝刀（自高压区地面移入） |
+| `material_spare_igbt` | `igbt_module_plain` | (-3.62, -2.60, 0.81, 0.38) | 是（物理） | 数字卡尺（保留，自物料区移入） |
 
-### Station B（1 件）
-
-| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
-|---|---|---|---|---|
-| `board_test_fixture` | `pcb_test_fixture` | (0.02, -1.44, 0.75, 0.22) | 否 | PCB 测试夹具（道具） |
-
-### Inspection Zone（2 件，地面）
+### 板卡测试台（aging_zone，2 件）
 
 | Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
 |---|---|---|---|---|
-| `high_voltage_probe_kit` | `safety_probe_kit` | (4.04, 2.44, 0.0, -0.18) | 否 | 高压探头套件，非静态 |
-| `high_voltage_zone` | `high_voltage_zone` | (4.36, 2.90, 0.0, 0.12) | 否 | 围栏，4 墙 + 4 柱 |
+| `aging_rack` | `aging_rack` | (0.20, 4.26, 0.80, 0) | 否（static 道具） | 卡槽架，3 槽位 + 状态灯 |
+| `pcb_board` | `pcb_board` | (0.55, 4.30, 0.75, 0) | 是（物理） | 板卡，带金手指，自立可夹 |
+
+### 老化实验台（station_b，8 件）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `reagent_rack` | `reagent_rack` | (0.82, -1.32, 0.75, 0) | 否（static 道具） | 试剂架，4 格 |
+| `reagent_bottle_1` | `reagent_bottle` | (0.67, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
+| `reagent_bottle_2` | `reagent_bottle` | (0.77, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
+| `reagent_bottle_3` | `reagent_bottle` | (0.87, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
+| `reagent_bottle_4` | `reagent_bottle` | (0.97, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
+| `beaker` | `beaker` | (-0.05, -1.35, 0.80, 0) | 是（物理） | 烧杯 |
+| `erlenmeyer_flask` | `erlenmeyer_flask` | (0.07, -1.35, 0.75, 0) | 是（物理） | 锥形瓶 |
+| `graduated_cylinder` | `graduated_cylinder` | (0.19, -1.35, 0.82, 0) | 是（物理） | 量筒 |
+
+### 高压试验区（inspection_zone，1 件）
+
+| Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
+|---|---|---|---|---|
+| `high_voltage_zone` | `high_voltage_zone` | (4.36, 2.90, 0.0, 0.12) | 否（static 道具） | 围栏，4 墙 + 4 柱 + 地面警示 |
+
+> 已删除：`material_grease_can`（导热硅脂罐）。
 
 ### 抓取范围
 
-当前 URDF 中 `lab_cobot_grasp_fix` 的候选表只包含 `aruco_sample`。八类后端可以检测
-并定位另外七类实体，但不能据此宣称任务已经支持抓取它们。
+当前 URDF 中 `lab_cobot_grasp_fix` 的候选表只包含 `aruco_sample`。环境侧已保证其余
+可抓取物（彩色方块、工具、试剂瓶、板卡）物理可抓（动态 + 碰撞 + 惯量 + 尺寸在夹爪
+开度内），但把新物体接入任务抓取链（感知标签、attach 桥、grasp_fix 候选）属于感知/
+操作模块，需另行适配。
 
-八类标签为：`material_spare_igbt`、`aruco_sample`、`material_grease_can`、
-`aging_rack`、`board_test_fixture`、`tooling_fixture_box`、
-`tooling_hand_tools`、`high_voltage_probe_kit`。
+检测后端八类标签（`image_pkg`，硅脂罐已从环境中移除，标签保留但不产生检测）：`material_spare_igbt`、
+`aruco_sample`、`material_grease_can`、`aging_rack`、`board_test_fixture`、
+`tooling_fixture_box`、`tooling_hand_tools`、`high_voltage_probe_kit`。
+
+### ArUco ID 分配（DICT_4X4_50）
+
+| 对象 | ArUco ID | 用途 |
+|---|---|---|
+| `aruco_sample` 主样件 | 0（front）/ 1（top） | 主抓取目标；腕相机默认检测 `marker_id=1` |
+| `material_cube_red` | 2 | 红色物料方块 |
+| `material_cube_green` | 3 | 绿色物料方块 |
+| `material_cube_blue` | 4 | 蓝色物料方块 |
+| `material_cube_yellow` | 5 | 黄色物料方块 |
+
+> **重要**：彩色方块必须用 ID 2–5，**不得复用 0/1**——主抓取链的腕相机用
+> `wrist_marker_id=1` 定位 `aruco_sample`，复用会撞码。
 
 ---
 

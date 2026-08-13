@@ -1,20 +1,20 @@
 <?xml version="1.0"?>
 <sdf version="1.6">
-  <!-- 试剂瓶(可抓取):蓝色圆柱瓶,直径 0.07 < 夹爪开度,动态模型,立于试剂架格内。 -->
-  <model name="reagent_bottle">
+  <!-- 烧杯(可抓取):淡蓝玻璃色开口圆柱,直径 0.06 < 夹爪开度。 -->
+  <model name="beaker">
     <link name="link">
       <inertial>
         <mass>0.05</mass>
         <inertia>
-          <ixx>1.22e-4</ixx><ixy>0</ixy><ixz>0</ixz>
-          <iyy>1.22e-4</iyy><iyz>0</iyz><izz>3.06e-5</izz>
+          <ixx>5.29e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>5.29e-5</iyy><iyz>0</iyz><izz>2.25e-5</izz>
         </inertia>
       </inertial>
       <collision name="collision">
         <geometry>
           <cylinder>
-            <radius>0.035</radius>
-            <length>0.16</length>
+            <radius>0.030</radius>
+            <length>0.10</length>
           </cylinder>
         </geometry>
         <surface>
@@ -32,15 +32,15 @@
       <visual name="visual">
         <geometry>
           <cylinder>
-            <radius>0.035</radius>
-            <length>0.16</length>
+            <radius>0.030</radius>
+            <length>0.10</length>
           </cylinder>
         </geometry>
         <material>
-          <ambient>0.1 0.2 0.8 1</ambient>
-          <diffuse>0.1 0.2 0.8 1</diffuse>
-          <specular>0.2 0.2 0.2 1</specular>
-          <shininess>24</shininess>
+          <ambient>0.55 0.75 0.90 1</ambient>
+          <diffuse>0.70 0.85 0.95 1</diffuse>
+          <specular>0.6 0.6 0.6 1</specular>
+          <shininess>96</shininess>
         </material>
       </visual>
     </link>
