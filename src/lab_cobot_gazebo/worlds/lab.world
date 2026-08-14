@@ -256,44 +256,94 @@
       <pose>0.55 4.30 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_rack</uri>
-      <name>reagent_rack</name>
-      <pose>0.82 -1.32 0.75 0 0 0</pose>
+      <uri>model://test_tube_rack</uri>
+      <name>test_tube_rack_1</name>
+      <pose>0.48 -1.85 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_1</name>
-      <pose>0.67 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube_rack</uri>
+      <name>test_tube_rack_2</name>
+      <pose>0.12 -1.85 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_2</name>
-      <pose>0.77 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_1</name>
+      <pose>0.36 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_3</name>
-      <pose>0.87 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_2</name>
+      <pose>0.42 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_4</name>
-      <pose>0.97 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_3</name>
+      <pose>0.48 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://beaker</uri>
-      <name>beaker</name>
-      <pose>-0.05 -1.35 0.80 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_4</name>
+      <pose>0.54 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://erlenmeyer_flask</uri>
-      <name>erlenmeyer_flask</name>
-      <pose>0.07 -1.35 0.75 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_5</name>
+      <pose>0.60 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_6</name>
+      <pose>0.00 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_7</name>
+      <pose>0.06 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_8</name>
+      <pose>0.18 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_9</name>
+      <pose>0.24 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://graduated_cylinder</uri>
       <name>graduated_cylinder</name>
-      <pose>0.19 -1.35 0.82 0 0 0</pose>
+      <pose>-0.30 -1.95 0.82 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_2</name>
+      <pose>-0.15 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_1</name>
+      <pose>0.72 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://erlenmeyer_flask</uri>
+      <name>erlenmeyer_flask</name>
+      <pose>0.88 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_2</name>
+      <pose>-0.05 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_1</name>
+      <pose>0.35 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://erlenmeyer_flask</uri>
+      <name>erlenmeyer_flask</name>
+      <pose>0.75 -1.95 0.75 0 0 0</pose>
     </include>
     <include>
       <uri>model://high_voltage_zone</uri>

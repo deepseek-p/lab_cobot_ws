@@ -96,7 +96,7 @@ def test_new_zones_fill_the_lab_like_offset_layout():
     station_b = get_waypoint("station_b")
     inspection = get_waypoint("inspection_zone")
     tooling = get_waypoint("tooling_zone")
-    assert inspection["x"] == pytest.approx(4.10)
+    assert inspection["x"] == pytest.approx(4.36)
     aging = get_waypoint("aging_zone")
     home = get_waypoint("home")
 

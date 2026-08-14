@@ -30,6 +30,7 @@
         </surface>
       </collision>
       <visual name="visual">
+        <transparency>0.35</transparency>
         <geometry>
           <cylinder>
             <radius>0.022</radius>
@@ -37,10 +38,11 @@
           </cylinder>
         </geometry>
         <material>
-          <ambient>0.80 0.88 0.92 1</ambient>
-          <diffuse>0.88 0.93 0.96 1</diffuse>
-          <specular>0.6 0.6 0.6 1</specular>
-          <shininess>96</shininess>
+          <ambient>0.80 0.88 0.92 0.4</ambient>
+          <diffuse>0.88 0.93 0.96 0.4</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
         </material>
       </visual>
       <!-- 刻度线(视觉) -->

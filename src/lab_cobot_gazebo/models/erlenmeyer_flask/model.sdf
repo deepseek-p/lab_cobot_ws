@@ -31,6 +31,7 @@
         </surface>
       </collision>
       <visual name="visual_body">
+        <transparency>0.30</transparency>
         <pose>0 0 0.03 0 0 0</pose>
         <geometry>
           <cylinder>
@@ -39,13 +40,15 @@
           </cylinder>
         </geometry>
         <material>
-          <ambient>0.55 0.75 0.60 1</ambient>
-          <diffuse>0.70 0.88 0.75 1</diffuse>
-          <specular>0.6 0.6 0.6 1</specular>
-          <shininess>96</shininess>
+          <ambient>0.55 0.75 0.60 0.4</ambient>
+          <diffuse>0.70 0.88 0.75 0.4</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
         </material>
       </visual>
       <visual name="visual_neck">
+        <transparency>0.30</transparency>
         <pose>0 0 0.085 0 0 0</pose>
         <geometry>
           <cylinder>
@@ -54,10 +57,11 @@
           </cylinder>
         </geometry>
         <material>
-          <ambient>0.55 0.75 0.60 1</ambient>
-          <diffuse>0.70 0.88 0.75 1</diffuse>
-          <specular>0.6 0.6 0.6 1</specular>
-          <shininess>96</shininess>
+          <ambient>0.55 0.75 0.60 0.4</ambient>
+          <diffuse>0.70 0.88 0.75 0.4</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
         </material>
       </visual>
     </link>

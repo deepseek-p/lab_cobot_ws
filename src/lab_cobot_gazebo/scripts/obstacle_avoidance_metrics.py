@@ -223,7 +223,7 @@ class AvoidanceMetrics(Node):
     # ------------------------------------------------------------------
 
     def _is_blocked_by_costmap(
-        self, robot_xy: tuple, angle_rad: float, lookahead: float = 0.55
+        self, robot_xy: tuple, angle_rad: float, lookahead: float = 1.0
     ) -> bool:
         """Check whether moving *lookahead* metres along *angle_rad* hits an obstacle."""
         if self._costmap_data is None:

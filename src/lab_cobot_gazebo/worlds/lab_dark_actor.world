@@ -256,44 +256,94 @@
       <pose>0.55 4.30 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_rack</uri>
-      <name>reagent_rack</name>
-      <pose>0.82 -1.32 0.75 0 0 0</pose>
+      <uri>model://test_tube_rack</uri>
+      <name>test_tube_rack_1</name>
+      <pose>0.48 -1.85 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_1</name>
-      <pose>0.67 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube_rack</uri>
+      <name>test_tube_rack_2</name>
+      <pose>0.12 -1.85 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_2</name>
-      <pose>0.77 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_1</name>
+      <pose>0.36 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_3</name>
-      <pose>0.87 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_2</name>
+      <pose>0.42 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://reagent_bottle</uri>
-      <name>reagent_bottle_4</name>
-      <pose>0.97 -1.32 0.845 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_3</name>
+      <pose>0.48 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://beaker</uri>
-      <name>beaker</name>
-      <pose>-0.05 -1.35 0.80 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_4</name>
+      <pose>0.54 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
-      <uri>model://erlenmeyer_flask</uri>
-      <name>erlenmeyer_flask</name>
-      <pose>0.07 -1.35 0.75 0 0 0</pose>
+      <uri>model://test_tube</uri>
+      <name>test_tube_5</name>
+      <pose>0.60 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_6</name>
+      <pose>0.00 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_7</name>
+      <pose>0.06 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_8</name>
+      <pose>0.18 -1.85 0.762 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://test_tube</uri>
+      <name>test_tube_9</name>
+      <pose>0.24 -1.85 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://graduated_cylinder</uri>
       <name>graduated_cylinder</name>
-      <pose>0.19 -1.35 0.82 0 0 0</pose>
+      <pose>-0.30 -1.95 0.82 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_2</name>
+      <pose>-0.15 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_1</name>
+      <pose>0.72 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://erlenmeyer_flask</uri>
+      <name>erlenmeyer_flask</name>
+      <pose>0.88 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_2</name>
+      <pose>-0.05 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker_1</name>
+      <pose>0.35 -1.95 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://erlenmeyer_flask</uri>
+      <name>erlenmeyer_flask</name>
+      <pose>0.75 -1.95 0.75 0 0 0</pose>
     </include>
     <include>
       <uri>model://high_voltage_zone</uri>
@@ -343,20 +393,20 @@
         <delay_start>1.0</delay_start>
         <auto_start>true</auto_start>
         <trajectory id="0" type="walking">
-          <!-- 59.0s loop, uniform 0.5 m/s. Yaws face direction of travel. -->
+          <!-- 38.0s loop, uniform ~0.5 m/s. Yaws face direction of travel. -->
           <waypoint><time>0.0</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
-          <waypoint><time>6.8</time> <pose>-1.50  0.30 0 0 0 -0.569</pose></waypoint>
-          <waypoint><time>11.1</time><pose>-1.80  0.00 0 0 0 -1.571</pose></waypoint>
-          <waypoint><time>16.7</time><pose>-1.80 -2.80 0 0 0 -0.300</pose></waypoint>
-          <waypoint><time>21.5</time><pose>-0.50 -3.40 0 0 0 -0.450</pose></waypoint>
-          <waypoint><time>27.5</time><pose>-0.50 -3.80 0 0 0 -0.540</pose></waypoint>
-          <waypoint><time>28.7</time><pose>-1.50 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>32.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>40.7</time><pose>-3.50 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>46.7</time><pose>-5.00 -3.80 0 0 0  1.571</pose></waypoint>
-          <waypoint><time>52.3</time><pose>-5.00 -1.00 0 0 0  1.571</pose></waypoint>
-          <waypoint><time>57.3</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
-          <waypoint><time>59.0</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
+          <waypoint><time>8.6</time> <pose>-1.50  0.30 0 0 0 -0.569</pose></waypoint>
+          <waypoint><time>9.4</time><pose>-1.80  0.00 0 0 0 -1.571</pose></waypoint>
+          <waypoint><time>15.0</time><pose>-1.80 -2.80 0 0 0 -0.300</pose></waypoint>
+          <waypoint><time>17.9</time><pose>-0.50 -3.40 0 0 0 -0.450</pose></waypoint>
+          <waypoint><time>18.7</time><pose>-0.50 -3.80 0 0 0 -0.540</pose></waypoint>
+          <waypoint><time>20.7</time><pose>-1.50 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>21.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>24.7</time><pose>-3.50 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>27.7</time><pose>-5.00 -3.80 0 0 0  1.571</pose></waypoint>
+          <waypoint><time>33.3</time><pose>-5.00 -1.00 0 0 0  1.571</pose></waypoint>
+          <waypoint><time>36.4</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
+          <waypoint><time>38.0</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
         </trajectory>
       </script>
     </actor>

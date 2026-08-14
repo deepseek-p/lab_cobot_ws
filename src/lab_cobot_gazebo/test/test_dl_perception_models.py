@@ -106,8 +106,10 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     caliper = _include_pose("material_spare_igbt")
     rack = _include_pose("aging_rack")
     board = _include_pose("pcb_board")
-    reagent_rack = _include_pose("reagent_rack")
-    bottles = [_include_pose(f"reagent_bottle_{i}") for i in range(1, 5)]
+    tube_rack_1 = _include_pose("test_tube_rack_1")
+    tube_rack_2 = _include_pose("test_tube_rack_2")
+    tubes = [_include_pose(f"test_tube_{i}") for i in range(1, 10)]
+    beakers = [_include_pose(f"beaker_{i}") for i in range(1, 3)]
     high_voltage = _include_pose("high_voltage_zone")
 
     assert _include_uri("aruco_sample") == "model://aruco_sample"
@@ -137,12 +139,21 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     assert -0.60 <= board[0] <= 1.00 and 3.60 <= board[1] <= 4.80
     assert board[2] == pytest.approx(0.75)
 
-    # 老化实验台(原板卡桌):试剂架 + 4 个试剂瓶,放在桌后缘
-    for obj in [reagent_rack] + bottles:
+    # 老化实验台(原板卡桌):2 个试管架 + 9 根玻璃试管 + 2 个烧杯 + 锥形瓶/量筒
+    for obj in [tube_rack_1, tube_rack_2] + tubes + beakers:
         assert -0.50 <= obj[0] <= 1.10, f"老化实验台道具 x={obj[0]} 越界"
         assert -2.30 <= obj[1] <= -1.10, f"老化实验台道具 y={obj[1]} 越界"
-    for bottle in bottles:
-        assert bottle[2] == pytest.approx(0.845)
+    assert tube_rack_1[:3] == pytest.approx([0.48, -1.85, 0.75])
+    assert tube_rack_2[:3] == pytest.approx([0.12, -1.85, 0.75])
+    assert tube_rack_1[1] == tube_rack_2[1], "两个试管架应同排对齐"
+    assert abs(tube_rack_1[0] - tube_rack_2[0]) < 0.5, "两个试管架应并拢便于机械臂抓取"
+    for tube in tubes:
+        assert tube[2] == pytest.approx(0.762), "试管应立于试管架底座顶面"
+    # 架 1 插满 5 根;架 2 中槽(0.12)留空作为转移目标
+    rack1_x = {tube[0] for tube in tubes[:5]}
+    assert {0.36, 0.42, 0.48, 0.54, 0.60} <= rack1_x
+    rack2_x = {tube[0] for tube in tubes[5:]}
+    assert 0.12 not in rack2_x
 
     # 高压区围栏与地面警示不变
     assert high_voltage[:3] == pytest.approx([4.36, 2.90, 0.0])
@@ -173,12 +184,19 @@ def test_station_b_remains_clear_for_existing_place_task():
             "material_spare_igbt",
             "aging_rack",
             "pcb_board",
-            "reagent_rack",
-            "reagent_bottle_1",
-            "reagent_bottle_2",
-            "reagent_bottle_3",
-            "reagent_bottle_4",
-            "beaker",
+            "test_tube_rack_1",
+            "test_tube_rack_2",
+            "test_tube_1",
+            "test_tube_2",
+            "test_tube_3",
+            "test_tube_4",
+            "test_tube_5",
+            "test_tube_6",
+            "test_tube_7",
+            "test_tube_8",
+            "test_tube_9",
+            "beaker_1",
+            "beaker_2",
             "erlenmeyer_flask",
             "graduated_cylinder",
             "high_voltage_zone",
@@ -228,24 +246,42 @@ def test_material_cubes_are_graspable_with_unique_aruco_ids():
     assert seen.isdisjoint({0, 1}), "彩色方块不得复用主样件 id 0/1"
 
 
-def test_reagent_bottle_is_dynamic_and_graspable():
-    model = _model_root("reagent_bottle").find("model")
-    assert model.findtext("static") is None, "试剂瓶必须是动态"
+def test_test_tube_is_dynamic_graspable_and_glass():
+    model = _model_root("test_tube").find("model")
+    assert model.findtext("static") is None, "试管必须是动态"
     assert model.findtext(".//link/inertial/mass") is not None
     assert model.find(".//collision/surface/contact/ode") is not None
     radius = model.findtext(".//collision/geometry/cylinder/radius")
-    assert float(radius) <= 0.05, "瓶径必须小于夹爪开度(0.16m)"
+    assert radius is not None, "试管缺圆柱碰撞"
+    assert float(radius) * 2.0 < 0.16, "试管直径须小于夹爪开度"
+    body = model.find(".//visual[@name='visual']")
+    assert body is not None, "试管缺主体玻璃视觉"
+    assert body.findtext("transparency") is not None, "试管主体必须是透明玻璃"
+    assert body.find(".//material/double_sided") is not None, "试管应双面渲染"
+    assert model.find(".//visual[@name='visual_liquid']") is not None, "试管应含液体视觉"
 
 
-def test_reagent_rack_is_static_with_four_cells():
-    root = _model_root("reagent_rack")
+def test_test_tube_rack_is_static_with_five_round_holes():
+    root = _model_root("test_tube_rack")
     assert root.find(".//model").findtext("static") == "true"
     dividers = [
         c for c in root.findall(".//collision")
         if "divider" in (c.attrib.get("name") or "")
     ]
-    assert len(dividers) == 3, "试剂架应有三道隔板形成 4 格"
+    assert len(dividers) == 4, "试管架应有 4 条隔墙分隔 5 个导孔"
+    endcaps = [
+        c for c in root.findall(".//collision")
+        if "endcap" in (c.attrib.get("name") or "")
+    ]
+    assert len(endcaps) == 2, "试管架应有 2 块端封板"
+    holes = [
+        v for v in root.findall(".//visual")
+        if "hole" in (v.attrib.get("name") or "")
+    ]
+    assert len(holes) == 5, "试管架应有 5 个圆形孔口视觉"
     assert root.find(".//collision[@name='collision_base']") is not None
+    assert root.find(".//collision[@name='collision_wall_front']") is not None
+    assert root.find(".//collision[@name='collision_wall_back']") is not None
 
 
 def test_pcb_board_is_dynamic_and_graspable():

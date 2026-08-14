@@ -175,7 +175,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_g4g5_results:=false
          +y (北)
          |
     [station_a]         [aging_zone]        [inspection_zone]
-    (-4.30, 3.80)       (0.20, 4.20)        (4.10, 1.10)
+    (-4.30, 3.80)       (0.20, 4.20)        (4.36, 1.42)
      物料区              板卡测试台            高压试验区
      桌面: 1.6×1.2m       桌面: 1.6×1.2m       地面高压区 + 围栏
      物品: 5 件           物品: 2 件             物品: 1 件
@@ -192,7 +192,7 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_g4g5_results:=false
          |              (0.30, -1.70)
          |              老化实验台
          |              桌面: 1.6×1.2m
-         |              物品: 8 件 (试剂架+4瓶+烧杯/锥形瓶/量筒)
+         |              物品: 15 件 (2×试管架 + 9×玻璃试管 + 2×烧杯 + 锥形瓶/量筒)
          |
          -y (南)
 ```
@@ -209,8 +209,8 @@ ros2 launch lab_cobot_bringup lab_cobot.launch.py launch_g4g5_results:=false
 | `station_a` | 物料区 | (-4.30, 3.80) | ArUco 主样件 + 4 彩色方块（5） | `去物料区` / `去A工位` |
 | `tooling_zone` | 工装工具区 | (-4.10, -2.30) | 扳手/钳子/电钻/螺丝刀/卡尺（5） | `去工装工具区` / `去工具区` |
 | `aging_zone` | 板卡测试台 | (0.20, 4.20) | 卡槽架 + 板卡（2） | `去板卡测试台` |
-| `station_b` | 老化实验台 | (0.30, -1.70) | 试剂架 + 4 瓶 + 烧杯/锥形瓶/量筒（8） | `去老化实验台` / `去B工位` |
-| `inspection_zone` | 高压试验区 | (4.10, 1.10) | 围栏 + 地面警示（1） | `去高压试验区` / `去检测区` |
+| `station_b` | 老化实验台 | (0.30, -1.70) | 2×试管架 + 9×玻璃试管 + 2×烧杯 + 锥形瓶/量筒（15） | `去老化实验台` / `去B工位` |
+| `inspection_zone` | 高压试验区 | (4.36, 1.42) | 围栏 + 地面警示（1） | `去高压试验区` / `去检测区` |
 | `home` | 起始点 / 归位区 | (4.50, -4.20) | — | `回家` / `去起始点` |
 
 导航命令统一通过 `/task/instruction` 话题（`std_msgs/String`）下发：
@@ -236,7 +236,7 @@ ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '回家'}"
 |---|---|---|---|---|---|---|
 | `home` | (4.50, -4.20, 0) | (4.50, -4.20, 0) | none | 东 | 1 |
 | `station_a` | (-4.30, 2.57, π/2) | (-4.30, 2.74, π/2) | south | 北 | 1 |
-| `inspection_zone` | (4.10, 1.10, π/2) | (4.10, 1.10, π/2) | none | 北 | 2 |
+| `inspection_zone` | (4.36, 1.42, π/2) | (4.36, 1.42, π/2) | none | 北 | 2 |
 | `tooling_zone` | (-4.10, -3.23, π/2) | (-4.10, -3.35, π/2) | south | 北 | 2 |
 | `aging_zone` | (0.20, 2.97, π/2) | (0.20, 3.15, π/2) | south | 北 | 3 |
 | `station_b` | (0.30, -2.63, π/2) | (0.30, -2.75, π/2) | south | 北 | 1 |
@@ -285,18 +285,25 @@ home → station_a → inspection_zone → tooling_zone → aging_zone → stati
 | `aging_rack` | `aging_rack` | (0.20, 4.26, 0.80, 0) | 否（static 道具） | 卡槽架，3 槽位 + 状态灯 |
 | `pcb_board` | `pcb_board` | (0.55, 4.30, 0.75, 0) | 是（物理） | 板卡，带金手指，自立可夹 |
 
-### 老化实验台（station_b，8 件）
+### 老化实验台（station_b，15 件）
+
+> 桌面按两排布局：两架并拢于 y=-1.85（间隙 0.05m，便于机械臂单点够取），
+> 玻璃器皿于 y=-1.95 左右两簇，架前正中让空；A→B 放件区保持为空。
 
 | Gazebo 实体名 | 模型目录 | 位姿 (x, y, z, yaw) | 可抓取 | 说明 |
 |---|---|---|---|---|
-| `reagent_rack` | `reagent_rack` | (0.82, -1.32, 0.75, 0) | 否（static 道具） | 试剂架，4 格 |
-| `reagent_bottle_1` | `reagent_bottle` | (0.67, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
-| `reagent_bottle_2` | `reagent_bottle` | (0.77, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
-| `reagent_bottle_3` | `reagent_bottle` | (0.87, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
-| `reagent_bottle_4` | `reagent_bottle` | (0.97, -1.32, 0.845, 0) | 是（物理） | 试剂瓶 |
-| `beaker` | `beaker` | (-0.05, -1.35, 0.80, 0) | 是（物理） | 烧杯 |
-| `erlenmeyer_flask` | `erlenmeyer_flask` | (0.07, -1.35, 0.75, 0) | 是（物理） | 锥形瓶 |
-| `graduated_cylinder` | `graduated_cylinder` | (0.19, -1.35, 0.82, 0) | 是（物理） | 量筒 |
+| `test_tube_rack_1` | `test_tube_rack` | (0.48, -1.85, 0.75, 0) | 否（static 道具） | 木质圆孔试管架，5 孔，插满 5 管 |
+| `test_tube_rack_2` | `test_tube_rack` | (0.12, -1.85, 0.75, 0) | 否（static 道具） | 木质圆孔试管架，5 孔，中槽留空（转移任务目标） |
+| `test_tube_1`…`test_tube_5` | `test_tube` | (0.36/0.42/0.48/0.54/0.60, -1.85, 0.762, 0) | 是（物理） | 真玻璃试管，架 1 槽内 |
+| `test_tube_6`…`test_tube_9` | `test_tube` | (0.00/0.06/(空)/0.18/0.24, -1.85, 0.762, 0) | 是（物理） | 真玻璃试管，架 2 槽内（中槽空） |
+| `beaker_1` | `beaker` | (0.72, -1.95, 0.75, 0) | 是（物理） | 玻璃烧杯（架右） |
+| `beaker_2` | `beaker` | (-0.15, -1.95, 0.75, 0) | 是（物理） | 玻璃烧杯（架左） |
+| `erlenmeyer_flask` | `erlenmeyer_flask` | (0.88, -1.95, 0.75, 0) | 是（物理） | 玻璃锥形瓶 |
+| `graduated_cylinder` | `graduated_cylinder` | (-0.30, -1.95, 0.82, 0) | 是（物理） | 玻璃量筒 |
+
+> 已删除：`reagent_rack`、`reagent_bottle_1..4`（旧试剂架 + 蓝色试剂瓶，替换为高保真
+> 玻璃试管架 + 试管）。试管外径 0.022m < 夹爪开度 0.16m，物理可抓；支持「从架 1 取
+> 管放入架 2 空槽」的试管转移任务（环境侧已就绪，任务接入属操作/感知模块）。
 
 ### 高压试验区（inspection_zone，1 件）
 
@@ -309,9 +316,10 @@ home → station_a → inspection_zone → tooling_zone → aging_zone → stati
 ### 抓取范围
 
 当前 URDF 中 `lab_cobot_grasp_fix` 的候选表只包含 `aruco_sample`。环境侧已保证其余
-可抓取物（彩色方块、工具、试剂瓶、板卡）物理可抓（动态 + 碰撞 + 惯量 + 尺寸在夹爪
-开度内），但把新物体接入任务抓取链（感知标签、attach 桥、grasp_fix 候选）属于感知/
-操作模块，需另行适配。
+可抓取物（彩色方块、工具、玻璃试管/烧杯/锥形瓶/量筒、板卡）物理可抓（动态 + 碰撞 +
+惯量 + 尺寸在夹爪开度内），但把新物体接入任务抓取链（感知标签、attach 桥、grasp_fix
+候选）属于感知/操作模块，需另行适配。试管转移任务以 `target_object=test_tube_X`
+传参接入即可抓取。
 
 检测后端八类标签（`image_pkg`，硅脂罐已从环境中移除，标签保留但不产生检测）：`material_spare_igbt`、
 `aruco_sample`、`material_grease_can`、`aging_rack`、`board_test_fixture`、
