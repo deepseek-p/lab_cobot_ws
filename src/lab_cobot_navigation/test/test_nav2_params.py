@@ -212,7 +212,7 @@ def test_costmaps_match_git_main_box_mecanum_footprint():
     assert local["footprint"] == (
         "[ [0.28, 0.31], [0.28, -0.31], [-0.28, -0.31], [-0.28, 0.31] ]"
     )
-    assert local["inflation_layer"]["inflation_radius"] == 0.25
+    assert local["inflation_layer"]["inflation_radius"] >= 0.29  # ≥ inscribed radius
     assert global_params["robot_radius"] == 0.42
     assert global_params["inflation_layer"]["inflation_radius"] >= 0.55
 

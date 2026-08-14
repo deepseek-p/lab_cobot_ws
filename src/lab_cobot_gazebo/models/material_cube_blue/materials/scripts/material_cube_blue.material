@@ -1,0 +1,33 @@
+material MaterialCubeBlue/Marker
+{
+  technique
+  {
+    pass
+    {
+      ambient 1.0 1.0 1.0 1.0
+      diffuse 1.0 1.0 1.0 1.0
+      texture_unit
+      {
+        texture marker_4.png
+        filtering none none none
+      }
+    }
+  }
+}
+
+material MaterialCubeBlue/MarkerTop
+{
+  technique
+  {
+    pass
+    {
+      ambient 1.0 1.0 1.0 1.0
+      diffuse 1.0 1.0 1.0 1.0
+      texture_unit
+      {
+        texture marker_4.png
+        filtering none none none
+      }
+    }
+  }
+}

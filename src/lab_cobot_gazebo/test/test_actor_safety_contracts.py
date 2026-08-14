@@ -69,10 +69,10 @@ def test_safety_evasion_starts_with_safe_clearance_and_uses_emergency_speed():
     )
 
     assert "GHOST_RADIUS = 0.60" in source
-    assert "SAFETY_WARN_DIST = 1.00" in source
-    assert "SAFETY_CRITICAL_DIST = 0.70" in source
-    assert "SAFETY_EVADE_CRITICAL_SPEED = 0.55" in source
-    assert "SAFETY_EVADE_HYSTERESIS = 0.25" in source
+    assert "SAFETY_WARN_DIST = 2.00" in source
+    assert "SAFETY_CRITICAL_DIST = 1.20" in source
+    assert "SAFETY_EVADE_CRITICAL_SPEED = 0.60" in source
+    assert "SAFETY_EVADE_HYSTERESIS = 0.40" in source
 
 
 def test_actor_shadow_cloud_radius_keeps_corridors_navigable():

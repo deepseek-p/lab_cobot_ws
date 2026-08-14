@@ -201,14 +201,24 @@
       <pose>-4.16 3.46 0.785 0 0 0.10</pose>
     </include>
     <include>
-      <uri>model://igbt_module_plain</uri>
-      <name>material_spare_igbt</name>
-      <pose>-4.62 3.92 0.78 0 0 0.38</pose>
+      <uri>model://material_cube_red</uri>
+      <name>material_cube_red</name>
+      <pose>-4.50 3.30 0.785 0 0 0</pose>
     </include>
     <include>
-      <uri>model://thermal_grease_can</uri>
-      <name>material_grease_can</name>
-      <pose>-3.90 3.96 0.75 0 0 0</pose>
+      <uri>model://material_cube_green</uri>
+      <name>material_cube_green</name>
+      <pose>-4.30 3.30 0.785 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://material_cube_blue</uri>
+      <name>material_cube_blue</name>
+      <pose>-4.50 3.52 0.785 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://material_cube_yellow</uri>
+      <name>material_cube_yellow</name>
+      <pose>-4.30 3.52 0.785 0 0 0</pose>
     </include>
     <include>
       <uri>model://fixture_box_plain</uri>
@@ -221,19 +231,69 @@
       <pose>-4.36 -1.96 0.75 0 0 0.12</pose>
     </include>
     <include>
+      <uri>model://pcb_test_fixture</uri>
+      <name>board_test_fixture</name>
+      <pose>-4.70 -2.60 0.75 0 0 0.05</pose>
+    </include>
+    <include>
+      <uri>model://safety_probe_kit</uri>
+      <name>high_voltage_probe_kit</name>
+      <pose>-4.30 -2.60 0.75 0 0 -0.15</pose>
+    </include>
+    <include>
+      <uri>model://igbt_module_plain</uri>
+      <name>material_spare_igbt</name>
+      <pose>-3.62 -2.60 0.81 0 0 0.38</pose>
+    </include>
+    <include>
       <uri>model://aging_rack</uri>
       <name>aging_rack</name>
       <pose>0.20 4.26 0.80 0 0 0</pose>
     </include>
     <include>
-      <uri>model://pcb_test_fixture</uri>
-      <name>board_test_fixture</name>
-      <pose>0.02 -1.44 0.75 0 0 0.22</pose>
+      <uri>model://pcb_board</uri>
+      <name>pcb_board</name>
+      <pose>0.55 4.30 0.75 0 0 0</pose>
     </include>
     <include>
-      <uri>model://safety_probe_kit</uri>
-      <name>high_voltage_probe_kit</name>
-      <pose>4.04 2.44 0.0 0 0 -0.18</pose>
+      <uri>model://reagent_rack</uri>
+      <name>reagent_rack</name>
+      <pose>0.82 -1.32 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://reagent_bottle</uri>
+      <name>reagent_bottle_1</name>
+      <pose>0.67 -1.32 0.845 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://reagent_bottle</uri>
+      <name>reagent_bottle_2</name>
+      <pose>0.77 -1.32 0.845 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://reagent_bottle</uri>
+      <name>reagent_bottle_3</name>
+      <pose>0.87 -1.32 0.845 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://reagent_bottle</uri>
+      <name>reagent_bottle_4</name>
+      <pose>0.97 -1.32 0.845 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://beaker</uri>
+      <name>beaker</name>
+      <pose>-0.05 -1.35 0.80 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://erlenmeyer_flask</uri>
+      <name>erlenmeyer_flask</name>
+      <pose>0.07 -1.35 0.75 0 0 0</pose>
+    </include>
+    <include>
+      <uri>model://graduated_cylinder</uri>
+      <name>graduated_cylinder</name>
+      <pose>0.19 -1.35 0.82 0 0 0</pose>
     </include>
     <include>
       <uri>model://high_voltage_zone</uri>
@@ -288,11 +348,11 @@
           <waypoint><time>6.8</time> <pose>-1.50  0.30 0 0 0 -0.569</pose></waypoint>
           <waypoint><time>11.1</time><pose>-1.80  0.00 0 0 0 -1.571</pose></waypoint>
           <waypoint><time>16.7</time><pose>-1.80 -2.80 0 0 0 -0.300</pose></waypoint>
-          <waypoint><time>21.5</time><pose> 0.50 -3.60 0 0 0 -0.450</pose></waypoint>
-          <waypoint><time>27.5</time><pose> 3.50 -3.50 0 0 0 -0.540</pose></waypoint>
-          <waypoint><time>28.7</time><pose> 4.00 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>32.7</time><pose> 2.00 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>40.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>21.5</time><pose>-0.50 -3.40 0 0 0 -0.450</pose></waypoint>
+          <waypoint><time>27.5</time><pose>-0.50 -3.80 0 0 0 -0.540</pose></waypoint>
+          <waypoint><time>28.7</time><pose>-1.50 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>32.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>40.7</time><pose>-3.50 -3.80 0 0 0  3.142</pose></waypoint>
           <waypoint><time>46.7</time><pose>-5.00 -3.80 0 0 0  1.571</pose></waypoint>
           <waypoint><time>52.3</time><pose>-5.00 -1.00 0 0 0  1.571</pose></waypoint>
           <waypoint><time>57.3</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
