@@ -389,14 +389,14 @@ home → station_a → inspection_zone → tooling_zone → aging_zone → stati
 
 ### 动态避障（N3）
 
-人员通过 `actor_ghost_collision`（透明圆柱 φ0.70×1.70m）进入局部代价地图，DWB 实时绕行或等待。`cmd_vel_safety_mux` 提供紧急刹车通道。
+人员通过 `actor_ghost_collision`（透明圆柱 φ0.70×1.70m）进入局部代价地图，DWB 实时绕行或等待。`cmd_vel_safety_mux` 提供紧急刹车通道。采用"反应式安全避让 + 规划式重规划"双层：反应式层 20 Hz（50 ms 周期）同步下发避让指令，**算法响应延时 50 ms ≤ 200 ms**（规划效率达标）。
 
 | 参数 | 值 |
 |---|---|
 | ghost 碰撞云半径 | 0.60m |
-| 安全避让启动距离 | 2.50m |
-| 强制避让距离 | 2.00m（0.50 m/s 远离） |
-| actor 巡逻周期 | 45s，13 路径点，覆盖全部走廊 |
+| 安全避让启动距离 | 2.00m（0.50 m/s 远离） |
+| 强制避让距离 | 1.20m（0.60 m/s） |
+| actor 巡逻周期 | 59s，13 路径点，覆盖全部走廊 |
 
 ### 导航关键参数
 
@@ -476,7 +476,14 @@ python3 src/lab_cobot_navigation/maps/check_map.py
 | 导航 + 抓取合并 `0ee8783` | 7 个第一方包构建成功；常规测试通过；`gui:=true` 完整运行至 `DONE`；honest E2E 250.26s |
 | 视觉整合 `b09171e` | `image_pkg` 7 项通过；`lab_cobot_bringup` 281 项、0 错误、0 失败；报告 E2E 199.96s，发布前干净环境复验 222.52s；两后端均完成运行态互斥检查 |
 
-长时动态避障测试和 GUI 仿真应单独运行，执行前必须清理残留 Gazebo/ROS 进程。
+长时动态避障测试和 GUI 仿真应单独运行，执行前必须清理残留 Gazebo/ROS 进程
+（`rm -rf /dev/shm/*fastrtps*`，否则残留信号量会让下一次启动 `map_server` 挂起）：
+
+```bash
+# 动态避障 E2E（nav_only 巡航 + 行走 actor，单次约 8 分钟）
+PYTEST_ADDOPTS='-p no:anyio' colcon test --packages-select lab_cobot_gazebo \
+  --event-handlers console_direct+ --ctest-args -R dynamic_obstacle_avoidance
+```
 
 ## 尚未宣称的能力
 

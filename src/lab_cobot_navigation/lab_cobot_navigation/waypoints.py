@@ -121,11 +121,11 @@ STATION_SPECS: Dict[str, StationSpec] = {
             ),
             RouteLeg(
                 name="tooling_zone",
-                pose=Pose2D(x=-4.10, y=-3.23, yaw=math.pi / 2.0),
+                pose=Pose2D(x=-4.10, y=-3.53, yaw=math.pi / 2.0),
                 dock_station="tooling_zone",
             ),
         ),
-        nav_pose=Pose2D(x=-4.10, y=-3.23, yaw=math.pi / 2.0),
+        nav_pose=Pose2D(x=-4.10, y=-3.53, yaw=math.pi / 2.0),
         dock_pose=Pose2D(x=-4.10, y=_dock_y(-2.30), yaw=math.pi / 2.0),
         approach_side="south",
         work_surface=WorkSurface(
@@ -167,11 +167,11 @@ STATION_SPECS: Dict[str, StationSpec] = {
         nav_legs=(
             RouteLeg(
                 name="station_b",
-                pose=Pose2D(x=0.30, y=-2.63, yaw=math.pi / 2.0),
+                pose=Pose2D(x=0.30, y=-2.93, yaw=math.pi / 2.0),
                 dock_station="station_b",
             ),
         ),
-        nav_pose=Pose2D(x=0.30, y=-2.63, yaw=math.pi / 2.0),
+        nav_pose=Pose2D(x=0.30, y=-2.93, yaw=math.pi / 2.0),
         dock_pose=Pose2D(x=0.30, y=_dock_y(-1.70), yaw=math.pi / 2.0),
         approach_side="south",
         work_surface=WorkSurface(

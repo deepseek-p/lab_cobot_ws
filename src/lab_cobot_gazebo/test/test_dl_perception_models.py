@@ -265,7 +265,7 @@ def test_pcb_board_is_dynamic_and_graspable():
     ["beaker", "erlenmeyer_flask", "graduated_cylinder"],
 )
 def test_lab_glassware_props_are_dynamic_and_graspable(model_name):
-    """老化实验台玻璃器皿:动态、圆柱碰撞、直径 < 夹爪开度(0.16m)。"""
+    """老化实验台玻璃器皿:动态、圆柱碰撞、直径 < 夹爪开度(0.16m)."""
     model = _model_root(model_name).find("model")
     assert model.findtext("static") is None, f"{model_name} 必须是动态"
     assert model.findtext(".//link/inertial/mass") is not None

@@ -348,11 +348,11 @@
           <waypoint><time>6.8</time> <pose>-1.50  0.30 0 0 0 -0.569</pose></waypoint>
           <waypoint><time>11.1</time><pose>-1.80  0.00 0 0 0 -1.571</pose></waypoint>
           <waypoint><time>16.7</time><pose>-1.80 -2.80 0 0 0 -0.300</pose></waypoint>
-          <waypoint><time>21.5</time><pose> 0.50 -3.60 0 0 0 -0.450</pose></waypoint>
-          <waypoint><time>27.5</time><pose> 3.50 -3.50 0 0 0 -0.540</pose></waypoint>
-          <waypoint><time>28.7</time><pose> 4.00 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>32.7</time><pose> 2.00 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>40.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>21.5</time><pose>-0.50 -3.40 0 0 0 -0.450</pose></waypoint>
+          <waypoint><time>27.5</time><pose>-0.50 -3.80 0 0 0 -0.540</pose></waypoint>
+          <waypoint><time>28.7</time><pose>-1.50 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>32.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
+          <waypoint><time>40.7</time><pose>-3.50 -3.80 0 0 0  3.142</pose></waypoint>
           <waypoint><time>46.7</time><pose>-5.00 -3.80 0 0 0  1.571</pose></waypoint>
           <waypoint><time>52.3</time><pose>-5.00 -1.00 0 0 0  1.571</pose></waypoint>
           <waypoint><time>57.3</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>

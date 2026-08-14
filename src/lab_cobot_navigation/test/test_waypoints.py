@@ -104,7 +104,7 @@ def test_new_zones_fill_the_lab_like_offset_layout():
     assert -0.4 <= aging["x"] <= 0.4 and 2.90 <= aging["y"] <= 3.30
     assert inspection["x"] > 3.2 and inspection["y"] > 0.8
     assert tooling["x"] == pytest.approx(-4.10)
-    assert -3.5 <= tooling["y"] <= -3.1
+    assert -3.6 <= tooling["y"] <= -3.1
     assert tooling["yaw"] == pytest.approx(math.pi / 2.0)
     assert -0.2 <= station_b["x"] <= 0.5 and -3.40 <= station_b["y"] <= -2.60
     assert home["x"] > 3.6 and home["y"] < -3.8
