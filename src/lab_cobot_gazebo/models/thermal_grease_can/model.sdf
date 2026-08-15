@@ -3,7 +3,7 @@
   <model name="thermal_grease_can">
     <link name="link">
       <inertial><mass>1.44</mass><inertia><ixx>0.00192</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.00800</iyy><iyz>0</iyz><izz>0.00800</izz></inertia></inertial>
-      <collision name="collision"><pose>0 0 0.026 0 0 0</pose><geometry><box><size>0.260 0.060 0.052</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction><contact><ode><kp>1e6</kp><kd>1.0</kd><min_depth>0.001</min_depth><max_vel>0.01</max_vel></ode></contact></surface></collision>
+      <collision name="collision"><geometry><mesh><uri>model://thermal_grease_can/meshes/meter_closed.dae</uri><scale>2 2 2</scale></mesh></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction><contact><ode><kp>1e6</kp><kd>1.0</kd><min_depth>0.001</min_depth><max_vel>0.01</max_vel></ode></contact></surface></collision>
       <visual name="imported_tool_mesh"><geometry><mesh><uri>model://thermal_grease_can/meshes/meter_closed.dae</uri><scale>2 2 2</scale></mesh></geometry></visual>
     </link>
   </model>

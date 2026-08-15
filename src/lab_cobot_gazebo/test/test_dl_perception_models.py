@@ -35,9 +35,9 @@ def test_plain_igbt_asset_has_dynamic_collision_contract():
 
     assert model.findtext("static") is None
     assert model.findtext(".//link/inertial/mass") is not None
-    assert model.findtext(
-        ".//collision/geometry/box/size"
-    ) == "0.140 0.380 0.120"
+    assert model.findtext(".//collision/geometry/mesh/uri") == (
+        "model://igbt_module_plain/meshes/digital_caliper.dae"
+    )
     assert model.find(".//collision/surface/friction") is not None
     assert model.findtext(".//visual/geometry/mesh/uri") == (
         "model://igbt_module_plain/meshes/digital_caliper.dae"
@@ -49,13 +49,40 @@ def test_fixture_box_asset_has_dynamic_collision_contract():
 
     assert model.findtext("static") is None
     assert model.findtext(".//link/inertial/mass") is not None
-    assert model.findtext(
-        ".//collision/geometry/box/size"
-    ) == "0.120 0.340 0.200"
+    assert model.findtext(".//collision/geometry/mesh/uri") == (
+        "model://fixture_box_plain/meshes/adjustable_wrench.dae"
+    )
     assert model.find(".//collision/surface/friction") is not None
     assert model.findtext(".//visual/geometry/mesh/uri") == (
         "model://fixture_box_plain/meshes/adjustable_wrench.dae"
     )
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "tooling_hand_tools",
+        "fixture_box_plain",
+        "igbt_module_plain",
+        "pcb_test_fixture",
+        "safety_probe_kit",
+        "thermal_grease_can",
+    ],
+)
+def test_tool_mesh_models_collision_matches_visual(model_name):
+    """工具类模型碰撞必须与视觉使用相同 mesh/scale/pose（接触=外观，禁止 box 壳）."""
+    model = _model_root(model_name).find("model")
+    vis_uri = model.findtext(".//visual/geometry/mesh/uri")
+    assert vis_uri is not None, f"{model_name} 缺视觉网格"
+    assert model.findtext(".//collision/geometry/mesh/uri") == vis_uri, (
+        f"{model_name} 碰撞网格必须与视觉相同"
+    )
+    assert model.findtext(".//collision/geometry/mesh/scale") == model.findtext(
+        ".//visual/geometry/mesh/scale"
+    ), f"{model_name} 碰撞/视觉网格 scale 必须一致"
+    assert model.findtext(".//collision/pose") == model.findtext(
+        ".//visual/pose"
+    ), f"{model_name} 碰撞/视觉位姿必须重合"
 
 
 def test_aging_rack_has_three_visual_slots_and_status_panel():
@@ -309,3 +336,25 @@ def test_lab_glassware_props_are_dynamic_and_graspable(model_name):
     radius = model.findtext(".//collision/geometry/cylinder/radius")
     assert radius is not None, f"{model_name} 缺圆柱碰撞"
     assert float(radius) * 2.0 < 0.16, f"{model_name} 直径须小于夹爪开度"
+
+
+def test_erlenmeyer_flask_collision_splits_body_and_neck_to_match_visual():
+    """锥形瓶碰撞必须拆瓶身+瓶颈两段并贴合视觉(不得用粗圆柱包住窄瓶颈)."""
+    model = _model_root("erlenmeyer_flask").find("model")
+    body = model.find(".//collision[@name='collision_body']")
+    neck = model.find(".//collision[@name='collision_neck']")
+    assert body is not None, "锥形瓶缺瓶身碰撞"
+    assert neck is not None, "锥形瓶缺瓶颈碰撞"
+    # 瓶身/瓶颈几何与对应视觉段一致
+    for col, vis in (("collision_body", "visual_body"), ("collision_neck", "visual_neck")):
+        assert model.findtext(
+            f".//collision[@name='{col}']/geometry/cylinder/radius"
+        ) == model.findtext(f".//visual[@name='{vis}']/geometry/cylinder/radius")
+        assert model.findtext(
+            f".//collision[@name='{col}']/geometry/cylinder/length"
+        ) == model.findtext(f".//visual[@name='{vis}']/geometry/cylinder/length")
+        assert model.findtext(f".//collision[@name='{col}']/pose") == model.findtext(
+            f".//visual[@name='{vis}']/pose"
+        )
+    # 不得存在旧的单粗圆柱包住整瓶的碰撞
+    assert float(neck.findtext(".//geometry/cylinder/radius")) == 0.012

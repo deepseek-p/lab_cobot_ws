@@ -64,7 +64,6 @@
       </link>
     </model>
 
-
         <model name="station_a_table">
           <static>true</static>
           <pose>-4.30 3.80 0 0 0 0</pose>
@@ -194,7 +193,6 @@
           </link>
         </model>
 
-
     <include>
       <uri>model://aruco_sample</uri>
       <name>aruco_sample</name>
@@ -223,17 +221,17 @@
     <include>
       <uri>model://fixture_box_plain</uri>
       <name>tooling_fixture_box</name>
-      <pose>-3.88 -2.04 0.80 0 0 -0.28</pose>
+      <pose>-3.88 -2.04 0.758 0 0 -0.28</pose>
     </include>
     <include>
       <uri>model://tooling_hand_tools</uri>
       <name>tooling_hand_tools</name>
-      <pose>-4.36 -1.96 0.75 0 0 0.12</pose>
+      <pose>-4.36 -1.96 0.761 0 0 0.12</pose>
     </include>
     <include>
       <uri>model://pcb_test_fixture</uri>
       <name>board_test_fixture</name>
-      <pose>-4.70 -2.60 0.75 0 0 0.05</pose>
+      <pose>-4.70 -2.60 0.7776 0 0 0.05</pose>
     </include>
     <include>
       <uri>model://safety_probe_kit</uri>
@@ -243,7 +241,7 @@
     <include>
       <uri>model://igbt_module_plain</uri>
       <name>material_spare_igbt</name>
-      <pose>-3.62 -2.60 0.81 0 0 0.38</pose>
+      <pose>-3.62 -2.60 0.753 0 0 0.38</pose>
     </include>
     <include>
       <uri>model://aging_rack</uri>
@@ -330,28 +328,12 @@
       <name>erlenmeyer_flask</name>
       <pose>0.88 -1.95 0.75 0 0 0</pose>
     </include>
-    <include>
-      <uri>model://beaker</uri>
-      <name>beaker_2</name>
-      <pose>-0.05 -1.95 0.75 0 0 0</pose>
-    </include>
-    <include>
-      <uri>model://beaker</uri>
-      <name>beaker_1</name>
-      <pose>0.35 -1.95 0.75 0 0 0</pose>
-    </include>
-    <include>
-      <uri>model://erlenmeyer_flask</uri>
-      <name>erlenmeyer_flask</name>
-      <pose>0.75 -1.95 0.75 0 0 0</pose>
-    </include>
+    
     <include>
       <uri>model://high_voltage_zone</uri>
       <name>high_voltage_zone</name>
       <pose>4.36 2.90 0 0 0 0.12</pose>
     </include>
-
-
 
     <physics name="default_physics" type="ode">
       <max_step_size>0.001</max_step_size>

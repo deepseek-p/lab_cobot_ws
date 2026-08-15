@@ -192,6 +192,20 @@
   <gazebo>
     <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">
       <object_model>aruco_sample</object_model>
+      <object_model>tooling_hand_tools</object_model>
+      <object_model>tooling_fixture_box</object_model>
+      <object_model>board_test_fixture</object_model>
+      <object_model>high_voltage_probe_kit</object_model>
+      <object_model>material_spare_igbt</object_model>
+      <object_model>test_tube_1</object_model>
+      <object_model>test_tube_2</object_model>
+      <object_model>test_tube_3</object_model>
+      <object_model>test_tube_4</object_model>
+      <object_model>test_tube_5</object_model>
+      <object_model>test_tube_6</object_model>
+      <object_model>test_tube_7</object_model>
+      <object_model>test_tube_8</object_model>
+      <object_model>test_tube_9</object_model>
       <object_link>link</object_link>
       <tcp_link>gripper_tcp</tcp_link>
       <left_joint>gripper_left_finger_joint</left_joint>

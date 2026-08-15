@@ -35,6 +35,28 @@
         </surface>
       </collision>
 
+      <!-- 管口厚边(碰撞,与 visual_lip 一致) -->
+      <collision name="collision_lip">
+        <pose>0 0 0.1225 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.013</radius>
+            <length>0.005</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+          <contact>
+            <ode>
+              <kp>1e6</kp>
+              <kd>1.0</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.01</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+
       <!-- 玻璃管身 -->
       <visual name="visual">
         <transparency>0.35</transparency>
