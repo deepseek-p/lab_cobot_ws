@@ -1,0 +1,111 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <!-- 玻璃试管(可抓取):真玻璃材质,外径 0.022 < 夹爪开度,动态模型。
+       玻璃:transparency 0.35 + double_sided + 高 specular/shininess;
+       圆底 + 厚边管口 + 内部琥珀色液体,高保真。 -->
+  <model name="test_tube">
+    <link name="link">
+      <inertial>
+        <mass>0.02</mass>
+        <inertia>
+          <ixx>2.3e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>2.3e-5</iyy><iyz>0</iyz><izz>1.2e-6</izz>
+        </inertia>
+      </inertial>
+
+      <!-- 碰撞:实体圆柱(外径 0.022,长 0.125,管底 z=0) -->
+      <collision name="collision">
+        <pose>0 0 0.0625 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.011</radius>
+            <length>0.125</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+          <contact>
+            <ode>
+              <kp>1e6</kp>
+              <kd>1.0</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.01</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+
+      <!-- 玻璃管身 -->
+      <visual name="visual">
+        <transparency>0.35</transparency>
+        <pose>0 0 0.0625 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.011</radius>
+            <length>0.125</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.80 0.90 0.95 0.4</ambient>
+          <diffuse>0.90 0.95 1.0 0.4</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
+        </material>
+      </visual>
+
+      <!-- 圆底(视觉球) -->
+      <visual name="visual_round_bottom">
+        <transparency>0.35</transparency>
+        <pose>0 0 0.011 0 0 0</pose>
+        <geometry>
+          <sphere><radius>0.011</radius></sphere>
+        </geometry>
+        <material>
+          <ambient>0.80 0.90 0.95 0.4</ambient>
+          <diffuse>0.90 0.95 1.0 0.4</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
+        </material>
+      </visual>
+
+      <!-- 厚边管口(视觉) -->
+      <visual name="visual_lip">
+        <transparency>0.30</transparency>
+        <pose>0 0 0.1225 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.013</radius>
+            <length>0.005</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.80 0.90 0.95 0.5</ambient>
+          <diffuse>0.90 0.95 1.0 0.5</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
+        </material>
+      </visual>
+
+      <!-- 内部琥珀色液体(视觉) -->
+      <visual name="visual_liquid">
+        <transparency>0.15</transparency>
+        <pose>0 0 0.028 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.008</radius>
+            <length>0.05</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.70 0.55 0.22 1</ambient>
+          <diffuse>0.92 0.76 0.36 1</diffuse>
+          <specular>0.40 0.40 0.40 1</specular>
+          <shininess>32</shininess>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <!-- 量筒(可抓取):透明感细高圆柱,直径 0.044 < 夹爪开度。 -->
+  <model name="graduated_cylinder">
+    <link name="link">
+      <inertial>
+        <mass>0.04</mass>
+        <inertia>
+          <ixx>7.02e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>7.02e-5</iyy><iyz>0</iyz><izz>9.68e-6</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <cylinder>
+            <radius>0.022</radius>
+            <length>0.14</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+          <contact>
+            <ode>
+              <kp>1e6</kp>
+              <kd>1.0</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.01</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="visual">
+        <transparency>0.35</transparency>
+        <geometry>
+          <cylinder>
+            <radius>0.022</radius>
+            <length>0.14</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.80 0.88 0.92 0.4</ambient>
+          <diffuse>0.88 0.93 0.96 0.4</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <shininess>128</shininess>
+          <double_sided>true</double_sided>
+        </material>
+      </visual>
+      <!-- 刻度线(视觉) -->
+      <visual name="visual_scale">
+        <pose>0 0 0.02 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.023</radius>
+            <length>0.004</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.25 0.30 0.60 1</ambient>
+          <diffuse>0.30 0.40 0.70 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

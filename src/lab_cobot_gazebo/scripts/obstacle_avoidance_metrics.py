@@ -25,11 +25,11 @@ from tf2_ros import Buffer, TransformException, TransformListener
 LIDAR_MAX_RANGE = 3.0
 GHOST_RADIUS = 0.60
 ROBOT_SAFETY_RADIUS = 0.42
-SAFETY_WARN_DIST = 1.00
-SAFETY_CRITICAL_DIST = 0.70
-SAFETY_EVADE_SPEED = 0.45
-SAFETY_EVADE_CRITICAL_SPEED = 0.55
-SAFETY_EVADE_HYSTERESIS = 0.25
+SAFETY_WARN_DIST = 2.00
+SAFETY_CRITICAL_DIST = 1.20
+SAFETY_EVADE_SPEED = 0.50
+SAFETY_EVADE_CRITICAL_SPEED = 0.60
+SAFETY_EVADE_HYSTERESIS = 0.40
 NAV2_IDLE_TIMEOUT = 0.5             # seconds without non-zero cmd_vel_nav
 COSTMAP_LETHAL = 100
 COSTMAP_OCCUPIED = 90
@@ -75,6 +75,7 @@ class AvoidanceMetrics(Node):
         self._t_detect: Optional[float] = None
         self._t_mark: Optional[float] = None
         self._t_deviate: Optional[float] = None
+        self._t_evade: Optional[float] = None
         self._min_distance = float("inf")
         self._last_nav2_cmd_time = 0.0
         self._evading = False
@@ -102,7 +103,7 @@ class AvoidanceMetrics(Node):
         )
         self._metrics_pub = self.create_publisher(String, "/obstacle_avoidance/metrics", 10)
         self._safety_cmd_pub = self.create_publisher(Twist, "/cmd_vel_safety", 10)
-        self._evaluate_timer = self.create_timer(0.1, self._evaluate)
+        self._evaluate_timer = self.create_timer(0.05, self._evaluate)
         self.get_logger().info("metrics collector + safety evasion started")
 
     @property
@@ -140,10 +141,18 @@ class AvoidanceMetrics(Node):
 
     def _safety_override_allowed(self) -> bool:
         status = self._task_status
-        return (
+        navigating = (
             status.startswith("NAV_TO_")
             or status.startswith("RETURN_HOME")
-        ) and not self._nav2_is_idle
+        )
+        if not navigating:
+            return False
+        # 关键修复:ghost 一旦接近,即使 Nav2 因避障减速停顿时(idle)也允许安全避让接管。
+        # 否则 Nav2 停下 → nav2_is_idle=True → 安全避让被关闭 → 机器人静止被 ghost 穿透。
+        dist = self._distance_to_ghost()
+        if dist is not None and dist < SAFETY_WARN_DIST:
+            return True
+        return not self._nav2_is_idle
 
     def _get_robot_pose(self) -> Optional[tuple]:
         try:
@@ -214,7 +223,7 @@ class AvoidanceMetrics(Node):
     # ------------------------------------------------------------------
 
     def _is_blocked_by_costmap(
-        self, robot_xy: tuple, angle_rad: float, lookahead: float = 0.55
+        self, robot_xy: tuple, angle_rad: float, lookahead: float = 1.0
     ) -> bool:
         """Check whether moving *lookahead* metres along *angle_rad* hits an obstacle."""
         if self._costmap_data is None:
@@ -281,8 +290,10 @@ class AvoidanceMetrics(Node):
                 break
 
         if chosen is None:
-            self._publish_zero_velocity()
-            return
+            # 极端场景(如 home 角落)所有候选方向都被 costmap 阻挡时,
+            # 至少朝远离 ghost 方向移动,不要静止被 ghost 穿透.
+            # 底盘走 SetWorldPose 位姿积分不受碰撞阻挡,静态墙不会真撞.
+            chosen = math.atan2(dy, dx)
 
         yaw = robot[2]
         vx = speed * math.cos(chosen)
@@ -298,7 +309,9 @@ class AvoidanceMetrics(Node):
     def _handle_safety_evasion(self, dist: Optional[float]) -> None:
         """Decide whether to actively evade and publish commands."""
         if dist is None:
-            if self._evading:
+            # 仅当 ghost 确实丢失(actor 消失)时才停避让;
+            # robot TF 短暂失败时保持避让状态,避免静止被 ghost 穿透.
+            if self._ghost_pose is None and self._evading:
                 self._publish_zero_velocity()
                 self._evading = False
             return
@@ -319,6 +332,8 @@ class AvoidanceMetrics(Node):
         if need_evade:
             self._publish_evasion(evade_speed)
             if not self._evading:
+                if self._t_evade is None:
+                    self._t_evade = self._now
                 self.get_logger().info(
                     f"safety evasion ON: dist={dist:.2f}m speed={evade_speed:.2f}m/s"
                 )
@@ -398,6 +413,7 @@ class AvoidanceMetrics(Node):
             "t_detect": self._event_start,
             "t_mark": self._t_mark,
             "t_deviate": self._t_deviate,
+            "t_evade": self._t_evade,
             "t_clear": now,
             "perception_latency_ms": round(1000 * (self._t_mark - self._event_start), 1)
             if self._t_mark else None,
@@ -405,6 +421,8 @@ class AvoidanceMetrics(Node):
             if self._t_deviate and self._t_mark else None,
             "total_response_ms": round(1000 * (self._t_deviate - self._event_start), 1)
             if self._t_deviate else None,
+            "safety_response_ms": round(1000 * (self._t_evade - self._event_start), 1)
+            if self._t_evade else None,
             "total_duration_ms": round(1000 * (now - self._event_start), 1),
             "min_distance_m": round(self._min_distance, 3),
         }
@@ -420,6 +438,7 @@ class AvoidanceMetrics(Node):
         self._t_detect = None
         self._t_mark = None
         self._t_deviate = None
+        self._t_evade = None
         self._baseline_heading = None
         self._min_distance = float("inf")
 

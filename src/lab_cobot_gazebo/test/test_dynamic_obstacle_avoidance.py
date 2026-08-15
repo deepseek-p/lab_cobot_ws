@@ -350,8 +350,18 @@ def _run_bringup_and_cruise() -> dict:
                     pass
         if not raw_events and bringup_log.exists():
             log_raw = bringup_log.read_text(encoding="utf-8", errors="ignore")
-            for match in re.finditer(r"event #\d+: response=.*? min_dist=([0-9.]+)m", log_raw):
-                raw_events.append({"min_distance_m": float(match.group(1))})
+            for match in re.finditer(
+                r"event #\d+: response=([\d.]+|None)ms min_dist=(-?[0-9.]+)m",
+                log_raw,
+            ):
+                resp = (
+                    None if match.group(1) == "None"
+                    else float(match.group(1))
+                )
+                raw_events.append({
+                    "total_response_ms": resp,
+                    "min_distance_m": float(match.group(2)),
+                })
         for event in raw_events:
             result["avoidance_events"] += 1
             dist = event.get("min_distance_m")
