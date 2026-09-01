@@ -360,32 +360,325 @@ freeze/upload 阶段未重新运行真实 Gazebo 实验。
 
 最终 baseline 与报告结果资产独立保留，不与 transient build/runtime outputs 混用。
 
-## 20. 任务入口
+## 20. 各任务运行方法
+
+以下命令基于当前 `feature/Multiple-tasks` 分支源码核对。所有验证任务均通过 `std_msgs/msg/String` topic 触发。`launch_grasp_validation`、`launch_tube_insert_validation`、`launch_tube_insert_feasibility`、`launch_yellow_cube_slot_validation` 属于互斥验证模式，同一次 launch 中不要同时置为 `true`。
+
+### 20.1 统一环境准备
+
+```bash
+cd /home/zww/projects/lab_cobot_ws_newworld
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+```
+
+如修改过源码，先完成对应包构建：
+
+```bash
+colcon build --symlink-install --packages-select lab_cobot_bringup lab_cobot_manipulation
+source install/setup.bash
+```
+
+### 20.2 正式 A→B 任务
+
+正式任务使用默认 `lab_cobot.launch.py` 启动，`launch_mission` 默认值为 `true`，`launch_navigation` 默认值为 `true`，`launch_perception` 默认值为 `true`。
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py
+```
+
+触发 topic：
+
+- Topic: `/task/instruction`
+- Message type: `std_msgs/msg/String`
+
+触发示例：
+
+```bash
+ros2 topic pub --once /task/instruction std_msgs/msg/String "{data: '把物体从A搬到B'}"
+```
+
+相关状态 topic：
+
+- `/task/status`
+
+### 20.3 黄色方块卡槽插入任务
+
+Yellow validation 通过专用 validation mode 启动。该模式会启动 `yellow_cube_slot_validation_node`，并通过 topic 接收 `insert_yellow_cube` 指令。
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  gui:=false \
+  launch_yellow_cube_slot_validation:=true \
+  launch_g4g5_results:=false
+```
+
+触发 topic：
+
+- Topic: `/yellow_cube_slot_validation/target`
+- Message type: `std_msgs/msg/String`
+- Command: `insert_yellow_cube`
+
+触发命令：
+
+```bash
+ros2 topic pub --once /yellow_cube_slot_validation/target std_msgs/msg/String "{data: 'insert_yellow_cube'}"
+```
+
+状态 topic：
+
+- `/yellow_cube_slot_validation/status`
+
+成功状态：
+
+- `YELLOW_CUBE_SLOT_SUCCESS`
+
+### 20.4 试管插入任务
+
+Tube validation 通过 `launch_tube_insert_validation:=true` 启动。源码中 `auto_prepare_tube_arm` 默认值为 `true`。
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  gui:=false \
+  launch_tube_insert_validation:=true \
+  launch_g4g5_results:=false
+```
+
+触发 topic：
+
+- Topic: `/tube_insert_validation/target`
+- Message type: `std_msgs/msg/String`
+- Command: `insert_test_tube`
+
+触发命令：
+
+```bash
+ros2 topic pub --once /tube_insert_validation/target std_msgs/msg/String "{data: 'insert_test_tube'}"
+```
+
+状态 topic：
+
+- `/tube_insert_validation/status`
+
+Tube base feasibility 可通过 launch 入口运行，当前 launch 会向 executable 传入 `--current-base-only`：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  gui:=false \
+  launch_tube_insert_feasibility:=true \
+  launch_g4g5_results:=false
+```
+
+### 20.5 单次抓取验证
+
+Grasp validation 通过 `launch_grasp_validation:=true` 启动。源码中的 `validation_target` 默认值为 `material_spare_igbt`，可选值来自 `GRASP_TARGETS`。
+
+支持目标：
+
+- `tooling_fixture_box`
+- `tooling_hand_tools`
+- `board_test_fixture`
+- `high_voltage_probe_kit`
+- `material_spare_igbt`
+
+启动示例：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  gui:=false \
+  launch_grasp_validation:=true \
+  validation_target:=high_voltage_probe_kit \
+  enable_contact_force:=false \
+  validation_enable_force_gate:=false \
+  validation_enable_force_control:=false \
+  launch_g4g5_results:=false
+```
+
+手动触发 topic：
+
+- Topic: `/grasp_validation/target`
+- Message type: `std_msgs/msg/String`
+
+触发命令：
+
+```bash
+ros2 topic pub --once /grasp_validation/target std_msgs/msg/String "{data: 'high_voltage_probe_kit'}"
+```
+
+状态 topic：
+
+- `/grasp_validation/status`
+
+常用参数及当前默认值：
+
+- `validation_target:=material_spare_igbt`
+- `enable_contact_force:=false`
+- `validation_enable_force_gate:=false`
+- `validation_enable_force_control:=false`
+- `validation_force_target_n:=8.0`
+- `validation_force_deadband_n:=1.0`
+- `validation_force_kp:=0.00020`
+- `validation_force_max_close_step:=0.00030`
+- `validation_force_max_open_step:=0.00008`
+- `validation_force_safety_limit_n:=18.0`
+- `validation_force_safety_frames:=3`
+- `validation_force_balance_limit_n:=12.0`
+- `validation_force_balance_frames:=3`
+- `validation_force_settle_frames:=3`
+- `validation_force_filter_window:=3`
+- `material_spare_descend_mode:=horizontal_insert`
+- `fixture_grasp_point_y_override:=nan`
+
+### 20.6 抓取 benchmark
+
+`grasp_benchmark_node` 不单独启动 Gazebo/MoveIt/grasp validation 环境。运行 benchmark 前，应先启动 `launch_grasp_validation:=true` 的验证环境。benchmark 节点向 `/grasp_validation/target` 发布目标，并记录 `/grasp_validation/status`、接触、力和 reset 状态。
+
+默认参数：
+
+- `target:=material_spare_igbt`
+- `trials:=10`
+- `output_dir:=results/manipulation_validation`
+- `trial_timeout_sec:=420.0`
+- `reset_only:=false`
+- `reset_settle_timeout_sec:=8.0`
+- `record_force_timeseries:=false`
+
+运行单目标 N 次抓取：
+
+```bash
+ros2 run lab_cobot_bringup grasp_benchmark_node --ros-args \
+  -p target:=high_voltage_probe_kit \
+  -p trials:=10 \
+  -p output_dir:=results/manipulation_validation/high_voltage_probe_kit \
+  -p record_force_timeseries:=false
+```
+
+运行 reset-only 诊断：
+
+```bash
+ros2 run lab_cobot_bringup grasp_benchmark_node --ros-args \
+  -p target:=tooling_fixture_box \
+  -p trials:=10 \
+  -p reset_only:=true \
+  -p output_dir:=results/manipulation_validation/tooling_fixture_box_reset_only
+```
+
+启用 force-control time-series 记录：
+
+```bash
+ros2 run lab_cobot_bringup grasp_benchmark_node --ros-args \
+  -p target:=high_voltage_probe_kit \
+  -p trials:=3 \
+  -p output_dir:=results/manipulation_validation/force_control/high_voltage_probe_kit \
+  -p record_force_timeseries:=true
+```
+
+输出文件包括：
+
+- `grasp_trials.csv`
+- `reset_snapshots.csv`，仅 `reset_only:=true` 时生成。
+- `contact_force_timeseries.csv`，仅 `record_force_timeseries:=true` 时生成。
+- `force_control_timeseries.csv`，仅存在 force-control 状态记录时生成。
+
+### 20.7 力反馈闭环验证
+
+当前 force-control validation 是基于 `VIRTUAL_ESTIMATE` 的夹爪力反馈闭环仿真原型。机械臂仍由 MoveIt2/Cartesian 位置轨迹控制，力反馈只作用于夹爪闭合自由度。
+
+启动 force-control 验证环境：
+
+```bash
+ros2 launch lab_cobot_bringup lab_cobot.launch.py \
+  gui:=false \
+  launch_grasp_validation:=true \
+  validation_target:=high_voltage_probe_kit \
+  enable_contact_force:=false \
+  validation_enable_force_gate:=false \
+  validation_enable_force_control:=true \
+  launch_g4g5_results:=false
+```
+
+运行 N=3 force-control benchmark：
+
+```bash
+ros2 run lab_cobot_bringup grasp_benchmark_node --ros-args \
+  -p target:=high_voltage_probe_kit \
+  -p trials:=3 \
+  -p output_dir:=results/manipulation_validation/force_control/high_voltage_probe_kit \
+  -p record_force_timeseries:=true
+```
+
+注意：`enable_contact_force:=false` 是当前稳定基线设置；不要将 `VIRTUAL_ESTIMATE` 结果表述为真实 FSR402 硬件力控，也不要表述为机械臂完整 Cartesian force-position hybrid control。
+
+### 20.8 重复定位验证
+
+`manipulation_repeatability_node` 使用 `PickPlace` 和 MoveIt2 执行 TCP 重复定位统计。运行前需要已有可用的 MoveIt/controller 环境。
+
+默认参数：
+
+- `repeatability_trials:=20`
+- `repeatability_output_dir:=results/manipulation_validation/repeatability`
+- `repeatability_target_position:=[0.62, 0.0, 0.72]`
+- `repeatability_target_quat:=[1.0, 0.0, 0.0, 0.0]`
+
+运行命令：
+
+```bash
+ros2 run lab_cobot_bringup manipulation_repeatability_node --ros-args \
+  -p repeatability_trials:=20 \
+  -p repeatability_output_dir:=results/manipulation_validation/repeatability
+```
+
+输出文件：
+
+- `repeatability.csv`
+- `repeatability_summary.txt`
+
+### 20.9 结果分析工具
+
+抓取与重复性结果分析工具：
+
+```bash
+python3 tools/manipulation_validation_analyze_results.py
+```
+
+force-control time-series 分析工具：
+
+```bash
+python3 tools/force_control_validation_analysis.py
+```
+
+这些工具用于分析已有 CSV/PNG 结果文件，不负责启动 Gazebo、MoveIt 或具体任务节点。
+
+## 21. 任务入口
 
 正式 A→B：
 
 - Topic: `/task/instruction`
+- Message type: `std_msgs/msg/String`
 
 Yellow cube slot validation：
 
 - Topic: `/yellow_cube_slot_validation/target`
+- Message type: `std_msgs/msg/String`
 - Command: `insert_yellow_cube`
 
 Test tube insertion validation：
 
 - Topic: `/tube_insert_validation/target`
+- Message type: `std_msgs/msg/String`
 - Command: `insert_test_tube`
 
 Grasp validation：
 
 - Topic: `/grasp_validation/target`
+- Message type: `std_msgs/msg/String`
 
 Benchmark 与 repeatability executables：
 
 - `ros2 run lab_cobot_bringup grasp_benchmark_node`
 - `ros2 run lab_cobot_bringup manipulation_repeatability_node`
 
-## 21. 最终状态
+## 22. 最终状态
 
 - Formal A-to-B: PRESERVED。
 - Yellow cube slot: VALIDATED。
