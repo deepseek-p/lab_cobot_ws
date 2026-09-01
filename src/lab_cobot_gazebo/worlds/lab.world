@@ -246,7 +246,7 @@
     <include>
       <uri>model://aging_rack</uri>
       <name>aging_rack</name>
-      <pose>0.20 4.26 0.80 0 0 0</pose>
+      <pose>0.20 3.88 0.80 0 0 0</pose>
     </include>
     <include>
       <uri>model://pcb_board</uri>
@@ -256,57 +256,57 @@
     <include>
       <uri>model://test_tube_rack</uri>
       <name>test_tube_rack_1</name>
-      <pose>0.48 -1.85 0.75 0 0 0</pose>
+      <pose>0.48 -1.95 0.75 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube_rack</uri>
       <name>test_tube_rack_2</name>
-      <pose>0.12 -1.85 0.75 0 0 0</pose>
+      <pose>0.12 -1.95 0.75 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_1</name>
-      <pose>0.36 -1.85 0.762 0 0 0</pose>
+      <pose>0.36 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_2</name>
-      <pose>0.42 -1.85 0.762 0 0 0</pose>
+      <pose>0.42 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_3</name>
-      <pose>0.48 -1.85 0.762 0 0 0</pose>
+      <pose>0.48 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_4</name>
-      <pose>0.54 -1.85 0.762 0 0 0</pose>
+      <pose>0.54 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_5</name>
-      <pose>0.60 -1.85 0.762 0 0 0</pose>
+      <pose>0.60 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_6</name>
-      <pose>0.00 -1.85 0.762 0 0 0</pose>
+      <pose>0.00 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_7</name>
-      <pose>0.06 -1.85 0.762 0 0 0</pose>
+      <pose>0.06 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_8</name>
-      <pose>0.18 -1.85 0.762 0 0 0</pose>
+      <pose>0.18 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://test_tube</uri>
       <name>test_tube_9</name>
-      <pose>0.24 -1.85 0.762 0 0 0</pose>
+      <pose>0.24 -1.95 0.762 0 0 0</pose>
     </include>
     <include>
       <uri>model://graduated_cylinder</uri>

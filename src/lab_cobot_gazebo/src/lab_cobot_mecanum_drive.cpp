@@ -153,11 +153,24 @@ public:
           << " using " << control_mode_
           << " command_topic " << wheel_command_topic_
           << " odom_tf " << (publish_odom_tf_ ? "true" : "false") << std::endl;
+    gzmsg << "MECANUM_ODOM_TF_CONFIG"
+          << " publish_odom=" << (publish_odom_ ? "true" : "false")
+          << " publish_odom_tf=" << (publish_odom_tf_ ? "true" : "false")
+          << " tf_broadcaster=" << (tf_broadcaster_ ? "ready" : "none")
+          << " odom_frame=" << odom_frame_
+          << " base_frame=" << base_frame_
+          << std::endl;
   }
 
 private:
   void OnUpdate()
   {
+    if (control_mode_ == "fixed_pose") {
+      ApplyFixedPoseModel();
+      PublishOdometry(fixed_world_pose_, {0.0, 0.0, 0.0});
+      return;
+    }
+
     if (UsesMeasuredWheelJoints() && !AllWheelJointsAvailable()) {
       if (!reported_missing_dependencies_) {
         gzerr << "lab_cobot_mecanum_drive missing wheel joints" << std::endl;
@@ -341,6 +354,38 @@ private:
     planar_pose_initialized_ = true;
   }
 
+  void InitializeFixedPoseIfNeeded()
+  {
+    if (fixed_pose_initialized_ || !model_) {
+      return;
+    }
+    fixed_world_pose_ = model_->WorldPose();
+    fixed_pose_initialized_ = true;
+    gzmsg << "lab_cobot_mecanum_drive fixed_pose locked initial world pose "
+          << "x=" << fixed_world_pose_.Pos().X()
+          << " y=" << fixed_world_pose_.Pos().Y()
+          << " z=" << fixed_world_pose_.Pos().Z()
+          << " roll=" << fixed_world_pose_.Rot().Roll()
+          << " pitch=" << fixed_world_pose_.Rot().Pitch()
+          << " yaw=" << fixed_world_pose_.Rot().Yaw()
+          << std::endl;
+  }
+
+  void ApplyFixedPoseModel()
+  {
+    if (!model_) {
+      return;
+    }
+    InitializeFixedPoseIfNeeded();
+    model_->SetWorldPose(fixed_world_pose_);
+    model_->SetLinearVel(ignition::math::Vector3d::Zero);
+    model_->SetAngularVel(ignition::math::Vector3d::Zero);
+    if (base_link_) {
+      base_link_->SetLinearVel(ignition::math::Vector3d::Zero);
+      base_link_->SetAngularVel(ignition::math::Vector3d::Zero);
+    }
+  }
+
   ignition::math::Pose3d PhysicsOdomPose() const
   {
     return model_ ? model_->WorldPose() : ignition::math::Pose3d();
@@ -422,6 +467,14 @@ private:
       transform.transform.rotation.z = pose.Rot().Z();
       transform.transform.rotation.w = pose.Rot().W();
       tf_broadcaster_->sendTransform(transform);
+      if (!reported_odom_tf_started_) {
+        gzmsg << "MECANUM_ODOM_TF_BROADCAST_STARTED"
+              << " parent=" << odom_frame_
+              << " child=" << base_frame_
+              << " stamp=" << stamp.sec << "." << stamp.nanosec
+              << std::endl;
+        reported_odom_tf_started_ = true;
+      }
     }
   }
 
@@ -546,12 +599,15 @@ private:
   double planar_y_{0.0};
   double planar_z_{0.0};
   double planar_yaw_{0.0};
+  ignition::math::Pose3d fixed_world_pose_;
   std::array<double, 3> current_twist_base_{0.0, 0.0, 0.0};
   std::array<double, 4> commanded_wheel_speeds_{0.0, 0.0, 0.0, 0.0};
   std::mutex command_mutex_;
   bool publish_odom_{true};
   bool publish_odom_tf_{true};
+  bool reported_odom_tf_started_{false};
   bool planar_pose_initialized_{false};
+  bool fixed_pose_initialized_{false};
   bool reported_missing_dependencies_{false};
 };
 

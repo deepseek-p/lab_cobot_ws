@@ -7,6 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -32,6 +33,8 @@ endif()
 install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
+
+ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   lab_cobot_moveit/table_scene_initializer.py

@@ -85,11 +85,24 @@ def test_tool_mesh_models_collision_matches_visual(model_name):
     ), f"{model_name} 碰撞/视觉位姿必须重合"
 
 
-def test_aging_rack_has_three_visual_slots_and_status_panel():
+def test_aging_rack_has_three_hollow_slots_and_status_panel():
     root = _model_root("aging_rack")
+    collision_names = {
+        collision.get("name") for collision in root.findall(".//collision")
+    }
+    assert collision_names == {
+        "collision_bottom",
+        "collision_wall_front",
+        "collision_wall_back",
+        "collision_wall_left",
+        "collision_wall_right",
+        "collision_divider_left",
+        "collision_divider_right",
+    }
     assert root.find(".//visual[@name='slot_left']") is not None
     assert root.find(".//visual[@name='slot_mid']") is not None
     assert root.find(".//visual[@name='slot_right']") is not None
+    assert root.find(".//visual[@name='status_panel']") is not None
     assert root.find(".//visual[@name='status_green']") is not None
     assert root.find(".//visual[@name='status_yellow']") is not None
     assert root.find(".//visual[@name='status_red']") is not None
@@ -162,7 +175,7 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     assert probe[2] > 0.70, "螺丝刀应从地面抬到桌面"
 
     # 板卡测试台(原老化桌):aging_rack 保留 + 新建板卡
-    assert rack[:3] == pytest.approx([0.20, 4.26, 0.80])
+    assert rack[:3] == pytest.approx([0.20, 3.88, 0.80])
     assert -0.60 <= board[0] <= 1.00 and 3.60 <= board[1] <= 4.80
     assert board[2] == pytest.approx(0.75)
 
@@ -170,8 +183,8 @@ def test_world_places_new_objects_in_the_expected_five_zone_layout():
     for obj in [tube_rack_1, tube_rack_2] + tubes + beakers:
         assert -0.50 <= obj[0] <= 1.10, f"老化实验台道具 x={obj[0]} 越界"
         assert -2.30 <= obj[1] <= -1.10, f"老化实验台道具 y={obj[1]} 越界"
-    assert tube_rack_1[:3] == pytest.approx([0.48, -1.85, 0.75])
-    assert tube_rack_2[:3] == pytest.approx([0.12, -1.85, 0.75])
+    assert tube_rack_1[:3] == pytest.approx([0.48, -1.95, 0.75])
+    assert tube_rack_2[:3] == pytest.approx([0.12, -1.95, 0.75])
     assert tube_rack_1[1] == tube_rack_2[1], "两个试管架应同排对齐"
     assert abs(tube_rack_1[0] - tube_rack_2[0]) < 0.5, "两个试管架应并拢便于机械臂抓取"
     for tube in tubes:

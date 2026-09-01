@@ -1,0 +1,4 @@
+metric,count,total,percent,description
+PRIMARY_LIFT_SUCCESS,20,30,66.67,Cartesian lift trajectory primary execution success
+STATE_VERIFIED_TASK_COMPLETION,8,30,26.67,Controller abort after task-level TCP/holding verification
+FINAL_TASK_COMPLETION,28,30,93.33,Final successful grasp task completion

@@ -3,6 +3,8 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 PACKAGE = Path(__file__).resolve().parents[1]
 MODULE_PATH = PACKAGE / "lab_cobot_moveit" / "table_scene_initializer.py"
@@ -50,6 +52,110 @@ def test_build_planning_scene_is_an_idempotent_world_diff():
     ]
 
 
+def test_validation_tooling_table_uses_base_footprint_frame():
+    module = _load_module()
+
+    scene = module.build_validation_tooling_table_planning_scene(
+        base_x=-3.62,
+        base_y=-3.35,
+        base_yaw=1.57079632679,
+    )
+
+    objects = scene.world.collision_objects
+    assert len(objects) == 1
+    table = objects[0]
+    assert table.id == "tooling_zone_table"
+    assert table.header.frame_id == "base_footprint"
+    assert list(table.primitives[0].dimensions) == [1.6, 1.2, 0.75]
+
+
+def test_validation_tooling_table_transform_includes_base_yaw():
+    module = _load_module()
+
+    x_base, y_base, yaw_base = module.world_pose_to_base_footprint(
+        world_x=-4.10,
+        world_y=-2.30,
+        world_yaw=0.0,
+        base_x=-3.62,
+        base_y=-3.35,
+        base_yaw=1.57079632679,
+    )
+
+    assert x_base == pytest.approx(1.05, abs=1e-6)
+    assert y_base == pytest.approx(0.48, abs=1e-6)
+    assert yaw_base == pytest.approx(-1.57079632679, abs=1e-6)
+
+
+def test_aging_validation_registers_real_station_a_and_aging_tables_in_map_frame():
+    module = _load_module()
+
+    scene = module.build_aging_rack_insert_validation_planning_scene("map")
+
+    assert scene.is_diff is True
+    assert scene.robot_state.is_diff is True
+    objects = scene.world.collision_objects
+    assert [obj.id for obj in objects] == ["station_a_table", "aging_zone_table"]
+    table = objects[0]
+    pose = table.primitive_poses[0]
+    assert table.id == "station_a_table"
+    assert table.header.frame_id == "map"
+    assert table.pose.orientation.w == pytest.approx(1.0)
+    assert list(table.primitives[0].dimensions) == [1.6, 1.2, 0.75]
+    assert pose.position.x == pytest.approx(-4.30)
+    assert pose.position.y == pytest.approx(3.80)
+    assert pose.position.z == pytest.approx(0.375)
+    assert (pose.position.x, pose.position.y, pose.position.z) != (0.0, 0.0, 0.0)
+    assert pose.position.z + table.primitives[0].dimensions[2] / 2.0 == pytest.approx(0.75)
+    aging_table = objects[1]
+    aging_pose = aging_table.primitive_poses[0]
+    assert aging_table.id == "aging_zone_table"
+    assert aging_table.header.frame_id == "map"
+    assert list(aging_table.primitives[0].dimensions) == [1.6, 1.2, 0.75]
+    assert aging_pose.position.x == pytest.approx(0.20)
+    assert aging_pose.position.y == pytest.approx(4.20)
+    assert aging_pose.position.z == pytest.approx(0.375)
+    assert aging_pose.position.z + aging_table.primitives[0].dimensions[2] / 2.0 == pytest.approx(0.75)
+
+
+def test_aging_station_a_table_can_be_transformed_to_base_footprint():
+    module = _load_module()
+
+    table = module.build_validation_station_a_table_collision_object(
+        frame_id="base_footprint",
+        base_x=-4.30,
+        base_y=2.745,
+        base_yaw=1.57079632679,
+    )
+    pose = table.primitive_poses[0]
+
+    assert table.id == "station_a_table"
+    assert table.header.frame_id == "base_footprint"
+    assert table.pose.orientation.w == pytest.approx(1.0)
+    assert list(table.primitives[0].dimensions) == [1.6, 1.2, 0.75]
+    assert pose.position.x == pytest.approx(1.055, abs=1e-6)
+    assert pose.position.y == pytest.approx(0.0, abs=1e-6)
+    assert pose.position.z == pytest.approx(0.375)
+    assert pose.orientation.z == pytest.approx(-0.70710678, abs=1e-6)
+    assert pose.orientation.w == pytest.approx(0.70710678, abs=1e-6)
+
+
+def test_material_spare_validation_spawn_positions_tooling_table_correctly():
+    module = _load_module()
+
+    table = module.build_validation_tooling_table_collision_object(
+        base_x=-3.62,
+        base_y=-3.35,
+        base_yaw=1.57079632679,
+    )
+    pose = table.primitive_poses[0]
+
+    assert pose.position.x == pytest.approx(1.05, abs=1e-6)
+    assert pose.position.y == pytest.approx(0.48, abs=1e-6)
+    assert pose.position.z == pytest.approx(0.375)
+    assert pose.orientation.z == pytest.approx(-0.70710678, abs=1e-6)
+    assert pose.orientation.w == pytest.approx(0.70710678, abs=1e-6)
+
+
 def test_apply_backs_off_after_a_failed_planning_scene_response(monkeypatch):
     module = _load_module()
     initializer = module.TableSceneInitializer.__new__(module.TableSceneInitializer)
@@ -57,7 +163,16 @@ def test_apply_backs_off_after_a_failed_planning_scene_response(monkeypatch):
     sleeps = []
 
     initializer.get_parameter = lambda name: SimpleNamespace(
-        value={"world_frame": "map", "max_attempts": 3, "retry_delay": 0.5}[name]
+        value={
+            "world_frame": "map",
+            "validation_mode": False,
+            "validation_scene_kind": "tooling",
+            "robot_spawn_x": 0.0,
+            "robot_spawn_y": 0.0,
+            "robot_spawn_yaw": 0.0,
+            "max_attempts": 3,
+            "retry_delay": 0.5,
+        }[name]
     )
     initializer.get_logger = lambda: SimpleNamespace(
         error=lambda _message: None,

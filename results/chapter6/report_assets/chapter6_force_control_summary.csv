@@ -1,0 +1,5 @@
+target,object,trials,force_aware_decision,active_force_adjustment,force_hold_reached,task_success
+high_voltage_probe_kit,高压探针工具,3,3/3,3/3,3/3,3/3
+tooling_fixture_box,工装夹具,3,3/3,0/3,3/3,3/3
+material_spare_igbt,IGBT 模块,3,3/3,3/3,3/3,3/3
+overall,总体,9,9/9,6/9,9/9,9/9

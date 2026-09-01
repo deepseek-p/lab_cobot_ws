@@ -25,6 +25,17 @@ from std_msgs.msg import String
 from lab_cobot_manipulation.gripper_driver import (
     CONTACT_BACKEND,
     DEFAULT_TARGET_OBJECT,
+    FORCE_CONTROL_BALANCE_FRAMES,
+    FORCE_CONTROL_BALANCE_LIMIT_N,
+    FORCE_CONTROL_DEADBAND_N,
+    FORCE_CONTROL_FILTER_WINDOW,
+    FORCE_CONTROL_KP,
+    FORCE_CONTROL_MAX_CLOSE_STEP,
+    FORCE_CONTROL_MAX_OPEN_STEP,
+    FORCE_CONTROL_SAFETY_FRAMES,
+    FORCE_CONTROL_SAFETY_LIMIT_N,
+    FORCE_CONTROL_SETTLE_FRAMES,
+    FORCE_CONTROL_TARGET_N,
     make_gripper_driver,
 )
 from lab_cobot_manipulation.refine_select import select_refined_position
@@ -185,6 +196,18 @@ def _moveit_action_result_succeeded(action_result) -> bool:
     return value in (0, 1)
 
 
+def _moveit_action_result_error_value(action_result) -> int | None:
+    moveit_result = getattr(action_result, "result", None)
+    error_code = getattr(moveit_result, "error_code", None)
+    if error_code is None:
+        return None
+    value = getattr(error_code, "val", error_code)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _wait_for_future_until(future, deadline: float) -> bool:
     while not future.done():
         if time.monotonic() >= deadline:
@@ -319,12 +342,85 @@ class PickPlace(Node):
         target_object: str = DEFAULT_TARGET_OBJECT,
         use_tactile_grasp: bool = False,
         use_planning_scene_obstacles: bool = True,
+        tactile_start_position: float | None = None,
+        tactile_step_position: float | None = None,
+        tactile_max_position: float | None = None,
+        tactile_log_prefix: str = "TACTILE",
+        gripper_open_positions: list[float] | tuple[float, float] | None = None,
+        expected_object_width_mm: float | None = None,
+        pick_tcp_z_clearance: float | None = None,
+        tactile_target_force_n: float | None = None,
+        tactile_max_force_n: float | None = None,
+        enable_force_gate: bool = False,
+        enable_force_control: bool = False,
+        force_target_n: float = FORCE_CONTROL_TARGET_N,
+        force_deadband_n: float = FORCE_CONTROL_DEADBAND_N,
+        force_kp: float = FORCE_CONTROL_KP,
+        force_max_close_step: float = FORCE_CONTROL_MAX_CLOSE_STEP,
+        force_max_open_step: float = FORCE_CONTROL_MAX_OPEN_STEP,
+        force_safety_limit_n: float = FORCE_CONTROL_SAFETY_LIMIT_N,
+        force_safety_frames: int = FORCE_CONTROL_SAFETY_FRAMES,
+        force_balance_limit_n: float = FORCE_CONTROL_BALANCE_LIMIT_N,
+        force_balance_frames: int = FORCE_CONTROL_BALANCE_FRAMES,
+        force_settle_frames: int = FORCE_CONTROL_SETTLE_FRAMES,
+        force_filter_window: int = FORCE_CONTROL_FILTER_WINDOW,
+        node_name: str = "pick_place_node",
     ):
-        super().__init__("pick_place_node")
+        super().__init__(node_name)
         self.declare_parameter("approach_height", DEFAULT_APPROACH_HEIGHT)
         self.declare_parameter("gripper_backend", CONTACT_BACKEND)
         self.declare_parameter("target_object", str(target_object))
         self.declare_parameter("use_tactile_grasp", bool(use_tactile_grasp))
+        self.declare_parameter(
+            "tactile_start_position",
+            -1.0 if tactile_start_position is None else float(tactile_start_position),
+        )
+        self.declare_parameter(
+            "tactile_step_position",
+            -1.0 if tactile_step_position is None else float(tactile_step_position),
+        )
+        self.declare_parameter(
+            "tactile_max_position",
+            -1.0 if tactile_max_position is None else float(tactile_max_position),
+        )
+        self.declare_parameter("tactile_log_prefix", str(tactile_log_prefix))
+        self.declare_parameter(
+            "gripper_open_positions",
+            (
+                [0.0, 0.0]
+                if gripper_open_positions is None
+                else [float(gripper_open_positions[0]), float(gripper_open_positions[1])]
+            ),
+        )
+        self.declare_parameter(
+            "expected_object_width_mm",
+            -1.0 if expected_object_width_mm is None else float(expected_object_width_mm),
+        )
+        self.declare_parameter(
+            "pick_tcp_z_clearance",
+            -1.0 if pick_tcp_z_clearance is None else float(pick_tcp_z_clearance),
+        )
+        self.declare_parameter(
+            "tactile_target_force_n",
+            -1.0 if tactile_target_force_n is None else float(tactile_target_force_n),
+        )
+        self.declare_parameter(
+            "tactile_max_force_n",
+            -1.0 if tactile_max_force_n is None else float(tactile_max_force_n),
+        )
+        self.declare_parameter("enable_force_gate", bool(enable_force_gate))
+        self.declare_parameter("enable_force_control", bool(enable_force_control))
+        self.declare_parameter("force_target_n", float(force_target_n))
+        self.declare_parameter("force_deadband_n", float(force_deadband_n))
+        self.declare_parameter("force_kp", float(force_kp))
+        self.declare_parameter("force_max_close_step", float(force_max_close_step))
+        self.declare_parameter("force_max_open_step", float(force_max_open_step))
+        self.declare_parameter("force_safety_limit_n", float(force_safety_limit_n))
+        self.declare_parameter("force_safety_frames", int(force_safety_frames))
+        self.declare_parameter("force_balance_limit_n", float(force_balance_limit_n))
+        self.declare_parameter("force_balance_frames", int(force_balance_frames))
+        self.declare_parameter("force_settle_frames", int(force_settle_frames))
+        self.declare_parameter("force_filter_window", int(force_filter_window))
         self.declare_parameter(
             "use_planning_scene_obstacles", bool(use_planning_scene_obstacles)
         )
@@ -333,6 +429,82 @@ class PickPlace(Node):
         self.target_object = str(self.get_parameter("target_object").value)
         self.use_tactile_grasp = bool(
             self.get_parameter("use_tactile_grasp").value
+        )
+        configured_tactile_start = float(
+            self.get_parameter("tactile_start_position").value
+        )
+        self.tactile_start_position = (
+            None if configured_tactile_start < 0.0 else configured_tactile_start
+        )
+        configured_tactile_step = float(
+            self.get_parameter("tactile_step_position").value
+        )
+        self.tactile_step_position = (
+            None if configured_tactile_step <= 0.0 else configured_tactile_step
+        )
+        configured_tactile_max = float(
+            self.get_parameter("tactile_max_position").value
+        )
+        self.tactile_max_position = (
+            None if configured_tactile_max <= 0.0 else configured_tactile_max
+        )
+        self.tactile_log_prefix = str(self.get_parameter("tactile_log_prefix").value)
+        self.gripper_open_positions = [
+            float(value)
+            for value in self.get_parameter("gripper_open_positions").value
+        ]
+        configured_expected_width = float(
+            self.get_parameter("expected_object_width_mm").value
+        )
+        self.expected_object_width_mm = (
+            None if configured_expected_width <= 0.0 else configured_expected_width
+        )
+        configured_pick_clearance = float(
+            self.get_parameter("pick_tcp_z_clearance").value
+        )
+        self.pick_tcp_z_clearance = (
+            None if configured_pick_clearance <= 0.0 else configured_pick_clearance
+        )
+        configured_target_force = float(
+            self.get_parameter("tactile_target_force_n").value
+        )
+        self.tactile_target_force_n = (
+            None if configured_target_force <= 0.0 else configured_target_force
+        )
+        configured_max_force = float(self.get_parameter("tactile_max_force_n").value)
+        self.tactile_max_force_n = (
+            None if configured_max_force <= 0.0 else configured_max_force
+        )
+        self.enable_force_gate = bool(self.get_parameter("enable_force_gate").value)
+        self.enable_force_control = bool(
+            self.get_parameter("enable_force_control").value
+        )
+        self.force_target_n = float(self.get_parameter("force_target_n").value)
+        self.force_deadband_n = float(self.get_parameter("force_deadband_n").value)
+        self.force_kp = float(self.get_parameter("force_kp").value)
+        self.force_max_close_step = float(
+            self.get_parameter("force_max_close_step").value
+        )
+        self.force_max_open_step = float(
+            self.get_parameter("force_max_open_step").value
+        )
+        self.force_safety_limit_n = float(
+            self.get_parameter("force_safety_limit_n").value
+        )
+        self.force_safety_frames = int(
+            self.get_parameter("force_safety_frames").value
+        )
+        self.force_balance_limit_n = float(
+            self.get_parameter("force_balance_limit_n").value
+        )
+        self.force_balance_frames = int(
+            self.get_parameter("force_balance_frames").value
+        )
+        self.force_settle_frames = int(
+            self.get_parameter("force_settle_frames").value
+        )
+        self.force_filter_window = int(
+            self.get_parameter("force_filter_window").value
         )
         self.use_planning_scene_obstacles = bool(
             self.get_parameter("use_planning_scene_obstacles").value
@@ -365,6 +537,27 @@ class PickPlace(Node):
             command_settle_sec=GRIPPER_CLOSE_SETTLE_SEC,
             target_object=self.target_object,
             use_tactile_grasp=self.use_tactile_grasp,
+            tactile_start_position=self.tactile_start_position,
+            tactile_step_position=self.tactile_step_position,
+            tactile_max_position=self.tactile_max_position,
+            tactile_log_prefix=self.tactile_log_prefix,
+            open_positions=self.gripper_open_positions,
+            expected_object_width_mm=self.expected_object_width_mm,
+            tactile_target_force_n=self.tactile_target_force_n,
+            tactile_max_force_n=self.tactile_max_force_n,
+            enable_force_gate=self.enable_force_gate,
+            enable_force_control=self.enable_force_control,
+            force_target_n=self.force_target_n,
+            force_deadband_n=self.force_deadband_n,
+            force_kp=self.force_kp,
+            force_max_close_step=self.force_max_close_step,
+            force_max_open_step=self.force_max_open_step,
+            force_safety_limit_n=self.force_safety_limit_n,
+            force_safety_frames=self.force_safety_frames,
+            force_balance_limit_n=self.force_balance_limit_n,
+            force_balance_frames=self.force_balance_frames,
+            force_settle_frames=self.force_settle_frames,
+            force_filter_window=self.force_filter_window,
         )
         # 规划场景障碍注入客户端;禁用时为 None,全部调用点走降级路径。
         self.scene_client = (
@@ -719,6 +912,9 @@ class PickPlace(Node):
         return done
 
     def _execute_trajectory_via_moveit(self, trajectory, timeout_sec) -> bool:
+        self.last_execute_action_status = ""
+        self.last_execute_error_code = ""
+        self.last_execute_error_text = ""
         deadline = time.monotonic() + max(float(timeout_sec), 0.0)
         client = self._execute_trajectory_client
         server_timeout = min(
@@ -728,25 +924,46 @@ class PickPlace(Node):
         try:
             if not client.wait_for_server(timeout_sec=server_timeout):
                 self.get_logger().warn("MoveIt execute_trajectory unavailable")
+                self.last_execute_error_text = "MOVEIT_EXECUTE_SERVER_UNAVAILABLE"
                 return False
             goal = ExecuteTrajectory.Goal()
             goal.trajectory.joint_trajectory = trajectory
             send_future = client.send_goal_async(goal)
             if not _wait_for_future_until(send_future, deadline):
                 self.get_logger().warn("MoveIt execute_trajectory goal timeout")
+                self.last_execute_error_text = "MOVEIT_EXECUTE_GOAL_TIMEOUT"
                 return False
             goal_handle = send_future.result()
             if goal_handle is None or not goal_handle.accepted:
                 self.get_logger().warn("MoveIt execute_trajectory goal rejected")
+                self.last_execute_error_text = "MOVEIT_EXECUTE_GOAL_REJECTED"
                 return False
             result_future = goal_handle.get_result_async()
             if not _wait_for_future_until(result_future, deadline):
                 goal_handle.cancel_goal_async()
                 self.get_logger().warn("MoveIt execute_trajectory result timeout")
+                self.last_execute_error_text = "MOVEIT_EXECUTE_RESULT_TIMEOUT"
                 return False
-            return _moveit_action_result_succeeded(result_future.result())
+            action_result = result_future.result()
+            self.last_execute_action_status = str(
+                getattr(action_result, "status", "")
+            )
+            error_value = _moveit_action_result_error_value(action_result)
+            if error_value is not None:
+                self.last_execute_error_code = str(error_value)
+            ok = _moveit_action_result_succeeded(action_result)
+            if not ok and not self.last_execute_error_text:
+                self.last_execute_error_text = (
+                    "MOVEIT_EXECUTE_ACTION_STATUS_%s_ERROR_%s"
+                    % (
+                        self.last_execute_action_status or "UNKNOWN",
+                        self.last_execute_error_code or "UNKNOWN",
+                    )
+                )
+            return ok
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f"MoveIt execute_trajectory failed: {e}")
+            self.last_execute_error_text = "MOVEIT_EXECUTE_EXCEPTION_%s" % type(e).__name__
             return False
 
     def _with_local_arm_scaling(self, enabled: bool, fn):
@@ -856,7 +1073,11 @@ class PickPlace(Node):
         clearance = PICK_TCP_Z_CLEARANCE
         y_target = pos[1]
         if self.use_tactile_grasp:
-            clearance = TACTILE_PICK_TCP_Z_CLEARANCE
+            clearance = (
+                self.pick_tcp_z_clearance
+                if self.pick_tcp_z_clearance is not None
+                else TACTILE_PICK_TCP_Z_CLEARANCE
+            )
             y_target = pos[1] + TACTILE_PICK_LATERAL_BIAS
         return [pos[0], y_target, pos[2] + clearance]
 

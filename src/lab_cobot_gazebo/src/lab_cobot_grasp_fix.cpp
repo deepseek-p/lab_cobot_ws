@@ -179,6 +179,8 @@ public:
     // 避免物理 probe 接触响应把样块顶飞。
     contact_force_pub_ = ros_node_->create_publisher<std_msgs::msg::Float64MultiArray>(
       "/gripper/contact/force", rclcpp::QoS(10));
+    contact_force_source_pub_ = ros_node_->create_publisher<std_msgs::msg::String>(
+      "/gripper/contact/force_source", rclcpp::QoS(10));
     // 持有心跳由抓取插件（fixed joint 的唯一所有者）发布；消费方不能只凭
     // 一次 "attached" 事件就假定物块仍在手上。
     hold_status_pub_ = ros_node_->create_publisher<std_msgs::msg::String>(
@@ -699,9 +701,13 @@ private:
     force_publish_countdown_ = 0;
     double left_force = 0.0;
     double right_force = 0.0;
+    bool left_raw_contact = false;
+    bool right_raw_contact = false;
+    bool contact_manager_available = false;
     const auto contact_manager = world_ && world_->Physics() ?
       world_->Physics()->GetContactManager() : nullptr;
     if (contact_manager) {
+      contact_manager_available = true;
       const auto count = contact_manager->GetContactCount();
       const auto & contacts = contact_manager->GetContacts();
       const auto left_name = left_joint->GetChild()->GetName();
@@ -738,13 +744,17 @@ private:
         for (int wrench_index = 0; wrench_index < contact->count; ++wrench_index) {
           if (left1) {
             left_force += contact->wrench[wrench_index].body1Force.Length();
+            left_raw_contact = true;
           } else if (left2) {
             left_force += contact->wrench[wrench_index].body2Force.Length();
+            left_raw_contact = true;
           }
           if (right1) {
             right_force += contact->wrench[wrench_index].body1Force.Length();
+            right_raw_contact = true;
           } else if (right2) {
             right_force += contact->wrench[wrench_index].body2Force.Length();
+            right_raw_contact = true;
           }
         }
       }
@@ -757,9 +767,33 @@ private:
         right_force,
         VirtualFingerForce(right_joint, last_right_finger_contact_time_));
     }
+    double source_code = 0.0;
+    const char * source = "INVALID";
+    if (enable_contact_force_ && contact_manager_available) {
+      source = "RAW_GAZEBO_WRENCH";
+      source_code = 1.0;
+    } else if (!enable_contact_force_ && virtual_force_sensor_) {
+      source = "VIRTUAL_ESTIMATE";
+      source_code = 2.0;
+    }
     std_msgs::msg::Float64MultiArray msg;
-    msg.data = {left_force, right_force};
+    msg.data = {
+      left_force,
+      right_force,
+      source_code,
+      left_raw_contact ? 1.0 : 0.0,
+      right_raw_contact ? 1.0 : 0.0};
     contact_force_pub_->publish(msg);
+    if (contact_force_source_pub_) {
+      std_msgs::msg::String source_msg;
+      std::ostringstream stream;
+      stream << "source=" << source
+             << " left_valid=" << (left_raw_contact ? 1 : 0)
+             << " right_valid=" << (right_raw_contact ? 1 : 0)
+             << " enable_contact_force=" << (enable_contact_force_ ? 1 : 0);
+      source_msg.data = stream.str();
+      contact_force_source_pub_->publish(source_msg);
+    }
   }
 
   double VirtualFingerForce(
@@ -906,6 +940,7 @@ private:
   std::string pending_object_name_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fingers_status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr contact_force_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr contact_force_source_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr hold_status_pub_;
   int fingers_publish_countdown_{0};
   int force_publish_countdown_{0};

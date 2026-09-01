@@ -10,6 +10,27 @@ from xml.etree import ElementTree
 
 GAZEBO = Path(__file__).resolve().parents[1]
 DESCRIPTION = GAZEBO.parent / "lab_cobot_description"
+TOOLING_GRASP_TARGETS = [
+    "tooling_fixture_box",
+    "tooling_hand_tools",
+    "board_test_fixture",
+    "high_voltage_probe_kit",
+    "material_spare_igbt",
+]
+TEST_TUBE_GRASP_TARGETS = [
+    "test_tube_1",
+    "test_tube_2",
+    "test_tube_3",
+    "test_tube_4",
+    "test_tube_5",
+    "test_tube_6",
+    "test_tube_7",
+    "test_tube_8",
+    "test_tube_9",
+]
+AGING_RACK_GRASP_TARGETS = [
+    "material_cube_yellow",
+]
 
 
 def _robot_xml():
@@ -105,51 +126,29 @@ def test_urdf_enables_noninvasive_virtual_force_sensor_for_stable_g4():
     assert float(plugin.findtext("virtual_force_max")) > 0.0
 
 
-# object_model 使用世界生成名(include <name>),与模型目录名可能不同
-# (如 tooling_fixture_box 对应 models/fixture_box_plain)。
-GRASP_CANDIDATES = [
-    "aruco_sample",
-    "tooling_hand_tools",
-    "tooling_fixture_box",
-    "board_test_fixture",
-    "high_voltage_probe_kit",
-    "material_spare_igbt",
-    "test_tube_1",
-    "test_tube_2",
-    "test_tube_3",
-    "test_tube_4",
-    "test_tube_5",
-    "test_tube_6",
-    "test_tube_7",
-    "test_tube_8",
-    "test_tube_9",
-]
-
-# 世界生成名 -> 模型目录
-_CANDIDATE_MODEL_DIR = {
-    "aruco_sample": "aruco_sample",
-    "tooling_hand_tools": "tooling_hand_tools",
-    "tooling_fixture_box": "fixture_box_plain",
-    "board_test_fixture": "pcb_test_fixture",
-    "high_voltage_probe_kit": "safety_probe_kit",
-    "material_spare_igbt": "igbt_module_plain",
-    "test_tube_1": "test_tube",
-    "test_tube_2": "test_tube",
-    "test_tube_3": "test_tube",
-    "test_tube_4": "test_tube",
-    "test_tube_5": "test_tube",
-    "test_tube_6": "test_tube",
-    "test_tube_7": "test_tube",
-    "test_tube_8": "test_tube",
-    "test_tube_9": "test_tube",
-}
+def _world_include_model_dir(entity_name):
+    world = ElementTree.parse(GAZEBO / "worlds" / "lab.world").getroot()
+    for include in world.findall(".//include"):
+        if include.findtext("name") == entity_name:
+            uri = include.findtext("uri")
+            assert uri.startswith("model://")
+            return uri.removeprefix("model://")
+    raise AssertionError(f"missing world include {entity_name}")
 
 
-def test_urdf_grasp_candidate_list_contains_sample_tools_and_tubes():
-    """grasp_fix 候选列表必须包含主样件 + 工装工具 + 试管(世界生成名)."""
+def test_urdf_grasp_candidate_list_keeps_sample_tools_and_tubes():
     plugin = _plugin(_robot_xml(), "lab_cobot_grasp_fix")
     candidates = [elem.text for elem in plugin.findall("object_model")]
-    assert candidates == GRASP_CANDIDATES
+    expected = [
+        "aruco_sample",
+        *TOOLING_GRASP_TARGETS,
+        *TEST_TUBE_GRASP_TARGETS,
+        *AGING_RACK_GRASP_TARGETS,
+    ]
+
+    assert candidates[0] == "aruco_sample"
+    assert candidates == expected
+    assert plugin.findtext("object_link") == "link"
 
 
 def test_grasp_candidates_are_dynamic_models_with_link_named_link():
@@ -158,12 +157,13 @@ def test_grasp_candidates_are_dynamic_models_with_link_named_link():
     candidates = [elem.text for elem in plugin.findall("object_model")]
 
     for name in candidates:
-        model_dir = _CANDIDATE_MODEL_DIR[name]
+        model_dir = (
+            name if name == "aruco_sample" else _world_include_model_dir(name)
+        )
         model_file = GAZEBO / "models" / model_dir / "model.sdf"
-        assert model_file.exists(), f"{name} -> {model_file} 不存在"
         root = ElementTree.parse(model_file).getroot()
-        model = root.find("./model")
-        assert model is not None, f"{name} 缺 <model> 根"
+        model = root.find(f".//model[@name='{model_dir}']")
+        assert model is not None
         static = model.findtext("static")
         assert static is None or static.strip().lower() == "false"
         assert model.find("./link[@name='link']") is not None

@@ -3,8 +3,7 @@ import importlib.util
 from pathlib import Path
 
 from launch import LaunchContext
-from launch.actions import EmitEvent, ExecuteProcess, OpaqueFunction, TimerAction
-from launch.events import Shutdown
+from launch.actions import ExecuteProcess, OpaqueFunction, TimerAction
 from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
 
@@ -60,7 +59,10 @@ def _all_actions(launch_description):
 
 
 def _text_list(values, context=None):
-    context = context or LaunchContext()
+    if context is None:
+        launch_description, _module = _load_world_launch()
+        context = LaunchContext()
+        context.launch_configurations.update(_declared_defaults(launch_description))
     out = []
     for value in values or []:
         if isinstance(value, (list, tuple)):
@@ -118,12 +120,14 @@ def _robot_description_command_text(overrides=None):
 def _spawn_entity_args():
     launch_description, _module = _load_world_launch()
     actions = _all_actions(launch_description)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
     spawns = [
         node for node in _nodes(actions)
         if getattr(node, "node_executable", "") == "spawn_entity.py"
     ]
     assert len(spawns) == 1
-    return _text_list(spawns[0]._Node__arguments)
+    return _text_list(spawns[0]._Node__arguments, context)
 
 
 def test_world_filename_mapper_supports_three_light_profiles_and_actor_switch():
@@ -157,9 +161,50 @@ def test_spawn_entity_places_main_base_footprint_on_ground():
     assert float(args[args.index("-y") + 1]) == -4.20
     assert "-z" in args
     assert float(args[args.index("-z") + 1]) == 0.0
+    assert "-Y" in args
+    assert float(args[args.index("-Y") + 1]) == 0.0
 
 
-def test_world_launch_spawns_wheel_velocity_controller():
+def test_world_launch_declares_spawn_pose_overrides():
+    launch_description, _module = _load_world_launch()
+    defaults = _declared_defaults(launch_description)
+
+    assert defaults["robot_spawn_x"] == "4.50"
+    assert defaults["robot_spawn_y"] == "-4.20"
+    assert defaults["robot_spawn_yaw"] == "0.0"
+
+
+def test_world_launch_logs_final_spawn_pose_before_spawn_entity():
+    source = (GAZEBO / "launch" / "world.launch.py").read_text(encoding="utf-8")
+
+    assert 'LogInfo(msg=["FINAL_ROBOT_SPAWN_X=", robot_spawn_x])' in source
+    assert 'LogInfo(msg=["FINAL_ROBOT_SPAWN_Y=", robot_spawn_y])' in source
+    assert 'FINAL_ROBOT_SPAWN_YAW=' in source
+    assert source.index("final_spawn_x_log") < source.index("spawn_entity,")
+
+
+def test_spawn_entity_uses_declared_spawn_pose_overrides():
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
+    context.launch_configurations.update({
+        "robot_spawn_x": "-4.300000",
+        "robot_spawn_y": "2.745000",
+        "robot_spawn_yaw": "1.570796",
+    })
+    spawn = next(
+        node for node in _nodes(actions)
+        if getattr(node, "node_executable", "") == "spawn_entity.py"
+    )
+    args = _text_list(spawn._Node__arguments, context)
+
+    assert args[args.index("-x") + 1] == "-4.300000"
+    assert args[args.index("-y") + 1] == "2.745000"
+    assert args[args.index("-Y") + 1] == "1.570796"
+
+
+def test_world_launch_uses_bootstrap_for_all_controllers():
     launch_description, _module = _load_world_launch()
     actions = _all_actions(launch_description)
     spawner_args = [
@@ -167,7 +212,44 @@ def test_world_launch_spawns_wheel_velocity_controller():
         for node in _nodes(actions)
         if getattr(node, "node_executable", "") == "spawner"
     ]
-    assert any("wheel_velocity_controller" in args for args in spawner_args)
+    assert not spawner_args
+    source = (GAZEBO / "scripts" / "controller_bootstrap.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"joint_state_broadcaster"' in source
+    assert '"joint_trajectory_controller"' in source
+    assert '"gripper_position_controller"' in source
+    assert '"wheel_velocity_controller"' in source
+
+
+def test_controller_bootstrap_controller_order_is_fixed():
+    source = (GAZEBO / "scripts" / "controller_bootstrap.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert source.index('"joint_state_broadcaster"') < source.index(
+        '"joint_trajectory_controller"'
+    )
+    assert source.index('"joint_trajectory_controller"') < source.index(
+        '"gripper_position_controller"'
+    )
+    assert source.index('"gripper_position_controller"') < source.index(
+        '"wheel_velocity_controller"'
+    )
+
+
+def test_world_launch_does_not_start_controller_spawners():
+    launch_description, _module = _load_world_launch()
+    actions = _all_actions(launch_description)
+    spawner_args = [
+        _text_list(node._Node__arguments)
+        for node in _nodes(actions)
+        if getattr(node, "node_executable", "") == "spawner"
+    ]
+    assert not any("joint_state_broadcaster" in args for args in spawner_args)
+    assert not any("joint_trajectory_controller" in args for args in spawner_args)
+    assert not any("gripper_position_controller" in args for args in spawner_args)
+    assert not any("wheel_velocity_controller" in args for args in spawner_args)
 
 
 def test_world_launch_starts_serial_controller_bootstrap():
@@ -182,6 +264,32 @@ def test_world_launch_starts_serial_controller_bootstrap():
     assert getattr(bootstraps[0], "node_package", "") == "lab_cobot_gazebo"
 
 
+def test_controller_bootstrap_owns_all_controllers():
+    source = (GAZEBO / "scripts" / "controller_bootstrap.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"joint_state_broadcaster"' in source
+    assert '"joint_trajectory_controller"' in source
+    assert '"gripper_position_controller"' in source
+    assert '"wheel_velocity_controller"' in source
+    assert "if state is None:" in source
+    assert 'if state == "active":' in source
+    assert 'if state == "unconfigured":' in source
+    assert "CONTROLLER_BOOTSTRAP_READY" in source
+
+
+def test_controller_bootstrap_requeries_state_after_service_timeout():
+    source = (GAZEBO / "scripts" / "controller_bootstrap.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "allow_timeout=True" in source
+    assert "service timed out:" in source
+    assert "state = self.controller_state(controller_name)" in source
+    assert "OVERALL_STARTUP_TIMEOUT_SEC" in source
+
+
 def test_world_launch_does_not_start_asynchronous_pose_service_driver():
     launch_description, _module = _load_world_launch()
     actions = _all_actions(launch_description)
@@ -189,22 +297,6 @@ def test_world_launch_does_not_start_asynchronous_pose_service_driver():
         getattr(node, "node_executable", "") == "mecanum_gazebo_kinematic_drive"
         for node in _nodes(actions)
     )
-
-
-def test_controller_chain_continues_only_after_success():
-    _launch_description, loaded = _load_world_launch()
-
-    sentinel = object()
-    success = loaded._continue_on_success(
-        type("Event", (), {"returncode": 0})(), [sentinel], "wheel"
-    )
-    assert success == [sentinel]
-    failure = loaded._continue_on_success(
-        type("Event", (), {"returncode": 1})(), [sentinel], "wheel"
-    )
-    assert len(failure) == 1
-    assert isinstance(failure[0], EmitEvent)
-    assert isinstance(failure[0].event, Shutdown)
 
 
 def test_world_launch_has_no_default_set_entity_state_calls():

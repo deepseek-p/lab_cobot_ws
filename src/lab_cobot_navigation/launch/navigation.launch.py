@@ -26,6 +26,9 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     map_yaml = LaunchConfiguration("map")
     params = LaunchConfiguration("params_file")
+    amcl_initial_pose_x = LaunchConfiguration("amcl_initial_pose_x")
+    amcl_initial_pose_y = LaunchConfiguration("amcl_initial_pose_y")
+    amcl_initial_pose_yaw = LaunchConfiguration("amcl_initial_pose_yaw")
     nav2_log_level = "info"
     nav2_autostart = True
     nav2_lifecycle_nodes = [
@@ -44,6 +47,9 @@ def generate_launch_description():
                 "use_sim_time": use_sim_time,
                 "autostart": "true",
                 "yaml_filename": map_yaml,
+                "amcl.ros__parameters.initial_pose.x": amcl_initial_pose_x,
+                "amcl.ros__parameters.initial_pose.y": amcl_initial_pose_y,
+                "amcl.ros__parameters.initial_pose.yaw": amcl_initial_pose_yaw,
             },
             convert_types=True,
         ),
@@ -59,6 +65,9 @@ def generate_launch_description():
             "params_file",
             default_value=os.path.join(nav_pkg, "config", "nav2_params.yaml"),
         ),
+        DeclareLaunchArgument("amcl_initial_pose_x", default_value="4.50"),
+        DeclareLaunchArgument("amcl_initial_pose_y", default_value="-4.20"),
+        DeclareLaunchArgument("amcl_initial_pose_yaw", default_value="0.0"),
         DeclareLaunchArgument("use_rviz", default_value="true"),
     ]
 

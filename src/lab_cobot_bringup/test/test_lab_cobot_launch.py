@@ -3,7 +3,13 @@ import importlib.util
 from pathlib import Path
 
 from launch import LaunchContext
-from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
+from launch.actions import (
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+    TimerAction,
+)
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch.utilities import perform_substitutions
@@ -28,12 +34,30 @@ def _load_bringup_launch(monkeypatch):
     return module.generate_launch_description()
 
 
-def _entities(launch_description):
-    for entity in launch_description.entities:
+def _entities(launch_description, context=None):
+    if context is None:
+        context = LaunchContext()
+        context.launch_configurations.update(_declared_defaults(launch_description))
+
+    def _walk(entity):
         yield entity
+        if isinstance(entity, OpaqueFunction):
+            for child in entity.execute(context):
+                yield from _walk(child)
         if isinstance(entity, TimerAction):
             for action in entity.actions:
-                yield action
+                yield from _walk(action)
+        if isinstance(entity, RegisterEventHandler):
+            handler = entity.event_handler
+            for action in getattr(
+                handler,
+                "_OnActionEventBase__actions_on_event",
+                [],
+            ):
+                yield from _walk(action)
+
+    for entity in launch_description.entities:
+        yield from _walk(entity)
 
 
 def _text(value):
@@ -51,6 +75,12 @@ def _text(value):
             return value[:-5]
         return value
     return value
+
+
+def _arg_text(context, value):
+    if isinstance(value, str):
+        return value
+    return perform_substitutions(context, [value])
 
 
 def _declared_defaults(launch_description):
@@ -92,7 +122,7 @@ def _active_includes(launch_description, overrides=None):
     context.launch_configurations.update(overrides or {})
     return [
         include
-        for include in _entities(launch_description)
+        for include in _entities(launch_description, context)
         if isinstance(include, IncludeLaunchDescription)
         and (include.condition is None or include.condition.evaluate(context))
     ]
@@ -116,7 +146,12 @@ def _node_parameters_raw(node):
         for key, value in parameter_set.items():
             if isinstance(value, tuple) and len(value) == 1:
                 value = value[0]
-            result[_text(key)] = value if isinstance(value, LaunchConfiguration) else _text(value)
+            if isinstance(value, LaunchConfiguration) or (
+                value.__class__.__name__ == "PythonExpression"
+            ):
+                result[_text(key)] = value
+            else:
+                result[_text(key)] = _text(value)
     return result
 
 
@@ -126,6 +161,17 @@ def _parameter_value_launch_configuration(value):
         assert len(inner) == 1
         return inner[0]
     return value
+
+
+def _launch_config_names(value):
+    names = []
+    if isinstance(value, LaunchConfiguration):
+        return [_text(value.variable_name)]
+    expression = getattr(value, "expression", None)
+    if expression is not None:
+        for part in expression:
+            names.extend(_launch_config_names(part))
+    return names
 
 
 def _node(package, executable, launch_description):
@@ -154,6 +200,12 @@ def test_navigation_include_pins_map_and_params_file(monkeypatch):
     assert isinstance(args["map"], LaunchConfiguration)
     assert _text(args["map"].variable_name) == "map"
     assert args["params_file"].endswith("lab_cobot_navigation/config/nav2_params.yaml")
+    assert "localization_lifecycle_delay" not in args
+    context = LaunchContext()
+    context.launch_configurations.update(defaults)
+    assert _arg_text(context, args["amcl_initial_pose_x"]) == "4.50"
+    assert _arg_text(context, args["amcl_initial_pose_y"]) == "-4.20"
+    assert _arg_text(context, args["amcl_initial_pose_yaw"]) == "0.0"
 
 
 def test_bringup_uses_world_launch_default_lab_world(monkeypatch):
@@ -165,14 +217,14 @@ def test_bringup_uses_world_launch_default_lab_world(monkeypatch):
     ]
     world = next(
         include for include in includes
-        if set(_include_arguments(include)) == {
+        if {
             "gui",
             "lighting_profile",
             "enable_actor",
             "require_finger_contact",
             "use_refine_detect",
             "use_wrist_detect",
-        }
+        } <= set(_include_arguments(include))
     )
 
     assert "world" not in _include_arguments(world)
@@ -206,8 +258,10 @@ def test_mission_launch_is_guarded_by_launch_mission_argument(monkeypatch):
     assert isinstance(mission.condition, IfCondition)
     predicate = getattr(mission.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
-    assert isinstance(predicate[0], LaunchConfiguration)
-    assert _text(predicate[0].variable_name) == "launch_mission"
+    assert predicate[0].__class__.__name__ == "PythonExpression"
+    names = _launch_config_names(predicate[0])
+    assert "launch_mission" in names
+    assert "launch_grasp_validation" in names
 
 
 def test_bringup_uses_main_mecanum_visualizer_and_world_plugin(monkeypatch):
@@ -339,10 +393,33 @@ def test_bringup_stages_runtime_load_after_navigation_bootstrap(monkeypatch):
     assert scene_stage.period >= 25.0
     assert dl_stage.period > scene_stage.period
     assert mission_stage.period > dl_stage.period
-    assert _node_parameters(table_initializer) == {
-        "use_sim_time": True,
-        "world_frame": "map",
+    table_params = _node_parameters_raw(table_initializer)
+    assert table_params["use_sim_time"] is True
+    assert table_params["world_frame"] == "map"
+    validation_mode = _parameter_value_launch_configuration(
+        table_params["validation_mode"]
+    )
+    assert validation_mode.__class__.__name__ == "PythonExpression"
+    assert set(_launch_config_names(validation_mode)) >= {
+        "launch_grasp_validation",
+        "launch_tube_insert_validation",
+        "launch_tube_insert_feasibility",
+        "launch_yellow_cube_slot_validation",
     }
+    assert table_params["robot_spawn_x"].__class__.__name__ == "PythonExpression"
+    assert table_params["robot_spawn_y"].__class__.__name__ == "PythonExpression"
+    assert table_params["robot_spawn_yaw"].__class__.__name__ == "PythonExpression"
+
+
+def test_table_scene_uses_original_direct_timer(monkeypatch):
+    _load_bringup_launch(monkeypatch)
+    source = (BRINGUP / "launch" / "lab_cobot.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "table_scene_tf_gate" not in source
+    assert "localization_prereq_gate.py" not in source
+    assert "_start_table_scene_after_tf_gate" not in source
 
 
 def test_bringup_has_no_passive_mecanum_joint_state_shim(monkeypatch):
@@ -453,11 +530,7 @@ def test_bringup_launches_dl_object_detector_by_default(monkeypatch):
     predicate = getattr(detector.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
     assert predicate[0].__class__.__name__ == "PythonExpression"
-    names = [
-        _text(part.variable_name)
-        for part in predicate[0].expression
-        if isinstance(part, LaunchConfiguration)
-    ]
+    names = _launch_config_names(predicate[0])
     assert "use_dl_perception" in names
     assert "launch_perception" in names
     assert isinstance(params["device"], LaunchConfiguration)
@@ -601,19 +674,17 @@ def test_bringup_enables_wrist_refine_pipeline_by_default(monkeypatch):
     )
     assert isinstance(mission_refine, LaunchConfiguration)
     assert _text(mission_refine.variable_name) == "use_refine_detect"
-    assert isinstance(world_args["use_refine_detect"], LaunchConfiguration)
-    assert _text(world_args["use_refine_detect"].variable_name) == (
-        "use_refine_detect"
-    )
+    context = LaunchContext()
+    context.launch_configurations.update(defaults)
+    assert world_args["use_refine_detect"].__class__.__name__ == "PythonExpression"
+    assert perform_substitutions(context, [world_args["use_refine_detect"]]) == "true"
     mission_wrist = _parameter_value_launch_configuration(
         mission_params["use_wrist_detect"]
     )
     assert isinstance(mission_wrist, LaunchConfiguration)
     assert _text(mission_wrist.variable_name) == "use_wrist_detect"
-    assert isinstance(world_args["use_wrist_detect"], LaunchConfiguration)
-    assert _text(world_args["use_wrist_detect"].variable_name) == (
-        "use_wrist_detect"
-    )
+    assert world_args["use_wrist_detect"].__class__.__name__ == "PythonExpression"
+    assert perform_substitutions(context, [world_args["use_wrist_detect"]]) == "true"
 
 
 def test_wrist_pipeline_or_condition_covers_all_three_switch_states(monkeypatch):
@@ -673,8 +744,10 @@ def test_bringup_disables_voice_entry_by_default(monkeypatch):
     assert isinstance(voice.condition, IfCondition)
     predicate = getattr(voice.condition, "_IfCondition__predicate_expression")
     assert len(predicate) == 1
-    assert isinstance(predicate[0], LaunchConfiguration)
-    assert _text(predicate[0].variable_name) == "launch_voice"
+    assert predicate[0].__class__.__name__ == "PythonExpression"
+    names = _launch_config_names(predicate[0])
+    assert "launch_voice" in names
+    assert "launch_grasp_validation" in names
     assert isinstance(params["audio_file"], LaunchConfiguration)
     assert _text(params["audio_file"].variable_name) == "voice_audio_file"
 
@@ -708,3 +781,148 @@ def test_bringup_enables_planning_scene_obstacles_by_default(monkeypatch):
     )
     assert isinstance(scene_param, LaunchConfiguration)
     assert _text(scene_param.variable_name) == "use_planning_scene_obstacles"
+
+
+def test_grasp_validation_is_disabled_by_default(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    defaults = _declared_defaults(launch_description)
+    nodes = _active_nodes(launch_description)
+    executables = {node.node_executable for node in nodes}
+
+    assert defaults["launch_grasp_validation"] == "false"
+    assert defaults["validation_target"] == "material_spare_igbt"
+    assert "grasp_validation_node" not in executables
+
+
+def test_grasp_validation_mode_disables_unrelated_runtime_nodes(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    overrides = {"launch_grasp_validation": "true"}
+    nodes = _active_nodes(launch_description, overrides)
+    includes = _active_includes(launch_description, overrides)
+    executables = {node.node_executable for node in nodes}
+
+    assert "grasp_validation_node" in executables
+    assert "mission_node" not in executables
+    assert "aruco_detector" not in executables
+    assert "object_detector" not in executables
+    assert "dynamic_arm_obstacle_node" not in executables
+    assert "contact_force_recorder" not in executables
+    assert not any("params_file" in _include_arguments(include) for include in includes)
+
+
+def test_grasp_validation_node_receives_launch_target(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    validation = _node(
+        "lab_cobot_bringup", "grasp_validation_node", launch_description
+    )
+    params = _node_parameters_raw(validation)
+
+    assert isinstance(params["validation_target"], LaunchConfiguration)
+    assert _text(params["validation_target"].variable_name) == "validation_target"
+
+
+def test_grasp_validation_target_selects_spawn_pose(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    overrides = {
+        "launch_grasp_validation": "true",
+        "validation_target": "material_spare_igbt",
+    }
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
+    context.launch_configurations.update(overrides)
+    world = next(
+        include for include in _active_includes(launch_description, overrides)
+        if isinstance(include, IncludeLaunchDescription)
+        and "robot_spawn_x" in _include_arguments(include)
+    )
+    args = _include_arguments(world)
+
+    assert _arg_text(context, args["robot_spawn_x"]) == "-3.620000"
+    assert _arg_text(context, args["robot_spawn_y"]) == "-3.210000"
+    assert _arg_text(context, args["robot_spawn_yaw"]).startswith("1.570796")
+
+
+def test_grasp_validation_table_scene_uses_base_spawn_pose(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
+    context.launch_configurations.update({
+        "launch_grasp_validation": "true",
+        "validation_target": "material_spare_igbt",
+    })
+    table_initializer = _node(
+        "lab_cobot_moveit", "table_scene_initializer", launch_description
+    )
+    params = _node_parameters_raw(table_initializer)
+
+    assert perform_substitutions(context, [params["robot_spawn_x"]]) == "-3.620000"
+    assert perform_substitutions(context, [params["robot_spawn_y"]]) == "-3.210000"
+    assert perform_substitutions(context, [params["robot_spawn_yaw"]]).startswith(
+        "1.570796"
+    )
+
+
+def test_default_spawn_pose_remains_home_when_validation_disabled(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
+    world = next(
+        include for include in _entities(launch_description)
+        if isinstance(include, IncludeLaunchDescription)
+        and "robot_spawn_x" in _include_arguments(include)
+    )
+    args = _include_arguments(world)
+
+    assert _arg_text(context, args["robot_spawn_x"]) == "4.50"
+    assert _arg_text(context, args["robot_spawn_y"]) == "-4.20"
+    assert _arg_text(context, args["robot_spawn_yaw"]) == "0.0"
+
+
+def test_tube_modes_still_disable_mecanum_wheel_visualizer(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+
+    for mode in ("launch_tube_insert_validation", "launch_tube_insert_feasibility"):
+        active = _active_nodes(launch_description, {mode: "true"})
+        executables = {node.node_executable for node in active}
+        assert "mecanum_wheel_visualizer" not in executables
+
+
+def test_validation_mode_disables_world_wrist_camera_switches(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
+    context.launch_configurations.update({
+        "launch_grasp_validation": "true",
+        "use_refine_detect": "true",
+        "use_wrist_detect": "true",
+    })
+    world = next(
+        include for include in _entities(launch_description)
+        if isinstance(include, IncludeLaunchDescription)
+        and "use_refine_detect" in _include_arguments(include)
+    )
+    args = _include_arguments(world)
+
+    assert perform_substitutions(context, [args["use_refine_detect"]]) == "false"
+    assert perform_substitutions(context, [args["use_wrist_detect"]]) == "false"
+
+
+def test_invalid_validation_target_fails_before_spawn(monkeypatch):
+    launch_description = _load_bringup_launch(monkeypatch)
+    context = LaunchContext()
+    context.launch_configurations.update(_declared_defaults(launch_description))
+    context.launch_configurations.update({
+        "launch_grasp_validation": "true",
+        "validation_target": "not_a_target",
+    })
+    validator = next(
+        entity for entity in launch_description.entities
+        if entity.__class__.__name__ == "OpaqueFunction"
+    )
+
+    try:
+        validator.execute(context)
+    except ValueError as exc:
+        assert "unsupported validation_target" in str(exc)
+    else:
+        raise AssertionError("invalid validation_target did not fail")

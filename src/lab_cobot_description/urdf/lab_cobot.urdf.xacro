@@ -38,7 +38,12 @@
   <xacro:arg name="enable_contact_force" default="false"/>
   <xacro:arg name="enable_lab_sensors" default="true"/>
   <xacro:arg name="wrist_refine_camera" default="false"/>
+  <xacro:arg name="tube_insert_fixed_base" default="false"/>
   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
+  <xacro:property name="mecanum_control_mode" value="pose_from_wheel_commands"/>
+  <xacro:if value="$(arg tube_insert_fixed_base)">
+    <xacro:property name="mecanum_control_mode" value="fixed_pose"/>
+  </xacro:if>
 
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
 
@@ -163,7 +168,7 @@
 
   <gazebo>
     <plugin name="lab_cobot_mecanum_traction" filename="liblab_cobot_mecanum_drive.so">
-      <control_mode>pose_from_wheel_commands</control_mode>
+      <control_mode>${mecanum_control_mode}</control_mode>
       <wheel_command_topic>/wheel_velocity_controller/commands</wheel_command_topic>
       <base_link>base_link</base_link>
       <wheel_joint>wheel_fl_joint</wheel_joint>
@@ -192,8 +197,8 @@
   <gazebo>
     <plugin name="lab_cobot_grasp_fix" filename="liblab_cobot_grasp_fix.so">
       <object_model>aruco_sample</object_model>
-      <object_model>tooling_hand_tools</object_model>
       <object_model>tooling_fixture_box</object_model>
+      <object_model>tooling_hand_tools</object_model>
       <object_model>board_test_fixture</object_model>
       <object_model>high_voltage_probe_kit</object_model>
       <object_model>material_spare_igbt</object_model>
@@ -206,6 +211,7 @@
       <object_model>test_tube_7</object_model>
       <object_model>test_tube_8</object_model>
       <object_model>test_tube_9</object_model>
+      <object_model>material_cube_yellow</object_model>
       <object_link>link</object_link>
       <tcp_link>gripper_tcp</tcp_link>
       <left_joint>gripper_left_finger_joint</left_joint>

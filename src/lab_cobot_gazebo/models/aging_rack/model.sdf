@@ -3,35 +3,91 @@
   <model name="aging_rack">
     <static>true</static>
     <link name="link">
-      <collision name="collision">
-        <geometry><box><size>0.34 0.22 0.10</size></box></geometry>
-        <surface>
-          <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
-        </surface>
+      <!-- 空心三槽架:薄底板 + 四周墙 + 两块隔板。 -->
+      <collision name="collision_bottom">
+        <pose>0 0 -0.04 0 0 0</pose>
+        <geometry><box><size>0.34 0.22 0.02</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
       </collision>
-      <visual name="base_visual">
-        <geometry><box><size>0.34 0.22 0.10</size></box></geometry>
-        <material>
-          <ambient>0.20 0.20 0.22 1</ambient>
-          <diffuse>0.36 0.38 0.40 1</diffuse>
-          <specular>0.22 0.22 0.22 1</specular>
-          <shininess>64</shininess>
-        </material>
+      <collision name="collision_wall_front">
+        <pose>0 0.10 0.01 0 0 0</pose>
+        <geometry><box><size>0.34 0.02 0.08</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <collision name="collision_wall_back">
+        <pose>0 -0.10 0.01 0 0 0</pose>
+        <geometry><box><size>0.34 0.02 0.08</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <collision name="collision_wall_left">
+        <pose>-0.16 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.02 0.18 0.08</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <collision name="collision_wall_right">
+        <pose>0.16 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.02 0.18 0.08</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <collision name="collision_divider_left">
+        <pose>-0.0525 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.015 0.18 0.08</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <collision name="collision_divider_right">
+        <pose>0.0525 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.015 0.18 0.08</size></box></geometry>
+        <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+      </collision>
+      <visual name="base_bottom">
+        <pose>0 0 -0.04 0 0 0</pose>
+        <geometry><box><size>0.34 0.22 0.02</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
+      </visual>
+      <visual name="wall_front">
+        <pose>0 0.10 0.01 0 0 0</pose>
+        <geometry><box><size>0.34 0.02 0.08</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
+      </visual>
+      <visual name="wall_back">
+        <pose>0 -0.10 0.01 0 0 0</pose>
+        <geometry><box><size>0.34 0.02 0.08</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
+      </visual>
+      <visual name="wall_left">
+        <pose>-0.16 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.02 0.18 0.08</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
+      </visual>
+      <visual name="wall_right">
+        <pose>0.16 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.02 0.18 0.08</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
+      </visual>
+      <visual name="divider_left">
+        <pose>-0.0525 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.015 0.18 0.08</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
+      </visual>
+      <visual name="divider_right">
+        <pose>0.0525 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.015 0.18 0.08</size></box></geometry>
+        <material><ambient>0.20 0.20 0.22 1</ambient><diffuse>0.36 0.38 0.40 1</diffuse></material>
       </visual>
       <visual name="slot_left">
-        <pose>-0.11 0 0.052 0 0 0</pose>
-        <geometry><box><size>0.08 0.16 0.004</size></box></geometry>
-        <material><ambient>0.10 0.10 0.10 1</ambient><diffuse>0.16 0.16 0.16 1</diffuse></material>
+        <pose>-0.105 0 -0.028 0 0 0</pose>
+        <geometry><box><size>0.088 0.176 0.004</size></box></geometry>
+        <material><ambient>0.08 0.70 0.12 1</ambient><diffuse>0.12 0.90 0.18 1</diffuse></material>
       </visual>
       <visual name="slot_mid">
-        <pose>0 0 0.052 0 0 0</pose>
-        <geometry><box><size>0.08 0.16 0.004</size></box></geometry>
-        <material><ambient>0.10 0.10 0.10 1</ambient><diffuse>0.16 0.16 0.16 1</diffuse></material>
+        <pose>0 0 -0.028 0 0 0</pose>
+        <geometry><box><size>0.088 0.176 0.004</size></box></geometry>
+        <material><ambient>0.70 0.60 0.08 1</ambient><diffuse>0.95 0.82 0.12 1</diffuse></material>
       </visual>
       <visual name="slot_right">
-        <pose>0.11 0 0.052 0 0 0</pose>
-        <geometry><box><size>0.08 0.16 0.004</size></box></geometry>
-        <material><ambient>0.10 0.10 0.10 1</ambient><diffuse>0.16 0.16 0.16 1</diffuse></material>
+        <pose>0.105 0 -0.028 0 0 0</pose>
+        <geometry><box><size>0.088 0.176 0.004</size></box></geometry>
+        <material><ambient>0.74 0.10 0.10 1</ambient><diffuse>0.92 0.16 0.16 1</diffuse></material>
       </visual>
       <visual name="status_panel">
         <pose>0 0.111 0.03 1.57079 0 0</pose>

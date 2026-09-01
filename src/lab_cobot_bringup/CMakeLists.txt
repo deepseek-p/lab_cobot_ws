@@ -68,6 +68,42 @@ install(PROGRAMS
   RENAME g4g5_result_node
 )
 
+install(PROGRAMS
+  ${PROJECT_NAME}/grasp_validation_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME grasp_validation_node
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/grasp_benchmark_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME grasp_benchmark_node
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/manipulation_repeatability_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME manipulation_repeatability_node
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/tube_insert_validation_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME tube_insert_validation_node
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/tube_insert_base_feasibility.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME tube_insert_base_feasibility
+)
+
+install(PROGRAMS
+  ${PROJECT_NAME}/yellow_cube_slot_validation_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME yellow_cube_slot_validation_node
+)
+
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )

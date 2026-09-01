@@ -13,27 +13,18 @@ from launch import LaunchDescription
 from launch.actions import (
     AppendEnvironmentVariable,
     DeclareLaunchArgument,
-    EmitEvent,
     ExecuteProcess,
     IncludeLaunchDescription,
+    LogInfo,
     OpaqueFunction,
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
-
-
-def _continue_on_success(event, next_actions, controller_name):
-    if event.returncode == 0:
-        return next_actions
-    return [EmitEvent(event=Shutdown(
-        reason=f"controller {controller_name} failed with code {event.returncode}"
-    ))]
 
 
 def _world_filename_from_profile(lighting_profile: str, enable_actor: bool) -> str:
@@ -81,6 +72,10 @@ def generate_launch_description():
     enable_lab_sensors = LaunchConfiguration("enable_lab_sensors")
     use_refine_detect = LaunchConfiguration("use_refine_detect")
     use_wrist_detect = LaunchConfiguration("use_wrist_detect")
+    robot_spawn_x = LaunchConfiguration("robot_spawn_x")
+    robot_spawn_y = LaunchConfiguration("robot_spawn_y")
+    robot_spawn_yaw = LaunchConfiguration("robot_spawn_yaw")
+    tube_insert_fixed_base = LaunchConfiguration("tube_insert_fixed_base")
     use_wrist_camera = PythonExpression([
         "'true' if ('",
         use_refine_detect,
@@ -101,6 +96,8 @@ def generate_launch_description():
             enable_lab_sensors,
             " wrist_refine_camera:=",
             use_wrist_camera,
+            " tube_insert_fixed_base:=",
+            tube_insert_fixed_base,
         ])
     }
     plugin_path = os.path.join(os.path.dirname(os.path.dirname(gz_pkg)), "lib")
@@ -151,53 +148,28 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-entity", "lab_cobot",
             "-timeout", "120",
-            "-x", "4.50", "-y", "-4.20", "-z", "0.0",
+            "-x", robot_spawn_x,
+            "-y", robot_spawn_y,
+            "-z", "0.0",
+            "-Y", robot_spawn_yaw,
         ],
         output="screen",
     )
+    final_spawn_x_log = LogInfo(msg=["FINAL_ROBOT_SPAWN_X=", robot_spawn_x])
+    final_spawn_y_log = LogInfo(msg=["FINAL_ROBOT_SPAWN_Y=", robot_spawn_y])
+    final_spawn_yaw_log = LogInfo(
+        msg=["FINAL_ROBOT_SPAWN_YAW=", robot_spawn_yaw]
+    )
 
-    joint_state_broadcaster = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["joint_state_broadcaster", "-c", "/controller_manager"],
-    )
-    joint_trajectory_controller = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["joint_trajectory_controller", "-c", "/controller_manager"],
-    )
-    gripper_position_controller = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["gripper_position_controller", "-c", "/controller_manager"],
-    )
-    wheel_velocity_controller = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["wheel_velocity_controller", "-c", "/controller_manager"],
-    )
     controller_bootstrap = Node(
         package="lab_cobot_gazebo",
         executable="controller_bootstrap",
         output="screen",
     )
-    delay_jsb = RegisterEventHandler(
-        OnProcessExit(target_action=spawn_entity, on_exit=[joint_state_broadcaster])
-    )
-    delay_jtc = RegisterEventHandler(
+    delay_controller_bootstrap = RegisterEventHandler(
         OnProcessExit(
-            target_action=joint_state_broadcaster,
-            on_exit=lambda event, _context: _continue_on_success(
-                event, [joint_trajectory_controller], "joint_state_broadcaster"
-            ),
-        )
-    )
-    delay_gripper = RegisterEventHandler(
-        OnProcessExit(
-            target_action=joint_trajectory_controller,
-            on_exit=lambda event, _context: _continue_on_success(
-                event, [gripper_position_controller], "joint_trajectory_controller"
-            ),
+            target_action=spawn_entity,
+            on_exit=[controller_bootstrap],
         )
     )
 
@@ -218,22 +190,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("enable_actor")),
     )
 
-    delay_wheel_velocity = RegisterEventHandler(
-        OnProcessExit(
-            target_action=gripper_position_controller,
-            on_exit=lambda event, _context: _continue_on_success(
-                event, [wheel_velocity_controller], "gripper_position_controller"
-            ),
-        )
-    )
-    delay_controller_bootstrap = RegisterEventHandler(
-        OnProcessExit(
-            target_action=wheel_velocity_controller,
-            on_exit=lambda event, _context: _continue_on_success(
-                event, [controller_bootstrap], "wheel_velocity_controller"
-            ),
-        )
-    )
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", description="是否显示 Gazebo GUI"),
         DeclareLaunchArgument("lighting_profile", default_value="normal"),
@@ -243,6 +199,10 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_lab_sensors", default_value="true"),
         DeclareLaunchArgument("use_refine_detect", default_value="false"),
         DeclareLaunchArgument("use_wrist_detect", default_value="false"),
+        DeclareLaunchArgument("robot_spawn_x", default_value="4.50"),
+        DeclareLaunchArgument("robot_spawn_y", default_value="-4.20"),
+        DeclareLaunchArgument("robot_spawn_yaw", default_value="0.0"),
+        DeclareLaunchArgument("tube_insert_fixed_base", default_value="false"),
         gazebo_resources,
         gazebo_builtin_models,
         description_package_models,
@@ -252,12 +212,11 @@ def generate_launch_description():
         gzserver,
         gzclient,
         robot_state_publisher,
+        final_spawn_x_log,
+        final_spawn_y_log,
+        final_spawn_yaw_log,
         spawn_entity,
         actor_collision_shadow,
         obstacle_avoidance_metrics,
-        delay_jsb,
-        delay_jtc,
-        delay_gripper,
-        delay_wheel_velocity,
         delay_controller_bootstrap,
     ])

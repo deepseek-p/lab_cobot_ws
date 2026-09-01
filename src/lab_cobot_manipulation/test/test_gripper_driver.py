@@ -24,6 +24,7 @@ FINGERS_STATUS_TOPIC = "/gripper/contact/fingers"
 LEFT_FINGER_CONTACTS_TOPIC = "/gripper/left_finger_contacts"
 RIGHT_FINGER_CONTACTS_TOPIC = "/gripper/right_finger_contacts"
 HOLD_STATUS_TOPIC = "/gripper/contact/hold_status"
+JOINT_STATES_TOPIC = "/joint_states"
 
 
 def test_closed_sample_positions_do_not_penetrate_70mm_sample():
@@ -43,6 +44,22 @@ class FakePublisher:
         self._recorder(self.topic, msg)
 
 
+class FakeRosTime:
+    def __init__(self, seconds):
+        self.nanoseconds = int(float(seconds) * 1.0e9)
+
+
+class FakeClock:
+    def __init__(self, seconds=0.0):
+        self.seconds = float(seconds)
+
+    def now(self):
+        return FakeRosTime(self.seconds)
+
+    def advance(self, seconds):
+        self.seconds += float(seconds)
+
+
 class FakeNode:
     def __init__(
         self,
@@ -54,6 +71,7 @@ class FakeNode:
         left_contact_on_command=None,
         right_contact_on_command=None,
         emit_legacy_close_status=True,
+        clock=None,
     ):
         self.float_arrays = []
         self.empty_topics = []
@@ -66,11 +84,13 @@ class FakeNode:
         self._left_contact_on_command = left_contact_on_command
         self._right_contact_on_command = right_contact_on_command
         self._emit_legacy_close_status = emit_legacy_close_status
+        self.clock = clock if clock is not None else FakeClock()
         self._status_callback = None
         self._contact_status_callback = None
         self._left_contact_callback = None
         self._right_contact_callback = None
         self._hold_status_callback = None
+        self._joint_state_callback = None
 
     def create_publisher(self, msg_type, topic, _qos):
         if msg_type.__name__ == "Float64MultiArray":
@@ -96,6 +116,9 @@ class FakeNode:
         elif topic == RIGHT_FINGER_CONTACTS_TOPIC:
             assert msg_type.__name__ == "ContactsState"
             self._right_contact_callback = callback
+        elif topic == JOINT_STATES_TOPIC:
+            assert msg_type.__name__ == "JointState"
+            self._joint_state_callback = callback
         else:
             raise AssertionError(topic)
         return object()
@@ -167,6 +190,9 @@ class FakeNode:
 
     def get_logger(self):
         return self
+
+    def get_clock(self):
+        return self.clock
 
     def info(self, msg):
         self.logs.append(("info", msg))
@@ -281,6 +307,109 @@ def test_contact_gripper_wait_until_holding_requires_plugin_heartbeat():
     assert driver.acquire_object()
     assert not driver.wait_until_holding(timeout_sec=0.0)
 
+    fake_node._emit_hold_status("holding aruco_sample")
+
+    assert driver.wait_until_holding(timeout_sec=0.0)
+
+
+def test_contact_gripper_holding_wait_uses_ros_time_not_wall_time(monkeypatch):
+    clock = FakeClock(seconds=10.0)
+    fake_node = FakeNode(
+        contact_status_on_close="attached aruco_sample",
+        clock=clock,
+    )
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+    wall = {"now": 100.0}
+
+    monkeypatch.setattr(gripper_driver.time, "monotonic", lambda: wall["now"])
+
+    assert driver.acquire_object()
+
+    def emit_late_heartbeat():
+        time.sleep(0.02)
+        wall["now"] = 103.0
+        clock.advance(0.1)
+        fake_node._emit_hold_status("holding aruco_sample")
+
+    threading.Thread(target=emit_late_heartbeat, daemon=True).start()
+
+    assert driver.wait_until_holding(timeout_sec=2.0)
+    assert any("HOLD_CONFIRMED" in message for _level, message in fake_node.logs)
+
+
+def test_contact_gripper_old_holding_heartbeat_before_attach_is_ignored():
+    clock = FakeClock(seconds=20.0)
+    fake_node = FakeNode(
+        contact_status_on_close="attached aruco_sample",
+        clock=clock,
+    )
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+
+    driver._holding_object = True
+    fake_node._emit_hold_status("holding aruco_sample")
+    old_confirm = driver._last_confirmed_holding_time
+    driver._holding_object = False
+
+    clock.advance(1.0)
+    assert driver.acquire_object()
+
+    assert driver._last_confirmed_holding_time is None
+    assert old_confirm is not None
+    assert not driver.wait_until_holding(timeout_sec=0.0)
+
+    fake_node._emit_hold_status("holding aruco_sample")
+    assert driver.wait_until_holding(timeout_sec=0.0)
+
+
+def test_contact_gripper_holding_heartbeat_requires_matching_object():
+    fake_node = FakeNode(contact_status_on_close="attached aruco_sample")
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+
+    assert driver.acquire_object()
+
+    fake_node._emit_hold_status("holding reagent_bottle")
+
+    assert not driver.wait_until_holding(timeout_sec=0.0)
+
+
+def test_contact_gripper_holding_wait_fails_when_ros_clock_stalls(monkeypatch):
+    clock = FakeClock(seconds=30.0)
+    fake_node = FakeNode(
+        contact_status_on_close="attached aruco_sample",
+        clock=clock,
+    )
+    driver = ContactGripperDriver(fake_node, contact_timeout_sec=0.0)
+    monkeypatch.setattr(gripper_driver, "HOLD_CONFIRM_CLOCK_STALL_SEC", 0.05)
+
+    assert driver.acquire_object()
+    assert not driver.wait_until_holding(timeout_sec=2.0)
+    assert any(
+        "HOLD_CONFIRM_CLOCK_STALLED" in message
+        for _level, message in fake_node.logs
+    )
+
+
+def test_contact_gripper_tactile_contact_loss_does_not_block_hold_heartbeat():
+    contact = FakeContactsState([
+        ("lab_cobot::gripper_left_finger::gripper_left_finger_collision",
+         "aruco_sample::link::collision"),
+    ])
+    fake_node = FakeNode(
+        contact_status_on_close="attached aruco_sample",
+        left_contact_on_command=contact,
+        right_contact_on_command=contact,
+        emit_legacy_close_status=False,
+    )
+    driver = ContactGripperDriver(
+        fake_node,
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_dwell_sec=0.0,
+    )
+
+    assert driver.acquire_object()
+    driver._last_left_contact_time = None
+    driver._last_right_contact_time = None
     fake_node._emit_hold_status("holding aruco_sample")
 
     assert driver.wait_until_holding(timeout_sec=0.0)
@@ -730,6 +859,23 @@ def test_tactile_acquire_fails_at_limit_without_dual_contact():
     assert fake_node.float_arrays[-1] == [0.0185, 0.0185]
 
 
+def test_tactile_acquire_uses_target_specific_max_without_changing_default():
+    fake_node = FakeNode()
+    driver = ContactGripperDriver(
+        fake_node,
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_dwell_sec=0.0,
+        tactile_max_position=0.025,
+    )
+
+    assert not driver.acquire_object()
+    assert fake_node.float_arrays[0] == [0.006, 0.006]
+    assert fake_node.float_arrays[-1] == [0.025, 0.025]
+    assert any("TACTILE_CLOSE_CONFIG" in message for _level, message in fake_node.logs)
+    assert any("max=0.025000" in message for _level, message in fake_node.logs)
+
+
 def test_tactile_step_close_returns_false_after_full_sweep_without_dual_contact():
     fake_node = FakeNode()
     driver = ContactGripperDriver(
@@ -742,6 +888,55 @@ def test_tactile_step_close_returns_false_after_full_sweep_without_dual_contact(
     assert fake_node.float_arrays[0] == [0.006, 0.006]
     assert fake_node.float_arrays[-1] == [0.0185, 0.0185]
     assert any("仍未双指接触" in message for _level, message in fake_node.logs)
+
+
+def test_tactile_start_position_none_uses_default():
+    driver = ContactGripperDriver(
+        FakeNode(),
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_start_position=None,
+    )
+
+    assert driver._tactile_start_position == pytest.approx(0.006)
+
+
+def test_tactile_start_position_zero_is_valid_max_open_start():
+    fake_node = FakeNode()
+    driver = ContactGripperDriver(
+        fake_node,
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_dwell_sec=0.0,
+        tactile_start_position=0.0,
+    )
+
+    assert driver._tactile_start_position == pytest.approx(0.0)
+    assert not driver._step_close_until_contact()
+    assert fake_node.float_arrays[0] == [0.0, 0.0]
+    assert any("start=0.000000" in message for _level, message in fake_node.logs)
+
+
+def test_tactile_start_position_explicit_default_is_preserved():
+    driver = ContactGripperDriver(
+        FakeNode(),
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_start_position=0.006,
+    )
+
+    assert driver._tactile_start_position == pytest.approx(0.006)
+
+
+def test_tactile_start_position_positive_target_specific_value_is_preserved():
+    driver = ContactGripperDriver(
+        FakeNode(),
+        contact_timeout_sec=0.0,
+        use_tactile_grasp=True,
+        tactile_start_position=0.03010,
+    )
+
+    assert driver._tactile_start_position == pytest.approx(0.03010)
 
 
 def test_non_tactile_acquire_keeps_legacy_close_command_sequence():

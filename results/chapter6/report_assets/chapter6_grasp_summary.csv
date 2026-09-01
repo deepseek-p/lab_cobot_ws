@@ -1,0 +1,5 @@
+target,object,trials,success,failure,success_rate_percent
+high_voltage_probe_kit,高压探针工具,10,10,0,100.00
+tooling_fixture_box,工装夹具,10,10,0,100.00
+material_spare_igbt,IGBT 模块,10,8,2,80.00
+overall,总体,30,28,2,93.33
