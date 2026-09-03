@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Drive simulated mecanum wheels from cmd_vel and publish wheel odometry."""
 import math
-import time
 
 import rclpy
 from rclpy.node import Node
@@ -180,7 +179,7 @@ class MecanumWheelVisualizer(Node):
         )
 
     def _on_cmd_vel(self, msg: Twist) -> None:
-        self._last_command_time = time.monotonic()
+        self._last_command_time = self._clock_seconds()
         self._last_speeds = wheel_speeds_from_twist(
             msg.linear.x,
             msg.linear.y,
@@ -197,7 +196,7 @@ class MecanumWheelVisualizer(Node):
             self._integrate_wheel_speeds(speeds)
             return
 
-        if time.monotonic() - self._last_command_time > self._command_timeout_sec:
+        if self._clock_seconds() - self._last_command_time > self._command_timeout_sec:
             self._last_speeds = [0.0, 0.0, 0.0, 0.0]
 
         self._publish(self._last_speeds)

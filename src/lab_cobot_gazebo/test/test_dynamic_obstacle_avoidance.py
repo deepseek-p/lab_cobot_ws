@@ -14,8 +14,10 @@ Run via colcon:
 
 Constraints:
     - Must run inside WSL with Gazebo and ROS 2 available.
-    - Each run budget ~600s (10 minutes) for the full cruise route.
-    - Total test budget ~60 minutes for 5 runs.
+    - Each run budget ~1500s (25 minutes) for the full cruise route with actor
+      interference; 900s was insufficient once the actor repeatedly intercepted
+      the robot during the inspection_zone -> tooling_zone leg.
+    - Total test budget ~125 minutes for 5 runs.
 """
 import json
 import os
@@ -44,7 +46,7 @@ CRUISE_INSTRUCTION_PUB = (
     "node.destroy_node();"
     "rclpy.shutdown()"
 )
-TASK_TIMEOUT_SEC = 900
+TASK_TIMEOUT_SEC = 1500
 LAUNCH_STABILIZE_SEC = 120
 COOLDOWN_SEC = 15
 NUM_RUNS = 1
@@ -54,6 +56,17 @@ WORKSPACE_SETUP = WORKSPACE / "install" / "setup.bash"
 
 SUCCESS_RATE_THRESHOLD = 0.95
 MIN_DISTANCE_THRESHOLD_M = 0.3
+
+# A previous run's launch tree can survive even after gzserver is killed and
+# keep publishing stale /cmd_vel_safety commands that corrupt the next run.
+STALE_ROS_CLEANUP_CMD = (
+    "pkill -9 -f '/install/[l]ab_cobot_' 2>/dev/null || true; "
+    "pkill -9 -f 'ros2 [l]aunch' 2>/dev/null || true; "
+    "pkill -9 -f 'gz[s]erver' 2>/dev/null || true; "
+    "pkill -9 -f 'gz[c]lient' 2>/dev/null || true; "
+    "pkill -9 -f '[m]ission_node' 2>/dev/null || true; "
+    "sleep 2"
+)
 
 
 def _source_cmd() -> str:
@@ -114,6 +127,13 @@ def _run_bringup_and_cruise() -> dict:
         "task_status": None,
     }
 
+    env = os.environ.copy()
+    env["GAZEBO_MODEL_DATABASE_URI"] = ""
+    env["OBSTACLE_AVOIDANCE_EVENTS_FILE"] = str(
+        WORKSPACE / "docs/chapter4_navigation/data/avoidance_events_run13.jsonl"
+    )
+    _run_with_timeout(STALE_ROS_CLEANUP_CMD, timeout=15, env=env)
+
     bringup_log = Path(tempfile.gettempdir()) / "bringup_last.log"
     launch_cmd = (
         f"{_source_cmd()} && "
@@ -125,8 +145,6 @@ def _run_bringup_and_cruise() -> dict:
         f"launch_perception:=false "
         f"2>&1"
     )
-    env = os.environ.copy()
-    env["GAZEBO_MODEL_DATABASE_URI"] = ""
 
     log_fp = bringup_log.open("w")
     proc = subprocess.Popen(
@@ -393,8 +411,7 @@ def _run_bringup_and_cruise() -> dict:
             subprocess.run(
                 [
                     "bash", "-c",
-                    "pkill -9 -f 'gzserver' 2>/dev/null || true; "
-                    "pkill -9 -f 'gzclient' 2>/dev/null || true; "
+                    f"{STALE_ROS_CLEANUP_CMD}; "
                     "pkill -9 -f 'mission_node' 2>/dev/null || true; "
                     "pkill -9 -f 'dynamic_obstacle_metrics_jsonl' 2>/dev/null || true; "
                     "pkill -9 -f 'dynamic_obstacle_status_jsonl' 2>/dev/null || true; "

@@ -397,7 +397,7 @@ home → station_a → inspection_zone → tooling_zone → aging_zone → stati
 
 ### 动态避障（N3）
 
-人员通过 `actor_ghost_collision`（透明圆柱 φ0.70×1.70m）进入局部代价地图，DWB 实时绕行或等待。`cmd_vel_safety_mux` 提供紧急刹车通道。采用"反应式安全避让 + 规划式重规划"双层：反应式层 20 Hz（50 ms 周期）同步下发避让指令，**算法响应延时 50 ms ≤ 200 ms**（规划效率达标）。
+人员通过 `actor_ghost_collision`（透明圆柱 φ0.70×1.70m）进入局部代价地图，DWB 实时绕行或等待。`cmd_vel_safety_mux` 提供紧急刹车通道。采用"反应式安全避让 + 规划式重规划"双层：反应式层 20 Hz（50 ms 周期）同步下发避让指令，**run10–13 实测 `sensor_to_cmd_ms` 为 0–200 ms、p95=200 ms、max=200 ms（≤200 ms 验收达标）**。
 
 | 参数 | 值 |
 |---|---|

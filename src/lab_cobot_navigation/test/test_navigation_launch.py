@@ -143,6 +143,7 @@ def test_navigation_launch_keeps_required_nav2_runtime_nodes(monkeypatch):
     assert ("nav2_bt_navigator", "bt_navigator") in executables
     assert ("nav2_velocity_smoother", "velocity_smoother") in executables
     assert ("nav2_lifecycle_manager", "lifecycle_manager") in executables
+    assert ("lab_cobot_navigation", "nav_startup_guard.py") in executables
 
 
 def test_navigation_nodes_respawn_for_gui_load_resilience(monkeypatch):
@@ -198,3 +199,22 @@ def test_lifecycle_manager_startup_is_delayed_past_boot_race(monkeypatch):
 
     assert len(timers) == 1
     assert float(timers[0]._TimerAction__period) >= 60.0
+
+
+def test_startup_guard_is_delayed_past_localization_manager(monkeypatch):
+    """启动守卫须在 localization manager 之后才活动,避免抢占编排."""
+    from launch.actions import TimerAction as _Timer
+
+    launch_description = _load_navigation_launch(monkeypatch)
+    timers = [
+        a
+        for a in _all_actions(launch_description)
+        if isinstance(a, _Timer)
+        and any(
+            _node_name(c) == "nav_startup_guard"
+            for c in a._TimerAction__actions
+        )
+    ]
+
+    assert len(timers) == 1
+    assert float(timers[0]._TimerAction__period) >= 25.0

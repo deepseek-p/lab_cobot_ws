@@ -50,7 +50,7 @@ from lab_cobot_navigation.waypoints import (
 from lab_cobot_manipulation.pick_place_node import PickPlace
 from lab_cobot_manipulation.gripper_driver import DEFAULT_TARGET_OBJECT
 
-RETREAT_TOPIC = "/cmd_vel"
+RETREAT_TOPIC = "/cmd_vel_manual"
 RAW_ODOM_TOPIC = "/odom"
 DETECTION_TOPIC_TEMPLATE = "/perception/aruco_{object_id}/pose"
 WRIST_DETECTION_TOPIC_TEMPLATE = "/perception/wrist/aruco_{object_id}/pose"
@@ -174,7 +174,7 @@ AXIS_NAV_TIMEOUT_SEC = 45.0
 AXIS_NAV_PUBLISH_PERIOD_SEC = 0.05
 AXIS_NAV_STOP_SEC = 0.2
 ROUTE_DEPARTURE_CLEARANCE = 0.65
-ROUTE_DEPARTURE_TIMEOUT_SEC = 8.0
+ROUTE_DEPARTURE_TIMEOUT_SEC = 45.0
 ROUTE_DEPARTURE_SETTLE_SEC = 8.0
 
 

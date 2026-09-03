@@ -223,6 +223,18 @@ def generate_launch_description():
     # localization 的 map_server 加载大图需时,也需要延后。
     lifecycle_localization_delayed = TimerAction(period=20.0, actions=[lifecycle_localization])
 
+    # 启动就绪守卫:localization manager 编排完成后,若 /map 或 map->odom
+    # 仍缺失(偶发 lifecycle 服务超时),自动对 map_server/amcl 补转生命周期。
+    startup_guard = Node(
+        package="lab_cobot_navigation",
+        executable="nav_startup_guard.py",
+        name="nav_startup_guard",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
+        remappings=nav2_remappings,
+    )
+    startup_guard_delayed = TimerAction(period=25.0, actions=[startup_guard])
+
     # 2026-07-10 GUI 实测根因:manager 在 launch 后 ~1s 即发起 configure,
     # 此时 gzserver 仍在加载(gzclient 抢资源),首次 change_state 服务调用 20ms 内
     # 失败,nav2 humble 的 manager 对此零重试直接弃栈(bt_navigator 永远 unconfigured)。
@@ -257,7 +269,13 @@ def generate_launch_description():
 
     return LaunchDescription(
         declared
-        + [ekf, map_server_node, amcl_node, lifecycle_localization_delayed]
+        + [
+            ekf,
+            map_server_node,
+            amcl_node,
+            lifecycle_localization_delayed,
+            startup_guard_delayed,
+        ]
         + navigation
         + [rviz]
     )

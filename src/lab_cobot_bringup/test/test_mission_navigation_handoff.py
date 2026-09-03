@@ -45,8 +45,9 @@ def _policy(name):
     return getattr(mission_node, name)
 
 
-def test_mission_local_docking_commands_reach_mecanum_driver():
-    assert mission_node.RETREAT_TOPIC == mecanum_wheel_visualizer.CMD_VEL_TOPIC
+def test_mission_local_docking_commands_flow_through_safety_mux():
+    assert mission_node.RETREAT_TOPIC == "/cmd_vel_manual"
+    assert mission_node.RETREAT_TOPIC != mecanum_wheel_visualizer.CMD_VEL_TOPIC
 
 
 def test_wrist_detection_defaults_to_top_marker_id_one():
@@ -465,8 +466,8 @@ def test_axis_aligned_navigation_goals_rotate_align_and_traverse_for_station_b()
 
     assert goals == [
         ("station_b_rotate", {"x": 1.80, "y": -0.20, "yaw": math.pi / 2.0}, "rotate"),
-        ("station_b_corridor_align", {"x": 1.80, "y": -2.63, "yaw": math.pi / 2.0}, "forward"),
-        ("station_b_corridor_traverse", {"x": 0.30, "y": -2.63, "yaw": math.pi / 2.0}, "strafe"),
+        ("station_b_corridor_align", {"x": 1.80, "y": -2.93, "yaw": math.pi / 2.0}, "forward"),
+        ("station_b_corridor_traverse", {"x": 0.30, "y": -2.93, "yaw": math.pi / 2.0}, "strafe"),
     ]
 
 

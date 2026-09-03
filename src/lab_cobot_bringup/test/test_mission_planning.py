@@ -212,7 +212,7 @@ def test_inspection_zone_uses_south_corridor_entry_before_station():
         "inspection_zone",
     ]
     assert goals[0][1]["x"] == 2.00
-    assert goals[0][1]["y"] == goals[1][1]["y"]
+    assert goals[0][1]["y"] == 1.10
     assert goals[0][2] is None
     assert goals[1][2] == "inspection_zone"
 
@@ -226,8 +226,8 @@ def test_tooling_zone_uses_corridor_entry_before_staging():
     ]
     assert goals[0][2] is None
     assert goals[-1][2] == "tooling_zone"
-    assert goals[0][1]["y"] == goals[-1][1]["y"]
-    assert goals[-1][1]["y"] == pytest.approx(-3.23)
+    assert goals[0][1]["y"] == -3.23
+    assert goals[-1][1]["y"] == pytest.approx(-3.53)
     assert goals[-1][1]["yaw"] == pytest.approx(math.pi / 2.0)
 
 

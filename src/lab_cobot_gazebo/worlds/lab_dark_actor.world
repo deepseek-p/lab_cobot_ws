@@ -362,7 +362,7 @@
     </model>
 
     <actor name="test_engineer_actor">
-      <pose>-5.80 1.20 0 0 0 0</pose>
+      <pose>-2.00 0.50 0 0 0 0.0</pose>
       <skin>
         <filename>file://media/models/walk.dae</filename>
         <scale>1.0</scale>
@@ -377,20 +377,15 @@
         <delay_start>1.0</delay_start>
         <auto_start>true</auto_start>
         <trajectory id="0" type="walking">
-          <!-- 38.0s loop, uniform ~0.5 m/s. Yaws face direction of travel. -->
-          <waypoint><time>0.0</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
-          <waypoint><time>8.6</time> <pose>-1.50  0.30 0 0 0 -0.569</pose></waypoint>
-          <waypoint><time>9.4</time><pose>-1.80  0.00 0 0 0 -1.571</pose></waypoint>
-          <waypoint><time>15.0</time><pose>-1.80 -2.80 0 0 0 -0.300</pose></waypoint>
-          <waypoint><time>17.9</time><pose>-0.50 -3.40 0 0 0 -0.450</pose></waypoint>
-          <waypoint><time>18.7</time><pose>-0.50 -3.80 0 0 0 -0.540</pose></waypoint>
-          <waypoint><time>20.7</time><pose>-1.50 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>21.7</time><pose>-2.00 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>24.7</time><pose>-3.50 -3.80 0 0 0  3.142</pose></waypoint>
-          <waypoint><time>27.7</time><pose>-5.00 -3.80 0 0 0  1.571</pose></waypoint>
-          <waypoint><time>33.3</time><pose>-5.00 -1.00 0 0 0  1.571</pose></waypoint>
-          <waypoint><time>36.4</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
-          <waypoint><time>38.0</time><pose>-5.80  0.30 0 0 0  0.0</pose></waypoint>
+          <!-- 38.0s central-corridor loop, ~0.5 m/s. Kept >2.2 m (evasion critical)
+               from all station dock poses so it tests avoidance during navigation
+               without contesting station docking. Yaws face direction of travel. -->
+          <waypoint><time>0.0</time><pose>-2.00  0.50 0 0 0  0.0</pose></waypoint>
+          <waypoint><time>9.0</time> <pose> 1.00  0.50 0 0 0 -1.5708</pose></waypoint>
+          <waypoint><time>14.0</time><pose> 1.00 -0.50 0 0 0  3.14159</pose></waypoint>
+          <waypoint><time>23.0</time><pose>-2.00 -0.50 0 0 0  1.5708</pose></waypoint>
+          <waypoint><time>32.0</time><pose>-2.00  0.50 0 0 0  0.0</pose></waypoint>
+          <waypoint><time>38.0</time><pose>-2.00  0.50 0 0 0  0.0</pose></waypoint>
         </trajectory>
       </script>
     </actor>

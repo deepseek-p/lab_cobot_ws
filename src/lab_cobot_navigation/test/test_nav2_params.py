@@ -182,7 +182,7 @@ def test_dwb_uses_actor_aware_obstacle_critics():
     assert follow_path["BaseObstacle.scale"] >= 10.0
 
 
-def test_lidar_is_the_only_dynamic_obstacle_source_so_old_actor_cells_clear():
+def test_dynamic_obstacle_sources_lidar_and_actor_cloud():
     params = _nav2_params()
     local = params["local_costmap"]["local_costmap"]["ros__parameters"]
     global_params = params["global_costmap"]["global_costmap"]["ros__parameters"]
@@ -193,6 +193,11 @@ def test_lidar_is_the_only_dynamic_obstacle_source_so_old_actor_cells_clear():
     assert scan["topic"] == "/scan"
     assert scan["clearing"] is True
     assert scan["marking"] is True
+    actor_cloud = local["voxel_layer"]["actor_cloud"]
+    assert actor_cloud["topic"] == "/actor_ghost/obstacle_cloud"
+    assert actor_cloud["data_type"] == "PointCloud2"
+    assert actor_cloud["marking"] is True
+    assert actor_cloud["clearing"] is False
     assert "obstacle_layer" not in global_params
     assert global_params["plugins"] == ["static_layer", "inflation_layer"]
 

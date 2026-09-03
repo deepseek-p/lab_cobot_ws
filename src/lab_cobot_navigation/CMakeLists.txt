@@ -36,4 +36,8 @@ install(DIRECTORY config maps launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS scripts/nav_startup_guard.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

@@ -8,28 +8,33 @@ from rclpy.node import Node
 
 
 NAV_TIMEOUT_SEC = 0.5
-SAFETY_TIMEOUT_SEC = 0.35
+SAFETY_TIMEOUT_SEC = 0.5
+MANUAL_TIMEOUT_SEC = 0.5
 PUBLISH_HZ = 30.0
 
 
 class CmdVelSafetyMux(Node):
-    """Publish Nav2 velocity unless a fresh safety command is active."""
+    """Arbitrate nav / manual / safety on the single final cmd_vel."""
 
     def __init__(self) -> None:
         super().__init__("cmd_vel_safety_mux")
         self._nav_cmd = Twist()
         self._safety_cmd = Twist()
+        self._manual_cmd = Twist()
         self._last_nav_time = None
         self._last_safety_time = None
+        self._last_manual_time = None
         self._safety_active = False
+        self._manual_active = False
 
         self.create_subscription(Twist, "/cmd_vel_nav_smoothed", self._nav_cb, 10)
         self.create_subscription(Twist, "/cmd_vel_safety", self._safety_cb, 10)
+        self.create_subscription(Twist, "/cmd_vel_manual", self._manual_cb, 10)
         self._pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.create_timer(1.0 / PUBLISH_HZ, self._tick)
         self.get_logger().info(
-            "cmd_vel safety mux started: /cmd_vel_nav_smoothed + "
-            "/cmd_vel_safety -> /cmd_vel"
+            "cmd_vel safety mux started: "
+            "nav <= manual <= safety -> /cmd_vel"
         )
 
     @property
@@ -44,6 +49,10 @@ class CmdVelSafetyMux(Node):
         self._safety_cmd = copy.deepcopy(msg)
         self._last_safety_time = self._now
 
+    def _manual_cb(self, msg: Twist) -> None:
+        self._manual_cmd = copy.deepcopy(msg)
+        self._last_manual_time = self._now
+
     def _fresh(self, stamp: float, timeout: float) -> bool:
         return stamp is not None and self._now - stamp <= timeout
 
@@ -53,8 +62,8 @@ class CmdVelSafetyMux(Node):
 
     def _tick(self) -> None:
         # A zero safety message means "release override"; it must not mask
-        # a valid Nav2 avoidance command.  Only non-zero safety commands own
-        # the final base velocity.
+        # lower-priority commands. Only non-zero safety commands own the
+        # final base velocity.
         if (self._fresh(self._last_safety_time, SAFETY_TIMEOUT_SEC)
                 and self._nonzero(self._safety_cmd)):
             if not self._safety_active:
@@ -66,6 +75,19 @@ class CmdVelSafetyMux(Node):
         if self._safety_active:
             self.get_logger().info("safety velocity override OFF")
             self._safety_active = False
+
+        # Mission-level low-level motion (retreat/dock/stop) is routed here
+        # so it can never race the safety layer on /cmd_vel. A fresh zero
+        # manual command intentionally holds the robot still until release.
+        if self._fresh(self._last_manual_time, MANUAL_TIMEOUT_SEC):
+            if not self._manual_active:
+                self.get_logger().info("manual velocity hold ON")
+                self._manual_active = True
+            self._pub.publish(self._manual_cmd)
+            return
+        if self._manual_active:
+            self.get_logger().info("manual velocity hold OFF")
+            self._manual_active = False
 
         if self._fresh(self._last_nav_time, NAV_TIMEOUT_SEC):
             self._pub.publish(self._nav_cmd)

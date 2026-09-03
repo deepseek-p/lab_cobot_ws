@@ -77,8 +77,9 @@ class FakePublisher:
         self.messages.append(msg)
 
 
-def test_departure_retreat_uses_mecanum_driver_command_topic_and_backs_up():
-    assert RETREAT_TOPIC == mecanum_wheel_visualizer.CMD_VEL_TOPIC
+def test_departure_retreat_uses_mux_manual_channel_and_backs_up():
+    assert RETREAT_TOPIC == "/cmd_vel_manual"
+    assert RETREAT_TOPIC != mecanum_wheel_visualizer.CMD_VEL_TOPIC
     assert RETREAT_LINEAR_X <= -0.15
     assert RETREAT_DURATION_SEC >= 5.0
 
