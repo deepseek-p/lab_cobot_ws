@@ -1,0 +1,23 @@
+path: C:\Users\10915\Desktop\yolo\yolov8\1
+train: train/images
+val: val/images
+test: test/images
+
+nc: 17
+names: ['aruco_sample',
+  'material_cube_red',
+  'material_cube_green',
+  'material_cube_blue',
+  'material_cube_yellow',
+  'aging_rack',
+  'pcb_board',
+  'test_tube_rack',
+  'test_tube',
+  'beaker',
+  'erlenmeyer_flask',
+  'graduated_cylinder',
+  'tooling_fixture_box',
+  'tooling_hand_tools',
+  'board_test_fixture',
+  'high_voltage_probe_kit',
+  'material_spare_igbt']

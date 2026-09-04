@@ -1,0 +1,287 @@
+yolo_world_detection:
+  ros__parameters:
+    use_sim_time: true
+    # Use the wrist RGB-D camera for close-range, end-effector-referenced
+    # inspection.  Its optical +Z is the gripper TCP +Z direction.
+    image_topic: /wrist_camera/image_raw
+    detection_topic: /yolo/detections
+    # 自训练的固定十七类模型；相对路径会从 image_pkg 的安装目录解析。
+    model_path: models/best.pt
+    # 与 data.yaml / best.pt 完全一致；不保留已从新场景删除的旧类别。
+    target_classes: [aruco_sample, material_cube_red, material_cube_green, material_cube_blue, material_cube_yellow, aging_rack, pcb_board, test_tube_rack, test_tube, beaker, erlenmeyer_flask, graduated_cylinder, tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt]
+    # ROS 2 parameter arrays cannot be empty (it becomes NOT_SET).  The blank
+    # entry is ignored by the parser and therefore still performs no aliasing.
+    class_label_aliases: [""]
+    confidence_threshold: 0.05
+    nms_iou_threshold: 0.45
+    # Gazebo GUI 已占用显卡；评测时固定 CPU 可避免 CUDA 进程被终止。
+    device: cpu
+    inference_imgsz: 640
+    enable_multiscale_recovery: true
+    recovery_imgsz: 960
+    enable_tiled_recovery: true
+    recovery_tile_fraction: 0.65
+    # Fine-view recovery for the ten classes that had no accepted 3-D sample.
+    # Threshold lowering is active only when station_cruise names the current
+    # target; the result must be the nearest same-class box to the optical axis.
+    active_target_recovery_thresholds: ["tooling_hand_tools=0.003", "board_test_fixture=0.005", "high_voltage_probe_kit=0.010", "material_spare_igbt=0.010", "aging_rack=0.001", "pcb_board=0.010", "beaker=0.010", "erlenmeyer_flask=0.005", "graduated_cylinder=0.001", "test_tube=0.010"]
+    active_target_recovery_imgsz: 1280
+    active_target_roi_fraction: 0.70
+    active_target_center_gate_fraction: 0.38
+    filter_to_active_target: true
+    enable_target_geometry_fallback: true
+    target_geometry_fallback_labels: [tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board, test_tube_rack, test_tube, beaker, erlenmeyer_flask, graduated_cylinder]
+    geometry_color_distance_threshold: 18.0
+    geometry_override_max_yolo_confidence: 0.30
+    aruco_sample_marker_ids: [0, 1]
+    semantic_marker_labels: ["0=aruco_sample", "1=aruco_sample", "2=material_cube_red", "3=material_cube_green", "4=material_cube_blue", "5=material_cube_yellow"]
+    cruise_status_topic: /image_pkg/cruise/status
+    camera_info_topic: /wrist_camera/camera_info
+    semantic_aruco_pose_topic: /perception/wrist/semantic_aruco_poses
+    aruco_coded_marker_size_m: 0.05384615384615385
+    aruco_coded_marker_sizes_m: ["0=0.05384615384615385", "1=0.056", "2=0.056", "3=0.056", "4=0.056", "5=0.056"]
+    aruco_marker_to_model_origin_m: 0.036
+    publish_annotated_image: true
+yolo_pointcloud_pose:
+  ros__parameters:
+    use_sim_time: true
+    # Must be an organized RGB-D cloud registered to image_topic. Gazebo truth
+    # is only written into evaluation_log_path and never sent to grasp topics.
+    pointcloud_topic: /image_pkg/wrist_camera_points
+    detection_topic: /yolo/detections
+    # Both the RGB-D camera pose and the Gazebo item truth are evaluated in
+    # Gazebo `world`.  The node composes world<-base_footprint from
+    # /gazebo/model_states with the live base_footprint<-wrist_camera TF.
+    target_frame: world
+    objects_topic: /perception/objects
+    pose_topic: /perception/yolo/pose
+    json_pose_topic: /yolo/poses
+    evaluation_topic: /perception/yolo/evaluation
+    pipeline_metrics_topic: /perception/yolo/pipeline_metrics
+    selected_pose_topic: /perception/target_pose
+    aruco_model_origin_pose_topic: /perception/aruco/model_origin_pose
+    # This test performs no grasp.  Keep the manipulation-facing topic in
+    # base_link for compatibility while the evaluation above remains world.
+    selected_pose_frame: base_link
+    pose_source: yolo  # set aruco to relay aruco_pose_topic instead
+    # `/perception/target_pose` only carries this one semantic object.  Set an
+    # empty value only for manual exploration, which selects the most confident
+    # valid 3D detection instead.
+    target_label: aruco_sample
+    # Start from the URDF/Gazebo calibrated camera extrinsic.  A residual is
+    # written here only after a measured calibration run; do not retain an
+    # unverified manual offset.
+    # No world-axis residual is applied: a fixed world correction becomes
+    # invalid as the wrist camera changes observation posture.
+    pose_translation_correction: [0.0, 0.0, 0.0]
+    # Offline calibration from independent stationary RGB-D runs.  Values map
+    # each visual support feature to the Gazebo/CAD model origin; runtime truth
+    # remains evaluation-only and never enters the estimate.
+    # Leave disabled until a separate validation run confirms the fitted
+    # constants; an unvalidated correction must not be reported as accuracy.
+    model_origin_calibration_corrections_m: [""]
+    # 2026-08-05 9x7 / 30 mm checkerboard 6D eye-to-hand calibration
+    # (20 solvePnP samples; result in calibration_results/).
+    camera_optical_translation_base: [0.180466354, -0.219095767, 1.225983643]
+    camera_optical_rpy_base: [-2.223343157, -0.001904591, -1.572639307]
+    # Wrist ArUco solvePnP output.  It is converted from base_link to world
+    # in yolo_pointcloud_pose_node before model-origin error evaluation.
+    aruco_pose_topic: /perception/wrist/aruco_0/pose
+    evaluate_aruco_pnp: false
+    cruise_status_topic: /image_pkg/cruise/status
+    semantic_aruco_pose_topic: /perception/wrist/semantic_aruco_poses
+    semantic_marker_min_world_normal_z: 0.65
+    semantic_top_plane_constraint: true
+    semantic_top_marker_plane_world_z_m: 0.821
+    semantic_top_marker_to_model_origin_m: 0.036
+    grasp_status_topic: /gripper/status
+    gazebo_truth_topic: /gazebo/model_states
+    # Gazebo 实体名与视觉语义类别。试管/试管架等同类多实例均保留，
+    # 评测时在同一类别候选中按最近模型原点配对。
+    gazebo_model_names: [aruco_sample, material_cube_red, material_cube_green, material_cube_blue, material_cube_yellow, tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board, test_tube_rack_1, test_tube_rack_2, test_tube_1, test_tube_2, test_tube_3, test_tube_4, test_tube_5, test_tube_6, test_tube_7, test_tube_8, test_tube_9, graduated_cylinder, beaker_1, beaker_2, beaker_3, beaker_4, erlenmeyer_flask, erlenmeyer_flask_2]
+    gazebo_model_labels: [aruco_sample, material_cube_red, material_cube_green, material_cube_blue, material_cube_yellow, tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board, test_tube_rack, test_tube_rack, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, graduated_cylinder, beaker, beaker, beaker, beaker, erlenmeyer_flask, erlenmeyer_flask]
+    gazebo_truth_frame: world
+    gazebo_robot_frame: base_footprint
+    odom_topic: /odom
+    # Benchmark only evaluates the object belonging to the reached station.
+    # Require the same raw training label; repeated instances use the nearest
+    # same-label Gazebo model origin, never a different category's truth.
+    evaluation_truth_association: label
+    # ModelStates 内机器人模型的世界位姿用于 world -> base_link 真值换算。
+    gazebo_robot_model_name: lab_cobot
+    # 检测节点已经输出统一标签，留空即可；仅在外部检测器直接接入时使用。
+    detection_label_aliases: [""]
+    # RGB-D returns the visible top surface; convert that physical point to
+    # the upright model origin before world-frame error evaluation.
+    surface_centroid_to_model_origin_offsets_m:
+      ["aruco_sample=0,0,-0.035", "material_cube_red=0,0,-0.035",
+       "material_cube_green=0,0,-0.035", "material_cube_blue=0,0,-0.035",
+       "material_cube_yellow=0,0,-0.035", "tooling_fixture_box=0,0,-0.100",
+       "tooling_hand_tools=0,0,-0.048", "board_test_fixture=0,0,-0.100",
+       "high_voltage_probe_kit=0,0,-0.080", "material_spare_igbt=0,0,-0.060",
+       "aging_rack=0,0,-0.055", "pcb_board=0,0,-0.145",
+       "test_tube_rack=0,0,-0.066", "test_tube=0,0,-0.125",
+       "beaker=0,0,-0.102", "erlenmeyer_flask=0,0,-0.120",
+       "graduated_cylinder=0,0,-0.070"]
+    # Untagged objects use a support-plane feature frame: fit the surrounding
+    # table, project the segmented foreground centre onto it, then apply the
+    # CAD/model-origin height in that local frame.  This prevents tabletop
+    # pixels inside a YOLO box from being mistaken for the model origin.
+    support_feature_to_model_origin_transforms:
+      ["tooling_fixture_box=0,0,0.100,0,0,0",
+       "tooling_hand_tools=0,0,0.000,0,0,0",
+       "board_test_fixture=0,0,0.000,0,0,0",
+       "high_voltage_probe_kit=0,0,0.000,0,0,0",
+       "material_spare_igbt=0,0,0.060,0,0,0",
+       "aging_rack=0,0,0.050,0,0,0",
+       "pcb_board=0,0,0.000,0,0,0",
+       "test_tube_rack=0,0,0.000,0,0,0",
+       "test_tube=0,0,0.000,0,0,0",
+       "beaker=0,0,0.000,0,0,0",
+       "erlenmeyer_flask=0,0,0.000,0,0,0",
+       "graduated_cylinder=0,0,0.070,0,0,0"]
+    require_support_feature_labels:
+      [tooling_fixture_box, tooling_hand_tools, board_test_fixture,
+       high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board,
+       test_tube_rack, test_tube, beaker, erlenmeyer_flask,
+       graduated_cylinder]
+    evaluation_log_path: ~/.ros/yolo_pose_evaluation.jsonl
+    min_points: 20
+    # CPU YOLO 有推理延迟。节点缓存历史点云，并仅选择与检测源图像
+    # 时间戳相差不超过该值的点云，避免机器人移动后发生框-深度错配。
+    pointcloud_cache_size: 180
+    max_rgbd_sync_delta_sec: 0.10
+    allow_latest_tf_fallback: false
+    evaluation_temporal_window: 5
+    evaluation_temporal_min_samples: 3
+    evaluation_temporal_mad_gate_m: 0.08
+    evaluation_multiview_only: true
+    # Require two independent precision poses.  Cruise still confirms three
+    # centred visual views; this permits one environmentally degraded marker
+    # view without contaminating the estimate with an RGB-D fallback.
+    evaluation_minimum_views: 2
+    support_normal_min_world_z: 0.75
+    evaluation_enabled: true
+    camera_source: wrist
+bench_yolo_world_detection:
+  ros__parameters:
+    use_sim_time: true
+    image_topic: /bench_camera/image_raw
+    detection_topic: /yolo/bench/detections
+    annotated_image_topic: /yolo/bench/annotated_image
+    model_path: models/best.pt
+    target_classes: [aruco_sample, material_cube_red, material_cube_green, material_cube_blue, material_cube_yellow, aging_rack, pcb_board, test_tube_rack, test_tube, beaker, erlenmeyer_flask, graduated_cylinder, tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt]
+    class_label_aliases: [""]
+    confidence_threshold: 0.05
+    nms_iou_threshold: 0.45
+    device: cpu
+    inference_imgsz: 640
+    enable_multiscale_recovery: true
+    recovery_imgsz: 960
+    enable_tiled_recovery: true
+    recovery_tile_fraction: 0.65
+    # Overview inference is not target-gated.  Keep these parameters declared
+    # for the shared node type, but no low-threshold recovery runs without an
+    # active cruise target.
+    active_target_recovery_thresholds: ["tooling_hand_tools=0.003", "board_test_fixture=0.005", "high_voltage_probe_kit=0.010", "material_spare_igbt=0.010", "aging_rack=0.001", "pcb_board=0.010", "beaker=0.010", "erlenmeyer_flask=0.005", "graduated_cylinder=0.001", "test_tube=0.010"]
+    active_target_recovery_imgsz: 1280
+    active_target_roi_fraction: 0.70
+    active_target_center_gate_fraction: 0.38
+    filter_to_active_target: true
+    enable_target_geometry_fallback: false
+    target_geometry_fallback_labels: [tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board, test_tube_rack, test_tube, beaker, erlenmeyer_flask, graduated_cylinder]
+    geometry_color_distance_threshold: 18.0
+    geometry_override_max_yolo_confidence: 0.30
+    aruco_sample_marker_ids: [0, 1]
+    semantic_marker_labels: ["0=aruco_sample", "1=aruco_sample", "2=material_cube_red", "3=material_cube_green", "4=material_cube_blue", "5=material_cube_yellow"]
+    cruise_status_topic: /image_pkg/cruise/status
+    camera_info_topic: /bench_camera/camera_info
+    semantic_aruco_pose_topic: /perception/overview/semantic_aruco_poses
+    aruco_coded_marker_size_m: 0.05384615384615385
+    aruco_coded_marker_sizes_m: ["0=0.05384615384615385", "1=0.056", "2=0.056", "3=0.056", "4=0.056", "5=0.056"]
+    aruco_marker_to_model_origin_m: 0.036
+    publish_annotated_image: true
+bench_rgbd_pointcloud:
+  ros__parameters:
+    use_sim_time: true
+    rgb_topic: /bench_camera/image_raw
+    depth_topic: /bench_camera/depth/image_raw
+    camera_info_topic: /bench_camera/camera_info
+    pointcloud_topic: /image_pkg/bench_camera_points
+    min_depth: 0.05
+    max_depth: 3.0
+bench_yolo_pointcloud_pose:
+  ros__parameters:
+    use_sim_time: true
+    pointcloud_topic: /image_pkg/bench_camera_points
+    detection_topic: /yolo/bench/detections
+    target_frame: world
+    objects_topic: /perception/overview/objects
+    pose_topic: /perception/overview/pose
+    json_pose_topic: /yolo/bench/poses
+    evaluation_topic: /perception/overview/evaluation
+    pipeline_metrics_topic: /perception/overview/pipeline_metrics
+    selected_pose_topic: /perception/overview/target_pose
+    aruco_model_origin_pose_topic: /perception/overview/aruco/model_origin_pose
+    pose_source: yolo
+    target_label: ""
+    selected_pose_frame: world
+    pose_translation_correction: [0.0, 0.0, 0.0]
+    aruco_pose_topic: /perception/unused/aruco_pose
+    cruise_status_topic: /image_pkg/cruise/status
+    semantic_aruco_pose_topic: /perception/overview/semantic_aruco_poses
+    grasp_status_topic: /perception/unused/grasp_status
+    gazebo_truth_topic: /gazebo/model_states
+    gazebo_robot_frame: base_footprint
+    gazebo_robot_model_name: lab_cobot
+    gazebo_model_names: [aruco_sample, material_cube_red, material_cube_green, material_cube_blue, material_cube_yellow, tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board, test_tube_rack_1, test_tube_rack_2, test_tube_1, test_tube_2, test_tube_3, test_tube_4, test_tube_5, test_tube_6, test_tube_7, test_tube_8, test_tube_9, graduated_cylinder, beaker_1, beaker_2, beaker_3, beaker_4, erlenmeyer_flask, erlenmeyer_flask_2]
+    gazebo_model_labels: [aruco_sample, material_cube_red, material_cube_green, material_cube_blue, material_cube_yellow, tooling_fixture_box, tooling_hand_tools, board_test_fixture, high_voltage_probe_kit, material_spare_igbt, aging_rack, pcb_board, test_tube_rack, test_tube_rack, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, test_tube, graduated_cylinder, beaker, beaker, beaker, beaker, erlenmeyer_flask, erlenmeyer_flask]
+    evaluation_truth_association: label
+    detection_label_aliases: [""]
+    surface_centroid_to_model_origin_offsets_m: ["aruco_sample=0,0,-0.035", "material_cube_red=0,0,-0.035", "material_cube_green=0,0,-0.035", "material_cube_blue=0,0,-0.035", "material_cube_yellow=0,0,-0.035", "tooling_fixture_box=0,0,-0.100", "tooling_hand_tools=0,0,-0.048", "board_test_fixture=0,0,-0.100", "high_voltage_probe_kit=0,0,-0.080", "material_spare_igbt=0,0,-0.060", "aging_rack=0,0,-0.055", "pcb_board=0,0,-0.145", "test_tube_rack=0,0,-0.066", "test_tube=0,0,-0.125", "beaker=0,0,-0.102", "erlenmeyer_flask=0,0,-0.120", "graduated_cylinder=0,0,-0.070"]
+    support_feature_to_model_origin_transforms: ["tooling_fixture_box=0,0,0.100,0,0,0", "tooling_hand_tools=0,0,0.000,0,0,0", "board_test_fixture=0,0,0.000,0,0,0", "high_voltage_probe_kit=0,0,0.000,0,0,0", "material_spare_igbt=0,0,0.060,0,0,0", "aging_rack=0,0,0.050,0,0,0", "pcb_board=0,0,0.000,0,0,0", "test_tube_rack=0,0,0.000,0,0,0", "test_tube=0,0,0.000,0,0,0", "beaker=0,0,0.000,0,0,0", "erlenmeyer_flask=0,0,0.000,0,0,0", "graduated_cylinder=0,0,0.070,0,0,0"]
+    require_support_feature_labels: [""]
+    evaluation_log_path: ~/.ros/yolo_pose_evaluation.jsonl
+    min_points: 20
+    pointcloud_cache_size: 180
+    max_rgbd_sync_delta_sec: 0.10
+    allow_latest_tf_fallback: false
+    evaluation_temporal_window: 5
+    evaluation_temporal_min_samples: 3
+    evaluation_temporal_mad_gate_m: 0.08
+    evaluation_multiview_only: true
+    evaluation_minimum_views: 2
+    support_normal_min_world_z: 0.75
+    evaluation_enabled: false
+    camera_source: overview
+dual_camera_fusion:
+  ros__parameters:
+    use_sim_time: true
+    overview_pose_topic: /yolo/bench/poses
+    wrist_pose_topic: /yolo/poses
+    hint_topic: /perception/overview/hints
+    confirmed_pose_topic: /perception/dual_camera/confirmed_poses
+    metrics_topic: /perception/dual_camera/metrics
+    hint_max_age_sec: 2.0
+    max_world_association_distance_m: 0.35
+rgbd_pointcloud:
+  ros__parameters:
+    use_sim_time: true
+    rgb_topic: /wrist_camera/image_raw
+    depth_topic: /wrist_camera/depth/image_raw
+    camera_info_topic: /wrist_camera/camera_info
+    pointcloud_topic: /image_pkg/wrist_camera_points
+    min_depth: 0.05
+    max_depth: 3.0
+indicator_state:
+  ros__parameters:
+    use_sim_time: true
+    image_topic: /bench_camera/image_raw
+    state_topic: /perception/device_states
+    device_id: board_test_fixture
+    # Set this to the calibrated indicator bounding rectangle [x,y,width,height].
+    # A zero width/height analyses the full image and is intentionally conservative.
+    roi: [0, 0, 0, 0]
+    min_pixels: 20
+    dominance: 0.60
+    publish_only_on_change: true
