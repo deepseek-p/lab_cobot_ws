@@ -1,0 +1,38 @@
+{
+  "method": "6D fixed-camera eye-to-hand calibration: inv(T_world_base) * T_world_board * inv(T_camera_board)",
+  "board": {
+    "squares": [
+      9,
+      7
+    ],
+    "inner_corners": [
+      8,
+      6
+    ],
+    "square_size_m": 0.03
+  },
+  "samples": 20,
+  "base_to_camera_translation_m": [
+    0.18046635448088955,
+    -0.2190957670080927,
+    1.2259836428073738
+  ],
+  "base_to_camera_quaternion_xyzw": [
+    -0.6335933325945019,
+    0.6341647292173902,
+    -0.31425560343527636,
+    0.31247079994450233
+  ],
+  "base_to_camera_rpy_rad": [
+    -2.223343157022166,
+    -0.001904590815285752,
+    -1.5726393073285436
+  ],
+  "translation_median_absolute_deviation_m": [
+    2.0603244493822004e-07,
+    2.0978952995631683e-07,
+    1.705232621773689e-10
+  ],
+  "rotation_max_deviation_deg": 0.0026400950781464874,
+  "timestamp_utc": "2026-08-05T13:03:45.051211+00:00"
+}
