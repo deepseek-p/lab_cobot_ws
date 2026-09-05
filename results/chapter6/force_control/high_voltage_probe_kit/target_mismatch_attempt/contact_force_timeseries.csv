@@ -1,0 +1,1 @@
+target,trial,elapsed_sec,sim_time,left_contact,right_contact,left_force_raw,right_force_raw,force_source,force_valid_left,force_valid_right,gripper_left,gripper_right,gripper_gap_mm

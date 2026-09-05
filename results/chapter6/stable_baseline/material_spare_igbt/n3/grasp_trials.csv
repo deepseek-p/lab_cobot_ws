@@ -1,0 +1,4 @@
+target,trial,trial_id,planning_success,cartesian_success,cartesian_fraction,contact_success,contact_left,contact_right,force_left,force_right,force_peak,attach_success,holding_success,lift_success,failure_stage,failure_reason,duration,stage_planning_sec,stage_descend_sec,stage_contact_sec,stage_attach_sec,stage_lift_sec
+material_spare_igbt,1,1,1,1,,1,1,1,20.000000,20.000000,20.000000,1,1,1,SUCCESS,none,53.540628,13.661500,7.227683,1.846319,0.733488,6.208436
+material_spare_igbt,2,2,1,0,,1,1,1,0.000000,0.000000,0.000000,0,0,0,DESCEND,FAILED_DESCEND material_spare_igbt,20.573999,20.228854,,,,
+material_spare_igbt,3,3,1,1,,1,1,1,0.000000,0.000000,0.000000,0,0,0,ATTACH,FAILED_ATTACH material_spare_igbt,29.578718,19.076045,6.453199,,,

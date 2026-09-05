@@ -1,0 +1,7 @@
+trials: 1
+successful_moves: 1
+measurement_source: MoveIt FK from current joint_state
+mean_error_mm: 0.000000
+std_error_mm: 0.000000
+rms_error_mm: 0.000000
+max_error_mm: 0.000000

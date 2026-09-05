@@ -1,0 +1,4 @@
+target,trial,trial_id,planning_success,cartesian_success,cartesian_fraction,contact_success,contact_left,contact_right,force_left,force_right,force_peak,attach_success,holding_success,lift_success,failure_stage,failure_reason,duration,stage_planning_sec,stage_descend_sec,stage_contact_sec,stage_attach_sec,stage_lift_sec
+high_voltage_probe_kit,1,1,1,1,,1,1,1,2.750403,0.000000,2.750403,1,1,1,SUCCESS,none,48.652495,5.800786,5.619279,6.968026,3.450935,4.146455
+high_voltage_probe_kit,2,2,1,1,,0,1,0,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT high_voltage_probe_kit,24.269221,10.117376,6.004934,,,
+high_voltage_probe_kit,3,3,1,1,,0,1,0,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT high_voltage_probe_kit,13.617435,1.572515,3.898484,,,

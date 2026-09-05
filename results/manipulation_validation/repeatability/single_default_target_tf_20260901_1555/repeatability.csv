@@ -1,0 +1,2 @@
+trial_id,command_x,command_y,command_z,command_qx,command_qy,command_qz,command_qw,actual_x,actual_y,actual_z,actual_qx,actual_qy,actual_qz,actual_qw,move_success,duration,measurement_source,dx_mm,dy_mm,dz_mm,repeatability_error_mm
+1,0.62,0.0,0.72,1.0,0.0,0.0,0.0,0.6205379580649204,0.00031090954043867976,0.3457124611892576,0.9998794071045399,0.004747370017380017,-0.0011404954758259184,0.01474221815946907,1,14.519583130000683,MoveIt FK from current joint_state,0.0,0.0,0.0,0.0

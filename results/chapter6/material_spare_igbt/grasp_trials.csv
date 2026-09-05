@@ -1,0 +1,11 @@
+target,trial_id,planning_success,cartesian_success,contact_left,contact_right,force_left,force_right,attach_success,holding_success,lift_success,failure_reason,duration,stage_planning_sec,stage_descend_sec,stage_contact_sec,stage_attach_sec,stage_lift_sec
+material_spare_igbt,1,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_DESCEND material_spare_igbt,99.837186,32.562333,,,,
+material_spare_igbt,2,0,0,1,1,629.398077,1501.557479,0,0,0,FAILED_DESCEND material_spare_igbt,57.712648,14.448501,,,,
+material_spare_igbt,3,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_DESCEND material_spare_igbt,66.282133,17.951888,,,,
+material_spare_igbt,4,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_DESCEND material_spare_igbt,8.118065,7.765794,,,,
+material_spare_igbt,5,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN material_spare_igbt,0.528314,,,,,
+material_spare_igbt,6,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN material_spare_igbt,0.523005,,,,,
+material_spare_igbt,7,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN material_spare_igbt,0.523549,,,,,
+material_spare_igbt,8,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN material_spare_igbt,0.527510,,,,,
+material_spare_igbt,9,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN material_spare_igbt,0.519833,,,,,
+material_spare_igbt,10,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN material_spare_igbt,0.533817,,,,,

@@ -1,0 +1,4 @@
+target,trial,trial_id,planning_success,cartesian_success,cartesian_fraction,contact_success,contact_left,contact_right,force_left,force_right,force_peak,attach_success,holding_success,lift_success,failure_stage,failure_reason,duration,stage_planning_sec,stage_descend_sec,stage_contact_sec,stage_attach_sec,stage_lift_sec
+tooling_fixture_box,1,1,1,1,,1,1,1,13.800000,13.800000,13.800000,1,1,1,SUCCESS,none,54.311496,19.725398,4.370588,0.105600,0.763433,3.871174
+tooling_fixture_box,2,2,1,1,,1,1,1,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT tooling_fixture_box,34.015371,24.775519,3.722606,,,
+tooling_fixture_box,3,3,1,1,,1,1,1,13.800000,13.800000,13.800000,1,1,1,SUCCESS,none,16.166545,3.194918,5.624441,0.104656,0.628149,3.389815

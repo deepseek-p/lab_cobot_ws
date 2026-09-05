@@ -1,0 +1,16 @@
+trials: 5
+successful_moves: 5
+measurement_source: TF base_link -> gripper_tcp
+target_mode: joint
+target_frame: base_link
+target_link: gripper_tcp
+mean_error_mm: 0.048694
+std_error_mm: 0.023856
+rms_error_mm: 0.054224
+max_error_mm: 0.086082
+drift_025_to_100_mean_mm: 0.001560
+drift_025_to_100_max_mm: 0.003625
+drift_100_to_200_mean_mm: 0.000594
+drift_100_to_200_max_mm: 0.000988
+drift_025_to_200_mean_mm: 0.001513
+drift_025_to_200_max_mm: 0.003389

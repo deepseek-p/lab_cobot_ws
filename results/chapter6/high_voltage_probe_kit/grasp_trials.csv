@@ -1,0 +1,11 @@
+target,trial,trial_id,planning_success,cartesian_success,cartesian_fraction,contact_success,contact_left,contact_right,force_left,force_right,force_peak,attach_success,holding_success,lift_success,failure_stage,failure_reason,duration,stage_planning_sec,stage_descend_sec,stage_contact_sec,stage_attach_sec,stage_lift_sec
+high_voltage_probe_kit,1,1,1,1,,1,1,1,3.243374,0.000000,3.243374,1,1,1,SUCCESS,none,24.967471,5.477393,3.614942,7.643219,0.828909,4.181768
+high_voltage_probe_kit,2,2,1,1,,0,1,0,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT high_voltage_probe_kit,20.234860,7.951454,4.118931,,,
+high_voltage_probe_kit,3,3,1,1,,1,1,1,0.000000,26.821538,26.821538,1,1,1,SUCCESS,none,23.297888,3.408810,3.814784,7.721316,0.765762,4.373377
+high_voltage_probe_kit,4,4,1,1,,1,1,1,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT high_voltage_probe_kit,38.562249,26.330863,4.060238,,,
+high_voltage_probe_kit,5,5,1,0,,0,0,0,0.000000,0.000000,0.000000,0,0,0,DESCEND,FAILED_DESCEND high_voltage_probe_kit,17.386966,17.055141,,,,
+high_voltage_probe_kit,6,6,1,1,,1,1,1,0.000000,103.835974,103.835974,1,1,1,SUCCESS,none,36.647099,15.959756,4.969455,7.643306,0.761518,4.087239
+high_voltage_probe_kit,7,7,1,1,,0,1,0,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT high_voltage_probe_kit,19.196931,7.756659,3.307695,,,
+high_voltage_probe_kit,8,8,1,0,,0,0,0,0.000000,0.000000,0.000000,0,0,0,DESCEND,FAILED_DESCEND high_voltage_probe_kit,14.535119,14.224256,,,,
+high_voltage_probe_kit,9,9,1,1,,1,1,1,0.000000,151.236183,151.236183,1,1,1,SUCCESS,none,33.832809,13.754739,4.761066,7.637463,0.735422,3.728024
+high_voltage_probe_kit,10,10,1,1,,0,1,0,0.000000,0.000000,0.000000,0,0,0,CONTACT,FAILED_CONTACT high_voltage_probe_kit,24.171112,8.954547,7.054481,,,

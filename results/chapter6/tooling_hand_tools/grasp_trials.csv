@@ -1,0 +1,11 @@
+target,trial_id,planning_success,cartesian_success,contact_left,contact_right,force_left,force_right,attach_success,holding_success,lift_success,failure_reason,duration,stage_planning_sec,stage_descend_sec,stage_contact_sec,stage_attach_sec,stage_lift_sec
+tooling_hand_tools,1,1,1,1,1,544.355066,630.387612,0,0,0,FAILED_ATTACH tooling_hand_tools,21.699677,15.259219,5.023333,,,
+tooling_hand_tools,2,1,1,0,0,0.000000,0.000000,0,0,0,FAILED_CONTACT tooling_hand_tools,11.795609,3.447655,2.822609,,,
+tooling_hand_tools,3,1,1,1,1,445.844088,3570.718015,0,0,0,FAILED_CONTACT tooling_hand_tools,23.849792,18.257587,5.170173,,,
+tooling_hand_tools,4,1,1,1,0,922.690010,0.000000,0,0,0,FAILED_CONTACT tooling_hand_tools,9.121820,3.660978,5.029992,,,
+tooling_hand_tools,5,1,0,1,1,490.854273,244.750731,0,0,0,FAILED_DESCEND tooling_hand_tools,61.063716,5.134085,,,,
+tooling_hand_tools,6,1,0,0,0,0.000000,0.000000,0,0,0,FAILED_DESCEND tooling_hand_tools,6.310005,5.914722,,,,
+tooling_hand_tools,7,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN tooling_hand_tools,0.530120,,,,,
+tooling_hand_tools,8,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN tooling_hand_tools,0.524739,,,,,
+tooling_hand_tools,9,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN tooling_hand_tools,0.528671,,,,,
+tooling_hand_tools,10,0,0,0,0,0.000000,0.000000,0,0,0,FAILED_PRE_GRASP_PLAN tooling_hand_tools,0.498477,,,,,

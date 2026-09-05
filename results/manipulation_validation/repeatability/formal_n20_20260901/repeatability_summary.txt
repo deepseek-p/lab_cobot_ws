@@ -1,0 +1,9 @@
+trials: 20
+successful_moves: 19
+measurement_source: TF base_link -> gripper_tcp
+target_frame: base_link
+target_link: gripper_tcp
+mean_error_mm: 0.645362
+std_error_mm: 0.254006
+rms_error_mm: 0.693550
+max_error_mm: 1.077698

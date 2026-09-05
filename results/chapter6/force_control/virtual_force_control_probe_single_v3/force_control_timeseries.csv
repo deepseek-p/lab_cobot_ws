@@ -1,0 +1,1 @@
+target,trial,elapsed_sec,sim_time,control_state,gripper_command_left,gripper_command_right,gripper_position_left,gripper_position_right,force_left_raw,force_right_raw,force_left_filtered,force_right_filtered,force_mean,force_error,force_balance_error,delta_q,force_source,force_valid_left,force_valid_right
